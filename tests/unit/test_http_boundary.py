@@ -188,3 +188,24 @@ def test_explicit_proxy_origin_is_configuration_not_forwarded_header() -> None:
         headers=[(b"origin", b"http://testserver"), (b"x-forwarded-proto", b"http")], limits=limits
     )
     assert not seen and sent[0]["status"] == 403
+
+
+def test_request_target_is_bounded_before_handler() -> None:
+    seen, sent = exercise(
+        path="/" + "a" * 200, limits=RequestLimits(("testserver",), max_target_bytes=100)
+    )
+    assert not seen and sent[0]["status"] == 414
+
+
+def test_encoded_body_cannot_bypass_size_contract() -> None:
+    seen, sent = exercise(headers=[(b"content-encoding", b"gzip")])
+    assert not seen and sent[0]["status"] == 415
+
+
+def test_control_characters_in_host_are_rejected() -> None:
+    from app.api.security import _authority
+    from app.core.bind import DeploymentConfigurationError
+
+    for value in (b"test\nserver", b"test\tserver", b"testserver\r", b"testserver\x00"):
+        with pytest.raises(DeploymentConfigurationError):
+            _authority(value)

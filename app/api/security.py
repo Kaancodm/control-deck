@@ -37,6 +37,7 @@ class RequestLimits:
     body_timeout_seconds: float = 10
     max_header_bytes: int = 16384
     max_headers: int = 100
+    max_target_bytes: int = 8192
 
     def __post_init__(self) -> None:
         if (
@@ -48,6 +49,7 @@ class RequestLimits:
             or not 0 < self.body_timeout_seconds <= 30
             or not 1 <= self.max_header_bytes <= 32768
             or not 1 <= self.max_headers <= 200
+            or not 1 <= self.max_target_bytes <= 16384
         ):
             raise DeploymentConfigurationError("invalid_request_limits")
         if self.public_origin is not None:
@@ -104,6 +106,12 @@ class HttpBoundaryMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        target_bytes = len(scope.get("raw_path", scope.get("path", "").encode())) + len(
+            scope.get("query_string", b"")
+        )
+        if target_bytes > self.limits.max_target_bytes:
+            await self._reject(send, 414, "request_target_too_large")
+            return
         headers = list(scope.get("headers", []))
         if (
             len(headers) > self.limits.max_headers
@@ -114,6 +122,9 @@ class HttpBoundaryMiddleware:
         values: dict[bytes, list[bytes]] = {}
         for key, value in headers:
             values.setdefault(key.lower(), []).append(value)
+        if values.get(b"content-encoding", [b"identity"]) != [b"identity"]:
+            await self._reject(send, 415, "request_encoding_unsupported")
+            return
         if any(
             len(values.get(name, [])) > 1
             for name in (

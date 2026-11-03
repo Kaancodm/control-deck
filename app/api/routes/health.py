@@ -25,7 +25,7 @@ def readyz() -> ReadyResponse | JSONResponse:
     """Verify database connectivity."""
     try:
         engine = create_engine(get_database_url(), **get_engine_kwargs())
-    except DatabaseConfigurationError:
+    except (DatabaseConfigurationError, SQLAlchemyError):
         return problem_response(
             status=503,
             title="Not ready",

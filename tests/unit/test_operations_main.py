@@ -41,7 +41,7 @@ def test_backup_cli_threads_both_test_databases(monkeypatch, tmp_path, capsys):
     knowledge = "postgresql+psycopg://example/knowledge_test"
     monkeypatch.setenv("DECK_TEST_DATABASE_URL", central)
     monkeypatch.setenv("DECK_KB_TEST_DATABASE_URL", knowledge)
-    monkeypatch.setenv("DECK_BACKUP_DIR", str(tmp_path))
+    monkeypatch.setenv("DECK_TEST_BACKUP_DIR", str(tmp_path))
     seen = []
 
     def create(url, root, *, knowledge_url):
@@ -54,6 +54,89 @@ def test_backup_cli_threads_both_test_databases(monkeypatch, tmp_path, capsys):
     assert main() == 0
     assert seen == [(central, knowledge, tmp_path)]
     assert json.loads(capsys.readouterr().out)["databases"] == ["central", "knowledge"]
+
+
+def test_test_backup_never_writes_into_production_backup_dir(monkeypatch, tmp_path, capsys):
+    """A test run must leave the production directory and its retention untouched."""
+    from datetime import UTC, datetime, timedelta
+    from uuid import uuid4
+
+    from app.operations import main as entrypoint
+    from app.operations.backup import BackupResult
+    from tests.unit.test_operations_backup import _backup
+
+    def snapshot(directory):
+        return {str(p.relative_to(directory)): p.stat().st_mtime_ns for p in directory.rglob("*")}
+
+    now = datetime.now(UTC)
+    production = tmp_path / "prod"
+    old = _backup(production, now - timedelta(days=30))
+    fresh = _backup(production, now)
+    before = snapshot(production)
+    monkeypatch.setenv("DECK_BACKUP_DIR", str(production))
+    monkeypatch.setenv("DECK_TEST_BACKUP_DIR", str(tmp_path / "test"))
+    monkeypatch.setenv("DECK_TEST_DATABASE_URL", "postgresql+psycopg://example/central_test")
+    monkeypatch.setenv("DECK_KB_TEST_DATABASE_URL", "postgresql+psycopg://example/knowledge_test")
+    seen = []
+
+    def create(url, root, *, knowledge_url):
+        seen.append(root)
+        root.mkdir(mode=0o700)
+        return BackupResult(uuid4(), "unused", "0" * 64, 2)
+
+    monkeypatch.setattr(entrypoint, "create_backup", create)
+    monkeypatch.setattr(sys, "argv", ["maintenance", "backup", "--apply", "--target", "test"])
+    assert main() == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "completed"
+    assert seen == [tmp_path / "test"]
+    assert not seen[0].is_relative_to(production)
+    assert old.exists() and fresh.exists()
+    assert snapshot(production) == before
+
+
+@pytest.mark.parametrize(
+    "target,expected,databases",
+    [
+        (
+            "test",
+            "test",
+            {"DECK_TEST_DATABASE_URL": "a_test", "DECK_KB_TEST_DATABASE_URL": "kb_test"},
+        ),
+        (
+            "runtime",
+            "prod",
+            {"DECK_DATABASE_URL": "central", "DECK_KB_DATABASE_URL": "knowledge"},
+        ),
+    ],
+)
+def test_prune_runs_only_on_the_target_directory(
+    monkeypatch, tmp_path, capsys, target, expected, databases
+):
+    from uuid import uuid4
+
+    from app.operations import main as entrypoint
+    from app.operations.backup import BackupResult
+
+    for key, value in databases.items():
+        monkeypatch.setenv(key, "postgresql+psycopg://example/" + value)
+    monkeypatch.setenv("DECK_BACKUP_DIR", str(tmp_path / "prod"))
+    monkeypatch.setenv("DECK_TEST_BACKUP_DIR", str(tmp_path / "test"))
+    created, pruned = [], []
+
+    def create(url, root, *, knowledge_url):
+        created.append(root)
+        return BackupResult(uuid4(), "unused", "0" * 64, 2)
+
+    def prune(root, *, apply):
+        pruned.append(root)
+        return 0
+
+    monkeypatch.setattr(entrypoint, "create_backup", create)
+    monkeypatch.setattr(entrypoint, "prune_backups", prune)
+    monkeypatch.setattr(sys, "argv", ["maintenance", "backup", "--apply", "--target", target])
+    assert main() == 0
+    assert created == pruned == [tmp_path / expected]
+    assert json.loads(capsys.readouterr().out)["status"] == "completed"
 
 
 def test_restore_cli_threads_all_four_databases(monkeypatch, capsys):

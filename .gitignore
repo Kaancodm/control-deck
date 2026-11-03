@@ -34,6 +34,7 @@ config/blocklist*
 inbox/
 runs/
 backups/
+backups_test/
 
 # IDE / tooling
 .idea/

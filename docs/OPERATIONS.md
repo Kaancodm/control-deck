@@ -24,6 +24,12 @@ Die Runtime-Variable gilt nur fuer Wartung und aktiviert keinen Live-Wissensadap
 Restore akzeptiert ausschliesslich vier getrennte Testdatenbanken.
 Keine Zugangsdaten erscheinen in Prozessargumenten oder normaler Kommandoausgabe.
 
+Backup-Ziele sind nach Ziel getrennt: `--target runtime` schreibt nach `DECK_BACKUP_DIR`
+(Default `backups/`), `--target test` ausschliesslich nach `DECK_TEST_BACKUP_DIR` (Default
+`backups_test/`), nie in `DECK_BACKUP_DIR` selbst. Die Aufbewahrung laeuft nur im Verzeichnis
+des jeweiligen Ziels; ein Test- oder Probe-Lauf loescht keinen produktiven Satz. Die
+Restore-Probe liest den gewaehlten Satz weiterhin aus `DECK_BACKUP_DIR` und schreibt dort nichts.
+
 ## Dienstvorlagen
 
 `deploy/systemd/` enthaelt API, drei Instanzen des Runner-Templates sowie Backup-,

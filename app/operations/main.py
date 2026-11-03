@@ -23,6 +23,13 @@ from app.operations.restore import restore_backup
 from app.operations.retention import retain_tasks
 
 
+def backup_root(target: str) -> Path:
+    """Test runs get their own directory; they never write to or prune the production root."""
+    if target == "test":
+        return Path(os.environ.get("DECK_TEST_BACKUP_DIR", "backups_test"))
+    return Path(os.environ.get("DECK_BACKUP_DIR", "backups"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Plan or explicitly apply local maintenance")
     parser.add_argument("operation", choices=("backup", "retention", "restore-probe"))
@@ -35,12 +42,12 @@ def main() -> int:
         print(json.dumps({"operation": arguments.operation, "status": "dry_run"}))
         return 0
     try:
-        root = Path(os.environ.get("DECK_BACKUP_DIR", "backups"))
         if arguments.operation == "restore-probe":
             if arguments.target != "test" or not arguments.backup_name:
                 raise OperationError("unsafe_restore_target")
+            # Probes only read a published set; they never write to or prune the directory.
             operation_id = restore_backup(
-                root,
+                backup_root("runtime"),
                 arguments.backup_name,
                 target_url=os.environ.get("DECK_RESTORE_TEST_DATABASE_URL", ""),
                 audit_url=get_test_database_url(),
@@ -51,6 +58,7 @@ def main() -> int:
             return 0
         url = get_test_database_url() if arguments.target == "test" else get_database_url()
         if arguments.operation == "backup":
+            root = backup_root(arguments.target)
             result = create_backup(
                 url,
                 root,
@@ -65,6 +73,7 @@ def main() -> int:
                     runs_root=Path(os.environ.get("DECK_RUNS_DIR", "runs")),
                     configuration=os.environ,
                 )
+            # Retention runs only on the directory this target wrote to.
             prune_backups(root, apply=True)
             print(backup_summary(result))
             return 0

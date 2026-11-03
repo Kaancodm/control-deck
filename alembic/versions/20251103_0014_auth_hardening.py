@@ -56,8 +56,44 @@ def upgrade() -> None:
     )
     op.create_index("ix_auth_events_created_at", "auth_events", ["created_at"])
 
+    # Login failures are throttled per connection peer; the daily lock stays global.
+    op.create_table(
+        "ui_login_clients",
+        sa.Column("client_hash", sa.String(64), primary_key=True),
+        sa.Column("failures", sa.Integer(), nullable=False),
+        sa.Column("window_started_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("throttled_at", sa.DateTime(timezone=True), nullable=True),
+        sa.CheckConstraint("failures >= 0", name="ck_ui_login_clients_failures_nonnegative"),
+    )
+    op.create_index(
+        "ix_ui_login_clients_window_started_at", "ui_login_clients", ["window_started_at"]
+    )
+    # The singleton keeps only the global 24-hour budget and lock.
+    op.drop_constraint("ck_ui_login_state_failures_nonnegative", "ui_login_state", type_="check")
+    for column in ("throttled_at", "window_started_at", "failures"):
+        op.drop_column("ui_login_state", column)
+
 
 def downgrade() -> None:
+    op.execute("LOCK TABLE ui_login_state, ui_login_clients IN ACCESS EXCLUSIVE MODE")
+    if op.get_bind().scalar(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM ui_login_clients WHERE failures > 0 "
+            "AND window_started_at > clock_timestamp() - interval '15 minutes')"
+        )
+    ):
+        raise RuntimeError("Downgrade blocked: active per-client login throttles remain")
+    op.add_column("ui_login_state", sa.Column("failures", sa.Integer()))
+    op.add_column("ui_login_state", sa.Column("window_started_at", sa.DateTime(timezone=True)))
+    op.add_column("ui_login_state", sa.Column("throttled_at", sa.DateTime(timezone=True)))
+    op.execute("UPDATE ui_login_state SET failures = 0, window_started_at = day_started_at")
+    op.alter_column("ui_login_state", "failures", nullable=False)
+    op.alter_column("ui_login_state", "window_started_at", nullable=False)
+    op.create_check_constraint(
+        "ck_ui_login_state_failures_nonnegative", "ui_login_state", "failures >= 0"
+    )
+    op.drop_index("ix_ui_login_clients_window_started_at", table_name="ui_login_clients")
+    op.drop_table("ui_login_clients")
     op.execute("LOCK TABLE ui_sessions, ui_login_state, auth_events IN ACCESS EXCLUSIVE MODE")
     if op.get_bind().scalar(
         sa.text(

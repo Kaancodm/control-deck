@@ -70,12 +70,14 @@ niemals die absolute Grenze. Ein Passwortwechsel macht bestehende Sessions ungue
 Ablauf und Widerruf werden serverseitig geprueft. «Ueberall abmelden» widerruft mit CSRF-Schutz
 alle bestehenden Browser-Sessions und Login-Challenges.
 
-Fuenf fehlgeschlagene Anmeldungen innerhalb von 15 Minuten sperren weitere Versuche fuer
-das verbleibende Fenster. Das Limit gilt gemeinsam fuer das eine Konto, auch bei parallelen
-Requests. Anonyme Sessions sind begrenzt; abgelaufene und widerrufene Eintraege werden
-bereinigt. Nach 20 Fehlern in 24 Stunden bleibt die Anmeldung bis zur ausdruecklichen lokalen
-Entsperrung gesperrt, auch nach einem Neustart. Die Anmeldeseite zeigt diese Sperre ohne
-Passwortformular und verweist auf `make unlock-login`.
+Fuenf fehlgeschlagene Anmeldungen innerhalb von 15 Minuten sperren weitere Versuche desselben
+Clients fuer das verbleibende Fenster (HTTP 429 mit `Retry-After`). Die Client-Kennung ist die
+Peer-Adresse der Verbindung, nie ein Forwarding-Header; in der Datenbank liegt nur ihr Digest.
+Parallele Requests eines Clients koennen das Limit nicht umgehen. Anonyme Sessions sind
+begrenzt; abgelaufene und widerrufene Eintraege sowie abgelaufene Client-Fenster werden
+bereinigt. Nach 20 Fehlern in 24 Stunden ueber alle Clients ist die Anmeldung global gesperrt,
+bis der Dienst neu startet oder `make unlock-login` laeuft. Die Anmeldeseite zeigt diese
+Sperre ohne Passwortformular und verweist auf beide Wege.
 
 Jeder POST, auch Login und Logout, benoetigt ein ausdrueckliches CSRF-Feld; ein Cookie
 allein genuegt nicht. Fremde Origins und Cross-Site-Requests werden abgewiesen. Chromium
@@ -117,7 +119,7 @@ Die Oberflaeche benoetigt keinen Build-Schritt, kein CDN und keine externen Schr
 Chromium-Smokes verwenden eine isolierte temporaere App, eine ausdrueckliche `_test`-DB,
 ein synthetisches Passwort und Fake-Worker. Bei 390 Pixeln mit JavaScript und 1024 Pixeln
 ohne JavaScript pruefen sie Login, Upload, Start-Freigabe, simulierten Lauf, Review, `done`,
-Chat-Entwurf, Logout, globale Abmeldung zweier Browser-Sessions sowie dauerhafte Sperre
+Chat-Entwurf, Logout, globale Abmeldung zweier Browser-Sessions sowie globale Sperre
 und lokale Entsperrung. Sie pruefen ferner fehlende externe Requests, horizontales Scrollen,
 semantische Ueberschriften und einen CSS-Variablenwechsel ohne Logikaenderung.
 

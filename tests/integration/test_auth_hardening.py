@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.ui_auth import (
     AuthEvent,
+    UiLoginClient,
     UiLoginState,
     UiSession,
     authenticate_owner,
@@ -111,7 +112,7 @@ def test_twenty_failures_across_windows_lock_until_explicit_unlock(configured, s
     for attempt in range(20):
         if attempt and attempt % 5 == 0:
             configured.execute(
-                update(UiLoginState).values(
+                update(UiLoginClient).values(
                     window_started_at=func.clock_timestamp() - timedelta(minutes=16)
                 )
             )
@@ -178,7 +179,7 @@ def test_daily_budget_resets_only_when_not_locked(configured, settings):
     assert configured.get(UiLoginState, 1).daily_failures == 1
 
 
-def test_concurrent_failures_cannot_exceed_shared_budget(configured, settings):
+def test_concurrent_failures_cannot_exceed_one_clients_budget(configured, settings):
     challenge = create_anonymous_session(configured, settings)
     configured.commit()
     factory = sessionmaker(bind=configured.get_bind(), autoflush=False)
@@ -186,7 +187,12 @@ def test_concurrent_failures_cannot_exceed_shared_budget(configured, settings):
     def attempt():
         with factory() as session:
             outcome = authenticate_owner(
-                session, challenge.token, challenge.csrf_token, "synthetic-wrong-password", settings
+                session,
+                challenge.token,
+                challenge.csrf_token,
+                "synthetic-wrong-password",
+                settings,
+                client="synthetic-client-a",
             )
             session.commit()
             return outcome.code
@@ -196,20 +202,41 @@ def test_concurrent_failures_cannot_exceed_shared_budget(configured, settings):
     assert outcomes.count("invalid_credentials") == 5
     assert outcomes.count("login_throttled") == 3
     assert configured.scalar(select(UiLoginState.daily_failures)) == 5
+    assert configured.scalar(select(UiLoginClient.failures)) == 5
 
 
 def test_auth_audit_contains_no_credentials_or_client_metadata(configured, settings):
+    challenge = create_anonymous_session(configured, settings)
+    authenticate_owner(
+        configured,
+        challenge.token,
+        challenge.csrf_token,
+        "synthetic-wrong-password",
+        settings,
+        client="synthetic-client-address",
+    )
+    configured.commit()
     credentials = login(configured, settings)
     rows = configured.scalars(select(AuthEvent)).all()
     assert rows
     safe = repr([(row.event_type, row.created_at, row.affected_sessions) for row in rows])
     for secret in (PASSWORD, credentials.token, credentials.csrf_token, settings.password_hash):
         assert secret not in safe
+    assert "synthetic-client-address" not in safe
     assert set(AuthEvent.__table__.columns.keys()) == {
         "id",
         "event_type",
         "created_at",
         "affected_sessions",
+    }
+    windows = configured.scalars(select(UiLoginClient)).all()
+    assert windows
+    assert "synthetic-client-address" not in repr([row.__dict__ for row in windows])
+    assert set(UiLoginClient.__table__.columns.keys()) == {
+        "client_hash",
+        "failures",
+        "window_started_at",
+        "throttled_at",
     }
 
 

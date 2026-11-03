@@ -8,7 +8,9 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 ### Etappe 15 – Anmeldung und HTTP-Haertung (#30)
 
 - Passwortgebundene Sessions mit Inaktivitaets- und absoluter Ablaufgrenze.
-- Dauerhafte Login-Sperre, explizite lokale Entsperrung und CSRF-geschuetzte globale Abmeldung.
+- Login-Drosselung je Client-Kennung (Peer-Adresse, nur als Digest), globale Sperre nach
+  20 Fehlern in 24 Stunden bis Neustart oder lokale Entsperrung, CSRF-geschuetzte globale
+  Abmeldung.
 - Validierte Host-/Origin-Grenzen, begrenzte Requests und sichere Auth-Metadaten.
 
 ### Etappe 14 – Wissen (#29)

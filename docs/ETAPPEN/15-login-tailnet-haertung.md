@@ -14,20 +14,27 @@ des Vorgaengers ist fuer den autorisierten Draft-Stapel nicht erforderlich. Kein
 - Passwort-Login verwendet die bestehende Argon2id-Grundlage. Migration `0014` bindet Sessions
   an den Passwort-Hash und widerruft alte authentifizierte Sessions. 30 Minuten Inaktivitaet
   und hoechstens 12 Stunden absolute Laufzeit; Aktivitaet verlaengert die absolute Grenze nie.
-- Fuenf Fehler in 15 Minuten drosseln gemeinsam das Owner-Konto. 20 Fehler in 24 Stunden
-  sperren weitere Logins dauerhaft; Neustart entsperrt nicht. Nur die ausdrueckliche lokale
-  Aktion `make unlock-login` hebt die Sperre auf. Die UI zeigt HTTP 423 ohne Passwortformular.
+- Rate-Limit gemaess D3: Fuenf Fehlversuche je 15 Minuten je Client-Kennung. Die Kennung ist
+  die Peer-Adresse der Verbindung (ASGI-Scope), nie ein Wert aus Headern wie `X-Forwarded-For`;
+  gespeichert wird nur ihr Digest (Migration `0014`, Tabelle `ui_login_clients`). Danach
+  antwortet die UI mit HTTP 429 und `Retry-After`. Ab 20 Fehlversuchen in 24 Stunden ueber
+  alle Clients ist der Login global gesperrt, bis der Dienst neu startet oder die lokale
+  Aktion `make unlock-login` laeuft. Der Launcher hebt die Sperre beim Prozessstart auf.
+  Die UI zeigt HTTP 423 ohne Passwortformular.
 - «Ueberall abmelden» verlangt Owner-Session, Origin-Pruefung und explizites CSRF. Der Dienst
   sperrt Login-State vor Sessions und widerruft alle vorhandenen Sessions atomar. UI und API
   behalten ihre getrennten Rechte; Browser-Sessions erlauben keine Bearer-API-Mutationen.
 - Sichere `auth_events` enthalten nur Typ, Zeitpunkt, ID und Anzahl betroffener Sessions.
-  Passwort, Hash, Cookies und Client-Adressen erscheinen nicht darin. Wiederholte Drosselung
-  wird begrenzt auditiert. Downgrade verweigert das Entfernen vorhandener Schutzdaten.
+  Passwort, Hash, Cookies und Client-Adressen erscheinen nicht darin; jeder Fehlversuch, jede
+  Drosselung und jede Sperre wird als `auth.*`-Event festgehalten. Wiederholte Drosselung
+  wird je Client und Fenster einmal auditiert. Downgrade verweigert das Entfernen vorhandener
+  Schutzdaten.
 
 ## Pruefungen
 
-Gezielte DB-, HTTP- und Parallelitaetstests pruefen Passwortwechsel, Session-Ablauf, globale
-Sperre ueber einen App-Neustart hinweg, lokale Entsperrung, CSRF/Origin und Sperrreihenfolge.
+Gezielte DB-, HTTP- und Parallelitaetstests pruefen Passwortwechsel, Session-Ablauf, Drosselung
+je Client ohne Einfluss von Forwarding-Headern, globale Sperre ueber Clients hinweg, Aufhebung
+der Sperre im Startpfad des Launchers, lokale Entsperrung, CSRF/Origin und Sperrreihenfolge.
 Chromium prueft die Owner-Ablaufe bei 390 Pixeln mit und 1024 Pixeln ohne JavaScript,
 einschliesslich globaler Abmeldung zweier Browser-Sessions und erneuter Anmeldung nach Entsperrung.
 

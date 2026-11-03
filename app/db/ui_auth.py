@@ -1,4 +1,4 @@
-"""Database-backed owner sessions and a shared, bounded login failure budget."""
+"""Database-backed owner sessions, per-client login throttling, and a global daily lock."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ from app.db.base import Base
 from app.ui.auth import (
     AuthSettings,
     SessionCredentials,
+    client_fingerprint,
     get_auth_settings,
     issue_token,
     matches_token_hash,
@@ -54,21 +55,35 @@ class UiSession(Base):
 
 
 class UiLoginState(Base):
-    """A singleton row serializes the one owner account's failure window."""
+    """A singleton row serializes logins and holds the global 24-hour budget and lock.
+
+    The lock lasts until a process restart or ``make unlock-login`` (stage 15, D3).
+    """
 
     __tablename__ = "ui_login_state"
     __table_args__ = (
         CheckConstraint("id = 1", name="ck_ui_login_state_singleton"),
-        CheckConstraint("failures >= 0", name="ck_ui_login_state_failures_nonnegative"),
         CheckConstraint("daily_failures >= 0", name="ck_ui_login_state_daily_failures_nonnegative"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    failures: Mapped[int] = mapped_column(Integer, nullable=False)
-    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     daily_failures: Mapped[int] = mapped_column(Integer, nullable=False)
     day_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class UiLoginClient(Base):
+    """One 15-minute failure window per connection peer, keyed by a digest of its address."""
+
+    __tablename__ = "ui_login_clients"
+    __table_args__ = (
+        CheckConstraint("failures >= 0", name="ck_ui_login_clients_failures_nonnegative"),
+        Index("ix_ui_login_clients_window_started_at", "window_started_at"),
+    )
+
+    client_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer, nullable=False)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     throttled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -110,7 +125,7 @@ class SessionCapacityError(ValueError):
 
 @dataclass(frozen=True)
 class LoginOutcome:
-    """Return failed logins normally so callers commit the shared failure budget."""
+    """Return failed logins normally so callers commit the failure budgets."""
 
     code: str
     credentials: SessionCredentials | None = None
@@ -131,13 +146,7 @@ def _database_now(session: Session) -> datetime:
 def _lock_login_state(session: Session) -> UiLoginState:
     session.execute(
         insert(UiLoginState)
-        .values(
-            id=1,
-            failures=0,
-            window_started_at=func.clock_timestamp(),
-            daily_failures=0,
-            day_started_at=func.clock_timestamp(),
-        )
+        .values(id=1, daily_failures=0, day_started_at=func.clock_timestamp())
         .on_conflict_do_nothing(index_elements=["id"])
     )
     state = session.scalar(
@@ -148,6 +157,23 @@ def _lock_login_state(session: Session) -> UiLoginState:
     )
     assert state is not None
     return state
+
+
+def _lock_client_window(session: Session, client_hash: str) -> UiLoginClient:
+    """Callers hold the singleton lock first, so this never deadlocks with pruning."""
+    session.execute(
+        insert(UiLoginClient)
+        .values(client_hash=client_hash, failures=0, window_started_at=func.clock_timestamp())
+        .on_conflict_do_nothing(index_elements=["client_hash"])
+    )
+    window = session.scalar(
+        select(UiLoginClient)
+        .where(UiLoginClient.client_hash == client_hash)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    assert window is not None
+    return window
 
 
 def _issue_session(
@@ -183,6 +209,12 @@ def create_anonymous_session(session: Session, settings: AuthSettings) -> Sessio
     now = _database_now(session)
     session.execute(
         delete(UiSession).where((UiSession.expires_at <= now) | UiSession.revoked_at.is_not(None))
+    )
+    # Elapsed client windows carry no protection any more; pruning keeps the table bounded.
+    session.execute(
+        delete(UiLoginClient).where(
+            UiLoginClient.window_started_at <= now - settings.failure_window
+        )
     )
     count = session.scalar(
         select(func.count()).select_from(UiSession).where(UiSession.authenticated.is_(False))
@@ -250,7 +282,7 @@ def check_csrf(row: UiSession, provided: str | None) -> bool:
 
 
 def owner_login_locked(session: Session) -> bool:
-    """Expose the persisted lock without acquiring a session or administration lock."""
+    """Expose the global lock without acquiring a session or administration lock."""
     return session.scalar(select(UiLoginState.locked_at).where(UiLoginState.id == 1)) is not None
 
 
@@ -260,12 +292,17 @@ def authenticate_owner(
     csrf: str | None,
     password: str,
     settings: AuthSettings,
+    *,
+    client: str | None = None,
 ) -> LoginOutcome:
     """Rotate a valid login challenge after Argon2id verification.
 
-    Every outcome must be committed before returning an HTTP response. No
-    password, raw cookie, or CSRF token is persisted. Taking the singleton lock
-    before any session lock prevents concurrent logins from exceeding the cap.
+    ``client`` is the peer address of the connection, never a header value; only
+    its digest keys the per-client failure window (five failures per 15 minutes).
+    Twenty failures in 24 hours from any clients lock the login globally. Every
+    outcome must be committed before returning an HTTP response. No password, raw
+    cookie, CSRF token, or client address is persisted. Lock order: singleton
+    login state, then the challenge session, then the client window.
     """
     state = _lock_login_state(session)
     row = get_ui_session(session, token, owner_required=False, for_update=True, settings=settings)
@@ -279,21 +316,22 @@ def authenticate_owner(
     if now >= state.day_started_at + settings.daily_failure_window:
         state.daily_failures = 0
         state.day_started_at = now
-    window_ends = state.window_started_at + settings.failure_window
+    window = _lock_client_window(session, client_fingerprint(client))
+    window_ends = window.window_started_at + settings.failure_window
     if now >= window_ends:
-        state.failures = 0
-        state.window_started_at = now
-        state.throttled_at = None
+        window.failures = 0
+        window.window_started_at = now
+        window.throttled_at = None
         window_ends = now + settings.failure_window
-    if state.failures >= settings.max_failures:
-        if state.throttled_at is None:
-            state.throttled_at = now
+    if window.failures >= settings.max_failures:
+        if window.throttled_at is None:
+            window.throttled_at = now
             _audit(session, "auth.login_throttled")
         return LoginOutcome(
             "login_throttled", retry_after=max(1, math.ceil((window_ends - now).total_seconds()))
         )
     if not verify_owner_password(password, settings):
-        state.failures += 1
+        window.failures += 1
         state.daily_failures += 1
         _audit(session, "auth.login_failed")
         if state.daily_failures >= settings.max_daily_failures:
@@ -307,9 +345,9 @@ def authenticate_owner(
     # A long verification must not revive a challenge that expired meanwhile.
     if row.expires_at <= now:
         return LoginOutcome("session_required")
-    state.failures = 0
-    state.window_started_at = now
-    state.throttled_at = None
+    window.failures = 0
+    window.window_started_at = now
+    window.throttled_at = None
     row.revoked_at = now
     credentials = _issue_session(session, settings=settings, authenticated=True, now=now)
     _audit(session, "auth.login_succeeded")
@@ -352,12 +390,30 @@ def revoke_all_ui_sessions(
     return True
 
 
+def release_owner_login_lock_on_startup(session: Session) -> bool:
+    """A process restart ends the global lock (stage 15, D3); client windows stay.
+
+    Returns whether a lock was released; the unlock is audited only in that case.
+    """
+    state = _lock_login_state(session)
+    if state.locked_at is None:
+        return False
+    now = _database_now(session)
+    state.daily_failures = 0
+    state.day_started_at = now
+    state.locked_at = None
+    _audit(session, "auth.login_unlocked")
+    session.flush()
+    return True
+
+
 def unlock_owner_login(session: Session) -> None:
-    """Explicit local administration; resets the persisted lock, not password configuration."""
+    """Explicit local administration; resets lock, budgets and windows, not the password."""
     state = _lock_login_state(session)
     now = _database_now(session)
-    state.failures = state.daily_failures = 0
-    state.window_started_at = state.day_started_at = now
-    state.locked_at = state.throttled_at = None
+    state.daily_failures = 0
+    state.day_started_at = now
+    state.locked_at = None
+    session.execute(delete(UiLoginClient))
     _audit(session, "auth.login_unlocked")
     session.flush()

@@ -1,4 +1,4 @@
-"""Persisted owner sessions, login rotation, CSRF, expiry, and shared throttling."""
+"""Persisted owner sessions, login rotation, CSRF, expiry, per-client throttling, global lock."""
 
 from __future__ import annotations
 
@@ -14,18 +14,24 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.session import get_engine
 from app.db.ui_auth import (
+    AuthEvent,
     SessionCapacityError,
+    UiLoginClient,
     UiLoginState,
     UiSession,
     authenticate_owner,
     check_csrf,
     create_anonymous_session,
     get_ui_session,
+    owner_login_locked,
+    release_owner_login_lock_on_startup,
     revoke_ui_session,
 )
-from app.ui.auth import AuthSettings, issue_token, token_digest
+from app.ui.auth import AuthSettings, SessionCredentials, issue_token, token_digest
 
 _PASSWORD = "synthetic-owner-password-for-integration-tests"
+_CLIENT_A = "synthetic-client-a"
+_CLIENT_B = "synthetic-client-b"
 
 
 @pytest.fixture(scope="module")
@@ -38,16 +44,36 @@ def auth_session(
     db_session: Session, auth_settings: AuthSettings, monkeypatch: pytest.MonkeyPatch
 ) -> Generator[Session, None, None]:
     monkeypatch.setenv("DECK_OWNER_PASSWORD_HASH", auth_settings.password_hash)
-    db_session.execute(delete(UiSession))
-    db_session.execute(delete(UiLoginState))
+    for table in (UiSession, UiLoginClient, UiLoginState, AuthEvent):
+        db_session.execute(delete(table))
     db_session.commit()
     try:
         yield db_session
     finally:
         db_session.rollback()
-        db_session.execute(delete(UiSession))
-        db_session.execute(delete(UiLoginState))
+        for table in (UiSession, UiLoginClient, UiLoginState, AuthEvent):
+            db_session.execute(delete(table))
         db_session.commit()
+
+
+def _attempt(
+    session: Session,
+    challenge: SessionCredentials,
+    settings: AuthSettings,
+    password: str,
+    *,
+    client: str,
+) -> str:
+    """Commit one login attempt from ``client`` and return its outcome code."""
+    outcome = authenticate_owner(
+        session, challenge.token, challenge.csrf_token, password, settings, client=client
+    )
+    session.commit()
+    return outcome.code
+
+
+def _event_types(session: Session) -> list[str]:
+    return list(session.scalars(select(AuthEvent.event_type).order_by(AuthEvent.created_at)))
 
 
 def test_anonymous_challenge_cannot_authenticate_owner(
@@ -93,7 +119,8 @@ def test_wrong_or_missing_csrf_never_authenticates_or_consumes_password_budget(
     outcome = authenticate_owner(auth_session, challenge.token, csrf, _PASSWORD, auth_settings)
     auth_session.commit()
     assert outcome.code == "invalid_csrf" and not outcome.success
-    assert auth_session.scalar(select(UiLoginState.failures)) == 0
+    assert auth_session.scalar(select(UiLoginState.daily_failures)) == 0
+    assert auth_session.scalar(select(func.count()).select_from(UiLoginClient)) == 0
     assert auth_session.scalar(select(func.count()).select_from(UiSession)) == 1
 
 
@@ -159,7 +186,7 @@ def test_absolute_owner_session_expiry_does_not_slide(
     assert get_ui_session(auth_session, outcome.credentials.token) is None
 
 
-def test_failure_budget_is_shared_between_browsers_and_database_sessions(
+def test_failure_window_of_one_client_is_shared_across_browsers_and_database_sessions(
     auth_session: Session, auth_settings: AuthSettings
 ) -> None:
     settings = replace(auth_settings, max_failures=2)
@@ -169,15 +196,103 @@ def test_failure_budget_is_shared_between_browsers_and_database_sessions(
     factory = sessionmaker(bind=get_engine(for_tests=True))
     for challenge in (first, second):
         with factory() as session:
-            outcome = authenticate_owner(
-                session, challenge.token, challenge.csrf_token, "wrong", settings
+            assert _attempt(session, challenge, settings, "wrong", client=_CLIENT_A) == (
+                "invalid_credentials"
             )
-            session.commit()
-            assert outcome.code == "invalid_credentials"
-    outcome = authenticate_owner(auth_session, first.token, first.csrf_token, _PASSWORD, settings)
+    outcome = authenticate_owner(
+        auth_session, first.token, first.csrf_token, _PASSWORD, settings, client=_CLIENT_A
+    )
     assert outcome.code == "login_throttled" and not outcome.success
     assert outcome.retry_after is not None and outcome.retry_after > 0
-    assert auth_session.scalar(select(UiLoginState.failures)) == 2
+    assert auth_session.scalar(select(UiLoginClient.failures)) == 2
+    assert auth_session.scalar(select(func.count()).select_from(UiLoginClient)) == 1
+
+
+def test_throttle_is_per_client(auth_session: Session, auth_settings: AuthSettings) -> None:
+    challenge = create_anonymous_session(auth_session, auth_settings)
+    auth_session.commit()
+    for _ in range(auth_settings.max_failures):
+        assert _attempt(auth_session, challenge, auth_settings, "wrong", client=_CLIENT_A) == (
+            "invalid_credentials"
+        )
+    throttled = authenticate_owner(
+        auth_session,
+        challenge.token,
+        challenge.csrf_token,
+        _PASSWORD,
+        auth_settings,
+        client=_CLIENT_A,
+    )
+    auth_session.commit()
+    assert throttled.code == "login_throttled" and not throttled.success
+    assert throttled.retry_after is not None
+    assert 0 < throttled.retry_after <= auth_settings.failure_window.total_seconds()
+    assert _attempt(auth_session, challenge, auth_settings, "wrong", client=_CLIENT_B) == (
+        "invalid_credentials"
+    )
+    success = authenticate_owner(
+        auth_session,
+        challenge.token,
+        challenge.csrf_token,
+        _PASSWORD,
+        auth_settings,
+        client=_CLIENT_B,
+    )
+    auth_session.commit()
+    assert success.success
+    assert not owner_login_locked(auth_session)
+    # The daily budget stays global while the 15-minute window is per client.
+    expected_daily = auth_settings.max_failures + 1
+    assert auth_session.scalar(select(UiLoginState.daily_failures)) == expected_daily
+    hashes = auth_session.scalars(select(UiLoginClient.client_hash)).all()
+    assert len(hashes) == 2
+    assert all(_CLIENT_A not in value and _CLIENT_B not in value for value in hashes)
+    assert _event_types(auth_session).count("auth.login_throttled") == 1
+
+
+def test_daily_lock_is_global_across_clients(
+    auth_session: Session, auth_settings: AuthSettings
+) -> None:
+    settings = replace(auth_settings, max_failures=2, max_daily_failures=4)
+    challenge = create_anonymous_session(auth_session, settings)
+    auth_session.commit()
+    assert _attempt(auth_session, challenge, settings, "wrong", client=_CLIENT_A) == (
+        "invalid_credentials"
+    )
+    assert _attempt(auth_session, challenge, settings, "wrong", client=_CLIENT_A) == (
+        "invalid_credentials"
+    )
+    assert _attempt(auth_session, challenge, settings, "wrong", client=_CLIENT_B) == (
+        "invalid_credentials"
+    )
+    assert _attempt(auth_session, challenge, settings, "wrong", client=_CLIENT_B) == "login_locked"
+    assert owner_login_locked(auth_session)
+    assert _attempt(auth_session, challenge, settings, _PASSWORD, client="synthetic-client-c") == (
+        "login_locked"
+    )
+    assert _event_types(auth_session).count("auth.login_locked") == 1
+    assert _event_types(auth_session).count("auth.login_failed") == 4
+
+
+def test_restart_clears_global_lock(auth_session: Session, auth_settings: AuthSettings) -> None:
+    settings = replace(auth_settings, max_daily_failures=1)
+    challenge = create_anonymous_session(auth_session, settings)
+    auth_session.commit()
+    assert _attempt(auth_session, challenge, settings, "wrong", client=_CLIENT_A) == "login_locked"
+    assert owner_login_locked(auth_session)
+    # The launcher calls this on every process start (stage 15, D3: lock until restart).
+    assert release_owner_login_lock_on_startup(auth_session)
+    auth_session.commit()
+    assert not owner_login_locked(auth_session)
+    assert auth_session.scalar(select(UiLoginState.daily_failures)) == 0
+    assert not release_owner_login_lock_on_startup(auth_session)
+    auth_session.commit()
+    assert _attempt(auth_session, challenge, settings, _PASSWORD, client=_CLIENT_A) == (
+        "authenticated"
+    )
+    events = _event_types(auth_session)
+    assert events.count("auth.login_locked") == 1
+    assert events.count("auth.login_unlocked") == 1
 
 
 def test_concurrent_failures_cannot_exceed_limit(
@@ -189,18 +304,13 @@ def test_concurrent_failures_cannot_exceed_limit(
     factory = sessionmaker(bind=get_engine(for_tests=True))
 
     def try_login(index: int) -> str:
-        challenge = challenges[index]
         with factory() as session:
-            outcome = authenticate_owner(
-                session, challenge.token, challenge.csrf_token, "wrong", settings
-            )
-            session.commit()
-            return outcome.code
+            return _attempt(session, challenges[index], settings, "wrong", client=_CLIENT_A)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         codes = list(pool.map(try_login, (0, 1)))
     assert sorted(codes) == ["invalid_credentials", "login_throttled"]
-    assert auth_session.scalar(select(UiLoginState.failures)) == 1
+    assert auth_session.scalar(select(UiLoginClient.failures)) == 1
 
 
 def test_failure_window_expires_using_database_time(
@@ -208,28 +318,54 @@ def test_failure_window_expires_using_database_time(
 ) -> None:
     settings = replace(auth_settings, max_failures=1)
     challenge = create_anonymous_session(auth_session, settings)
-    authenticate_owner(auth_session, challenge.token, challenge.csrf_token, "wrong", settings)
-    state = auth_session.get(UiLoginState, 1)
-    assert state is not None
-    state.window_started_at -= settings.failure_window + timedelta(seconds=1)
+    authenticate_owner(
+        auth_session, challenge.token, challenge.csrf_token, "wrong", settings, client=_CLIENT_A
+    )
+    window = auth_session.scalar(select(UiLoginClient))
+    assert window is not None
+    window.window_started_at -= settings.failure_window + timedelta(seconds=1)
     auth_session.commit()
     outcome = authenticate_owner(
-        auth_session, challenge.token, challenge.csrf_token, _PASSWORD, settings
+        auth_session, challenge.token, challenge.csrf_token, _PASSWORD, settings, client=_CLIENT_A
     )
     assert outcome.success
-    assert auth_session.scalar(select(UiLoginState.failures)) == 0
+    assert auth_session.scalar(select(UiLoginClient.failures)) == 0
+
+
+def test_expired_client_windows_are_pruned_with_expired_sessions(
+    auth_session: Session, auth_settings: AuthSettings
+) -> None:
+    challenge = create_anonymous_session(auth_session, auth_settings)
+    auth_session.commit()
+    assert _attempt(auth_session, challenge, auth_settings, "wrong", client=_CLIENT_A) == (
+        "invalid_credentials"
+    )
+    window = auth_session.scalar(select(UiLoginClient))
+    assert window is not None
+    window.window_started_at -= auth_settings.failure_window + timedelta(seconds=1)
+    auth_session.commit()
+    create_anonymous_session(auth_session, auth_settings)
+    assert auth_session.scalar(select(func.count()).select_from(UiLoginClient)) == 0
 
 
 def test_success_resets_failures_and_second_login_rotates_again(
     auth_session: Session, auth_settings: AuthSettings
 ) -> None:
     challenge = create_anonymous_session(auth_session, auth_settings)
-    authenticate_owner(auth_session, challenge.token, challenge.csrf_token, "wrong", auth_settings)
+    auth_session.commit()
+    assert _attempt(auth_session, challenge, auth_settings, "wrong", client=_CLIENT_A) == (
+        "invalid_credentials"
+    )
     first = authenticate_owner(
-        auth_session, challenge.token, challenge.csrf_token, _PASSWORD, auth_settings
+        auth_session,
+        challenge.token,
+        challenge.csrf_token,
+        _PASSWORD,
+        auth_settings,
+        client=_CLIENT_A,
     )
     assert first.credentials is not None
-    assert auth_session.scalar(select(UiLoginState.failures)) == 0
+    assert auth_session.scalar(select(UiLoginClient.failures)) == 0
     second = authenticate_owner(
         auth_session,
         first.credentials.token,

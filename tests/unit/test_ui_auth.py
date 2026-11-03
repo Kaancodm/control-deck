@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argon2 import PasswordHasher, Type
+from starlette.requests import Request
 from starlette.responses import Response
 
 from app.ui.auth import (
@@ -16,6 +17,8 @@ from app.ui.auth import (
     AuthSettings,
     SessionCredentials,
     clear_session_cookies,
+    client_address,
+    client_fingerprint,
     get_auth_settings,
     issue_token,
     matches_token_hash,
@@ -153,3 +156,32 @@ def test_test_http_cookie_override_is_explicit(settings: AuthSettings) -> None:
     credentials = SessionCredentials(issue_token(), issue_token(), datetime.now(UTC))
     set_session_cookies(response, credentials, replace(settings, cookie_secure=False))
     assert all("Secure" not in value for value in response.headers.getlist("set-cookie"))
+
+
+def test_client_fingerprint_hides_address_and_separates_clients() -> None:
+    first = client_fingerprint("synthetic-client-a")
+    second = client_fingerprint("synthetic-client-b")
+    assert len(first) == 64 and first != second
+    assert "synthetic-client-a" not in first
+    assert client_fingerprint("synthetic-client-a") == first
+    assert client_fingerprint(None) == client_fingerprint(None)
+
+
+def test_forwarded_header_does_not_change_client_identity() -> None:
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/ui/login",
+        "query_string": b"",
+        "headers": [
+            (b"x-forwarded-for", b"synthetic-client-b"),
+            (b"forwarded", b"for=synthetic-client-b"),
+            (b"x-real-ip", b"synthetic-client-b"),
+        ],
+        "client": ("synthetic-client-a", 4242),
+    }
+    assert client_address(Request(scope)) == "synthetic-client-a"
+    assert client_address(Request({**scope, "client": None})) is None
+    assert client_fingerprint(client_address(Request(scope))) != client_fingerprint(
+        "synthetic-client-b"
+    )

@@ -33,11 +33,13 @@ def test_security_headers_cover_assets_redirects_and_ui_errors(method, path, sta
         response = client.request(method, path, follow_redirects=False)
     assert response.status_code == status
     csp = response.headers["content-security-policy"]
+    # Stage 15 hardens the fallback to default-src 'none', which also covers object-src.
+    assert "default-src 'none'" in csp or (
+        "default-src 'self'" in csp and "object-src 'none'" in csp
+    )
     for directive in (
-        "default-src 'self'",
         "script-src 'self'",
         "style-src 'self'",
-        "object-src 'none'",
         "base-uri 'none'",
         "frame-ancestors 'none'",
         "form-action 'self'",

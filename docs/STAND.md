@@ -367,11 +367,13 @@ Bindungspruefungen sowie redigierte Fehler gelten vor den Handlern. Die UI verwe
 bei konfigurierter Public-Origin denselben validierten Wert; Forwarding-Header verleihen
 keine Rechte.
 
-Migration `0014` und ihre UI-Anbindung liefern Passwortbindung, 30 Minuten Inaktivitaetsablauf,
-eine unverlaengerbare absolute 12-Stunden-Grenze, dauerhafte Login-Sperre nach 20 Fehlern
-in 24 Stunden und sichere Auth-Ereignisse. Die Sperre bleibt nach Neustart bestehen und
-erscheint mit HTTP 423 ohne Passwortformular. Entsperrung bleibt eine ausdrueckliche lokale
-Aktion. «Ueberall abmelden» widerruft alle bestehenden Sessions mit Owner-/CSRF-Pruefung.
+Migration `0014` und ihre UI-Anbindung liefern Passwortbindung, 30 Minuten
+Inaktivitaetsablauf, eine unverlaengerbare absolute 12-Stunden-Grenze, Drosselung je
+Client-Kennung (Peer-Adresse der Verbindung, nur als Digest gespeichert), globale Login-Sperre
+nach 20 Fehlern in 24 Stunden und sichere Auth-Ereignisse. Die Sperre erscheint mit HTTP 423
+ohne Passwortformular und endet gemaess D3 mit einem Neustart des Dienstes oder der
+ausdruecklichen lokalen Entsperrung. «Ueberall abmelden» widerruft alle bestehenden Sessions
+mit Owner-/CSRF-Pruefung.
 Die Sperrreihenfolge bleibt Login-State vor Session, auch in der HTTP-Anbindung.
 
 Frischer Gesamtlauf auf dem Code- und Teststand von `397d723`: **2088 bestanden**, keine

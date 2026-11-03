@@ -15,10 +15,18 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.app import create_app
 from app.api.deps import get_db
-from app.db.ui_auth import AuthEvent, UiLoginState, UiSession, unlock_owner_login
+from app.db.ui_auth import (
+    AuthEvent,
+    UiLoginClient,
+    UiLoginState,
+    UiSession,
+    release_owner_login_lock_on_startup,
+    unlock_owner_login,
+)
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE, token_digest
 
 PASSWORD = "synthetic-http-hardening-password"
+WRONG_PASSWORD = "synthetic-wrong"
 
 
 class Inputs(HTMLParser):
@@ -44,7 +52,8 @@ def ui_factory(db_session, monkeypatch, password_hash):
     monkeypatch.setenv("DECK_UI_COOKIE_SECURE", "false")
     factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
 
-    def client():
+    def client(peer="testclient"):
+        """``peer`` is the ASGI connection address seen by the app, never a header value."""
         app = create_app()
 
         def database():
@@ -57,9 +66,15 @@ def ui_factory(db_session, monkeypatch, password_hash):
                     raise
 
         app.dependency_overrides[get_db] = database
-        return TestClient(app)
+        return TestClient(app, client=(peer, 50000))
 
     return client, factory
+
+
+def fail_login(client, csrf, headers=None):
+    return client.post(
+        "/ui/login", data={"csrf": csrf, "password": WRONG_PASSWORD}, headers=headers or {}
+    )
 
 
 def login(client, *, origin=None):
@@ -160,32 +175,95 @@ def test_configured_public_origin_works_without_trusting_forwarding_headers(
         assert response.status_code == 303
 
 
-def test_locked_login_stays_visible_after_app_restart_until_local_unlock(ui_factory):
+def test_locked_login_shows_423_until_local_unlock(ui_factory):
     make_client, factory = ui_factory
     with make_client() as client:
         response = client.get("/ui/login")
         csrf = Inputs(response.text).values["csrf"]
         with factory.begin() as session:
             session.execute(update(UiLoginState).values(daily_failures=19))
-        response = client.post("/ui/login", data={"csrf": csrf, "password": "synthetic-wrong"})
+        response = fail_login(client, csrf)
         assert response.status_code == 423
         assert "Anmeldung gesperrt" in response.text
-        assert "synthetic-wrong" not in response.text
+        assert WRONG_PASSWORD not in response.text
         assert "make unlock-login" in response.text
         assert "Retry-After" not in response.headers
-    with make_client() as restarted:
-        response = restarted.get("/ui/login")
+    with make_client("synthetic-client-b") as other:
+        response = other.get("/ui/login")
         assert response.status_code == 423
         assert "Anmeldung gesperrt" in response.text
         assert '<input id="password"' not in response.text
         with factory.begin() as session:
             unlock_owner_login(session)
+        login(other)
+        assert other.get("/ui/tasks").status_code == 200
+    with factory() as session:
+        types = session.scalars(select(AuthEvent.event_type)).all()
+        assert types.count("auth.login_locked") == 1
+        assert types.count("auth.login_unlocked") == 1
+
+
+def test_restart_clears_global_lock(ui_factory):
+    make_client, factory = ui_factory
+    with make_client() as client:
+        csrf = Inputs(client.get("/ui/login").text).values["csrf"]
+        with factory.begin() as session:
+            session.execute(update(UiLoginState).values(daily_failures=19))
+        assert fail_login(client, csrf).status_code == 423
+        assert client.get("/ui/login").status_code == 423
+    # The launcher runs this startup path before it opens the listener.
+    with factory.begin() as session:
+        assert release_owner_login_lock_on_startup(session)
+    with make_client() as restarted:
+        response = restarted.get("/ui/login")
+        assert response.status_code == 200
+        assert '<input id="password"' in response.text
         login(restarted)
         assert restarted.get("/ui/tasks").status_code == 200
     with factory() as session:
         types = session.scalars(select(AuthEvent.event_type)).all()
         assert types.count("auth.login_locked") == 1
         assert types.count("auth.login_unlocked") == 1
+
+
+def test_throttle_is_per_client(ui_factory):
+    make_client, factory = ui_factory
+    with make_client("synthetic-client-a") as first, make_client("synthetic-client-b") as second:
+        csrf = Inputs(first.get("/ui/login").text).values["csrf"]
+        for _ in range(5):
+            assert fail_login(first, csrf).status_code == 401
+        response = first.post("/ui/login", data={"csrf": csrf, "password": PASSWORD})
+        assert response.status_code == 429
+        assert int(response.headers["Retry-After"]) > 0
+        assert "synthetic-client" not in response.text
+        assert first.get("/ui/login").status_code == 200
+        login(second)
+        assert second.get("/ui/tasks").status_code == 200
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(UiLoginClient)) == 2
+        assert session.scalar(select(UiLoginState.daily_failures)) == 5
+        assert session.scalar(select(UiLoginState.locked_at)) is None
+        types = session.scalars(select(AuthEvent.event_type)).all()
+        assert types.count("auth.login_throttled") == 1
+        assert types.count("auth.login_succeeded") == 1
+
+
+def test_forwarded_header_does_not_change_client_identity(ui_factory):
+    make_client, factory = ui_factory
+    with make_client("synthetic-client-a") as client:
+        csrf = Inputs(client.get("/ui/login").text).values["csrf"]
+        for _ in range(5):
+            assert fail_login(client, csrf).status_code == 401
+        forged = {"X-Forwarded-For": "synthetic-client-b", "Forwarded": "for=synthetic-client-b"}
+        response = client.post(
+            "/ui/login", data={"csrf": csrf, "password": PASSWORD}, headers=forged
+        )
+        assert response.status_code == 429
+        response = fail_login(client, csrf, headers={"X-Real-IP": "synthetic-client-c"})
+        assert response.status_code == 429
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(UiLoginClient)) == 1
+        assert session.scalar(select(UiLoginState.daily_failures)) == 5
 
 
 @pytest.mark.parametrize(

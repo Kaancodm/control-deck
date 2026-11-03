@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 from argon2 import PasswordHasher, Type, extract_parameters
 from argon2.exceptions import InvalidHashError, VerificationError
+from starlette.requests import Request
 from starlette.responses import Response
 
 SESSION_COOKIE = "deck_session"
@@ -133,6 +134,24 @@ def token_digest(token: str | None) -> str | None:
 def matches_token_hash(provided: str | None, expected: str) -> bool:
     digest = token_digest(provided)
     return digest is not None and hmac.compare_digest(digest, expected)
+
+
+def client_address(request: Request) -> str | None:
+    """Peer address of the ASGI connection (stage 15, D3).
+
+    The launcher disables proxy headers and the boundary middleware strips
+    forwarding metadata; this never consults ``Forwarded``/``X-Forwarded-*``.
+    """
+    client = request.client
+    return client.host if client is not None and client.host else None
+
+
+def client_fingerprint(address: str | None) -> str:
+    """Key per-client login windows by a digest so no address is stored or logged.
+
+    Connections without a peer address share one window and stay bounded.
+    """
+    return hashlib.sha256(b"deck-login-client\0" + (address or "").encode("utf-8")).hexdigest()
 
 
 def set_session_cookies(

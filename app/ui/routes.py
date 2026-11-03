@@ -48,6 +48,7 @@ from app.ui.auth import (
     SESSION_COOKIE,
     AuthConfigurationError,
     clear_session_cookies,
+    client_address,
     get_auth_settings,
     set_session_cookies,
 )
@@ -154,12 +155,14 @@ async def login(request: Request, session: DbSession) -> Response:
     data = await form(request)
     csrf(request, session, data, anonymous=True)
     settings = get_auth_settings()
+    # Throttling is keyed by the connection peer; forwarding headers are never consulted.
     outcome = authenticate_owner(
         session,
         request.cookies.get(SESSION_COOKIE),
         _value(data, "csrf"),
         _value(data, "password"),
         settings,
+        client=client_address(request),
     )
     session.commit()
     if outcome.credentials is not None:

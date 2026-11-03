@@ -1,15 +1,43 @@
 # Stand des Repositorys
 
-## Etappe 11 in Arbeit
+## Etappe 11 bereit fuer externes Review
 
+Draft-PR: [#26](https://github.com/Kaancodm/control-deck/pull/26).
 Branch: `stage/11-ui-chat`, gestapelt auf Etappe 10 (`stage/10-error-paths`, PR #25).
-Die Oberflaeche erhaelt zentrale CSS-Variablen und wiederverwendbare Partials. Das spaetere
-Design wird separat abgenommen. Geplant sind Passwort-Login mit Argon2id, serverseitige
-Sessions und CSRF, gemeinsame Task-Dienste, sichere Dateien sowie ein lokaler Chat mit
-unverbindlichen Auftragsentwuerfen. Chat darf weder freigeben noch exportieren oder steuern.
-Es gibt keine Datenschutz-Umgehung fuer blockierte Tasks. Pflichtchecks, Browser-Smoke bei
-390 und 1024 Pixeln sowie Review-Bereitschaft folgen nach dem Rebase auf die fertige Etappe 10.
-Echte Modellaufrufe, Logins und Serverinstallation bleiben unter Inbetriebnahme offen.
+
+Umgesetzt:
+
+- Themebare Jinja2-Oberflaeche mit zentralen CSS-Variablen, wiederverwendbaren Partials und
+  lokalem HTMX. Das spaetere Design aus den Owner-Komponenten bleibt separat testbar.
+- Argon2id-Passwortlogin, serverseitige Sessions, CSRF, Rotation, Ablauf, Logout und
+  persistente Login-Drosselung. Migration 0012 speichert ausschliesslich Token-Hashes.
+- Task-Formular, begrenzte sichere UTF-8-Dateien, Liste, Detail, Audit-Zeitlinie,
+  Start-Freigabe, Ergebnis-Review und Abbruch ueber gemeinsame API-/UI-Geschaeftsfunktionen.
+- Schreibgeschuetzte Fehlerliste, Lane-Zustand, Pause und bestaetigter Not-Aus. Blockierte
+  Tasks bleiben terminal; Review-Ablehnung fuehrt zu `failed`. Auftrags-GETs schreiben nicht.
+- Lokaler Fake-CLI-Chat mit explizitem Kontext und unverbindlichem validiertem Entwurf.
+  Keine Aktionsrechte, kein dauerhaft gespeicherter Verlauf und keine automatische
+  Uebernahme von Chat-Kontext in Cloud-Auftraege. Das Live-Profil bleibt unverfuegbar.
+- Gespeicherte, bereits rueckabgebildete Ergebnisse werden escaped angezeigt. Keine zweite
+  Rueckabbildung, keine Redaction-Map im Template. Exakte Rueckabbildungspositionen bleiben
+  mangels gespeicherter Provenienz ein Folgepunkt; die eingefrorenen Schemas bleiben erhalten.
+
+Pflichtchecks vom 2026-11-03: `make lint` gruen (Ruff, Format, Mypy),
+`uv run alembic -x target=test check` ohne Schemaabweichung, `make test` mit
+**1578 bestandenen Tests** (**549 Integration**, **1029 Unit**), **keine xfail oder Skips**.
+Darin enthalten: echte Chromium-Smokes bei **390 Pixeln mit JavaScript** und **1024 Pixeln
+ohne JavaScript** mit synthetischem Login, Upload, Freigabe, Fake-Worker, Review, `done`,
+Chat-Entwurf und Logout. Eine bestehende Starlette/httpx-Deprecation-Warnung.
+`make reference`: **4/4**; Ollama-Fake-CLI-Referenzlauf ebenfalls **4/4**. Isolierte
+PostgreSQL-17-Testdatenbank. Die CI des finalen Heads wird im PR ausgewiesen.
+Details und begruendete Abhaengigkeiten: [UI.md](UI.md), [ETAPPEN/11-ui.md](ETAPPEN/11-ui.md).
+
+### Inbetriebnahme
+
+Keine echten Logins, Modell-/Anbieteraufrufe, API-Keys oder Serveraenderungen. Offen bleiben
+sichere Bindung/TLS, echte Zugangsdaten und Geraete, nachgewiesene Live-Ollama-Isolation mit
+gemeinsamer Modell-Zulassung sowie das spaetere finale Design. Simulation ist kein Live-Nachweis.
+Externes Review erfolgt durch einen anderen Anbieter; es wird nicht selbst gemergt.
 
 ## Etappe 10 bereit fuer externes Review
 

@@ -208,3 +208,18 @@ keine Live-Bereitschaft. Das echte Ollama-Profil bleibt `unavailable` mit Grund
 `live_profile_unavailable`. `last_success_at` ist eine Gesundheitsbeobachtung, kein Beleg
 fuer einen abgeschlossenen Modelllauf. Der Downgrade verweigert eine nichtleere Tabelle.
 Details: [LANES.md](LANES.md).
+
+## UI-Sessions (Revision 0012)
+
+`ui_sessions` speichert SHA-256-Hashes zufaelliger Session- und CSRF-Tokens, den
+Authentifizierungszustand sowie Erstellungs-, Ablauf- und Widerrufszeit. Roh-Tokens,
+Passwoerter und Chatverlaeufe werden nicht gespeichert. Ein Ablaufindex unterstuetzt die
+Bereinigung. Der Passwort-Hash kommt aus lokaler Konfiguration und liegt nicht in dieser Tabelle.
+
+`ui_login_state` ist eine durch CHECKs beschraenkte Singleton-Zeile fuer das gemeinsame
+Anmeldelimit des einen Owners. Zeilensperren verhindern, dass parallele Fehlversuche das
+Limit umgehen. Zeitentscheide verwenden die Datenbankuhr. Der Downgrade verweigert noch
+gueltige, nicht widerrufene Owner-Sessions; vorher muessen diese widerrufen werden.
+
+Die Migration veraendert keine Task-/Result-Schemas und setzt keinen `data_class`-Default.
+Details: [UI.md](UI.md).

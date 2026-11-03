@@ -22,7 +22,7 @@ Builder ist immer Cursor. Merge nur nach GO des Owners.
 | 8 | Runner-Rahmen: Lease, Heartbeat, Sweep, Not-Aus, runs/-Ablage | offen | Claude | Vertrag unten |
 | 9 | Lane Ollama und erster E2E | offen | Codex | [09](09-ollama-lane-e2e.md) |
 | 10 | Fehlerpfad: Retry, Backoff, Fallback, Dead-Letter, Abbruch | umgesetzt, externes Review offen | extern, Owner bestimmt | [10-fehlerpfade.md](10-fehlerpfade.md) |
-| 11 | Oberflaeche v1 | offen | Codex | [11](11-ui.md) |
+| 11 | Themebare Oberflaeche und lokaler Chat | umgesetzt, externes Review offen | extern, Owner bestimmt | [11](11-ui.md) |
 | 12 | Reinraum-Image und Lane Claude | offen | Claude | [12](12-reinraum-lane-claude.md) |
 | 13 | Lane Codex | offen | Codex | [13](13-lane-codex.md) |
 | 14 | Wissens-DB-Anbindung | offen | Claude | [14](14-wissens-db-anbindung.md) |

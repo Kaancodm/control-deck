@@ -53,7 +53,8 @@ def render_payload(
     if task.data_class == DataClass.CLOUD_OK and report.blocked:
         raise PrivacyInputError("privacy_gate")
 
-    parts = [f"# Task {task.task_id}", "## Title", task.title, "## Instructions", task.instructions]
+    # IDs stay in structured transport metadata; random digits can resemble personal data.
+    parts = ["# Task", "## Title", task.title, "## Instructions", task.instructions]
     for index, item in enumerate(task.inputs):
         parts.extend([f"## Input {index}", "Name: " + item.name])
         if item.path is not None:

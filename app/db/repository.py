@@ -14,6 +14,7 @@ from app.core.validate import validate_result, validate_task
 from app.db.models import Result, Task
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import TransitionActor, transition_task
+from app.privacy.gate import inspect_stored_task, validate_submission
 
 
 def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
@@ -21,6 +22,7 @@ def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
     existing = session.get(Task, task_v1.task_id)
     if existing is not None:
         return existing
+    gate = validate_submission(task_v1)
     payload = task_v1.model_dump(mode="json")
     task = Task(
         id=task_v1.task_id,
@@ -39,6 +41,8 @@ def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
         trigger=TaskTransition.SUBMIT,
         detail={"source": "create_task_from_v1"},
     )
+    if gate.blocked:
+        transition_task(session, task=task, trigger=TaskTransition.BLOCK, detail=gate.safe_detail())
     return task
 
 
@@ -63,6 +67,7 @@ def create_task_from_api_payload(
         select(literal(deadline_at) <= func.clock_timestamp())
     ):
         raise ValueError("deadline_at must be in the future")
+    gate = validate_submission(task_v1)
     row = Task(
         id=task_v1.task_id,
         status=TaskState.AWAITING_APPROVAL,
@@ -81,6 +86,8 @@ def create_task_from_api_payload(
         trigger=TaskTransition.SUBMIT,
         detail={"source": "api"},
     )
+    if gate.blocked:
+        transition_task(session, task=row, trigger=TaskTransition.BLOCK, detail=gate.safe_detail())
     return row
 
 
@@ -88,6 +95,10 @@ def approve_task(session: Session, task: Task) -> None:
     """Move an owner-gated task into the queue."""
     if task.status != TaskState.AWAITING_APPROVAL:
         raise ValueError(f"task {task.id} is not awaiting approval")
+    blocked = inspect_stored_task(task.payload)
+    if blocked is not None:
+        transition_task(session, task=task, trigger=TaskTransition.BLOCK, detail=blocked)
+        return
     task.approved_at = datetime.now(tz=UTC)
     transition_task(
         session,

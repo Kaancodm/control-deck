@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import threading
 import uuid
 from collections.abc import Callable
@@ -821,11 +822,7 @@ def test_migration_0006_preserves_owner_approved_tasks_from_0003() -> None:
     command.upgrade(cfg, "20251103_0003")
     engine = get_engine(for_tests=True)
     approved_id = uuid.uuid4()
-    payload_json = (
-        '{"schema_version":"task.v1","task_id":"'
-        + str(approved_id)
-        + '","data_class":"local_only","fallback_chain":["ollama"]}'
-    )
+    payload_json = json.dumps(_minimal_task_payload(approved_id))
     with engine.begin() as conn:
         conn.execute(
             text(

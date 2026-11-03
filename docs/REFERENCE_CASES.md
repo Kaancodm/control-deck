@@ -48,8 +48,14 @@ Fuer eine vollstaendige Referenz-Suite sind mindestens vorgesehen:
 | `trap` | 4 | Datenschutz, Policy, verbotene Inhalte |
 | `edge` | 2 | Grenzfaelle (leer, gross, Timeout, …) |
 
-Etappe `02-reference-runner` liefert drei Dummy-Faelle als Startpunkt; der Mix wird in
-spaeteren Etappen erweitert.
+Aktuell sind **vier ausfuehrbare Faelle** vorhanden: ein normaler Fall, zwei Fallen und ein
+Grenzfall. Der Zielbestand von 14 ist noch nicht erreicht. Die inhaltlichen Faelle schreibt
+der Owner selbst. [OWNER_TODO.md](../tests/reference/cases/OWNER_TODO.md) reserviert die
+weiteren Kennungen ohne Auftragsinhalt oder erwartetes Verhalten; diese Platzhalter werden
+nicht als Tests geladen und nicht als bestandene Faelle gezaehlt.
+
+Die Scanner-Unit-Tests mit synthetischen Treffern und harmlosen Texten sind technische
+Regressionstests. Sie ersetzen die vom Owner verfassten Referenzfaelle nicht.
 
 ## Regeln
 
@@ -57,6 +63,11 @@ spaeteren Etappen erweitert.
   Traps nutzen eindeutige Platzhalter (z. B. `sk-TEST-...`).
 - `task.data_class` ist immer explizit gesetzt (kein Default).
 - Referenzlaeufe verwenden bis zur Worker-Etappe den `FakeExecutor` (deterministisch).
+- In Etappe 5 ruft dieser die echte Datenschranke auf, mit einer ausdruecklich leeren
+  Blockliste nur fuer den lokalen Testlauf. Worker-Ausfuehrung und Ergebnistext bleiben
+  simuliert; der Lauf bestaetigt keine produktive Konfiguration oder Cloud-Anbindung.
+- Die bestehenden vier YAML-Faelle bleiben in Etappe 5 unveraendert. Fall `004` wird erst
+  mit dem Router-Vertrag auf den Ollama-Override angepasst.
 - Ein Lauf endet mit Exit-Code `0`, wenn alle Faelle `pass` melden, sonst `1`.
 
 ## Ausfuehrung

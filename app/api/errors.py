@@ -70,5 +70,6 @@ def register_exception_handlers(app: FastAPI) -> None:
             title="Validation failed",
             detail="Request body or parameters failed validation.",
             instance=str(request.url.path),
-            errors=list(exc.errors()),
+            # Pydantic errors include raw inputs and may quote values or field names.
+            errors=[{"code": "request_validation_failed"}],
         )

@@ -7,6 +7,7 @@ import json
 import threading
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -16,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.schemas import TaskV1, Worker
-from app.db.models import Event, Lease, RedactionMap, Result, Task
+from app.db.models import Event, LaneStatus, Lease, RedactionMap, Result, Task
 from app.db.repository import approve_task, create_task_from_v1
 from app.db.settings import update_settings
 from app.db.state_machine import TaskState
@@ -566,3 +567,96 @@ def test_failed_preflight_does_not_claim_or_expose_exception_contents(
     assert "synthetic-private-preflight-detail" not in repr(outcome)
     assert executor.calls == []
     _assert_unclaimed(db_session, task_id)
+
+
+def test_two_independent_ollama_runners_complete_twenty_tasks_once(
+    db_session: Session, tmp_path: Path
+) -> None:
+    update_settings(db_session, {"max_parallel": 2})
+    db_session.commit()
+    task_ids = {_task(db_session) for _ in range(20)}
+    start_together = threading.Barrier(2)
+    first_executions = threading.Barrier(2)
+    state_lock = threading.Lock()
+    completed: list[UUID] = []
+    active_executions = 0
+    max_active_executions = 0
+
+    class ConcurrentExecutor(RecordingExecutor):
+        first_execution = True
+
+        def execute(self, context):
+            nonlocal active_executions, max_active_executions
+            with state_lock:
+                active_executions += 1
+                max_active_executions = max(max_active_executions, active_executions)
+            try:
+                if self.first_execution:
+                    self.first_execution = False
+                    first_executions.wait(timeout=10)
+                return super().execute(context)
+            finally:
+                with state_lock:
+                    active_executions -= 1
+
+    executors = [
+        ConcurrentExecutor(
+            profile="simulation",
+            simulation=OllamaSimulation(models=("fixture-model",), behavior="delay", delay_s=0.04),
+        )
+        for _ in range(2)
+    ]
+    runners = [_runner(db_session, tmp_path, executor) for executor in executors]
+
+    def drain(runner: OllamaLaneRunner) -> list[UUID]:
+        start_together.wait(timeout=10)
+        own_tasks: list[UUID] = []
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            with state_lock:
+                if len(completed) == len(task_ids):
+                    return own_tasks
+            outcome = runner.run_once()
+            assert outcome.action in {"idle", "completed"}, outcome
+            if outcome.action == "completed":
+                assert outcome.status == "review"
+                assert outcome.attempt == 1
+                assert outcome.task_id in task_ids
+                with state_lock:
+                    completed.append(outcome.task_id)
+                own_tasks.append(outcome.task_id)
+            else:
+                time.sleep(0.005)
+        raise AssertionError("Concurrent simulated runners did not drain the task queue")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(drain, runner) for runner in runners]
+        processed = [future.result(timeout=40) for future in futures]
+
+    assert all(processed)
+    assert len(completed) == 20
+    assert set(completed) == task_ids
+    assert max_active_executions == 2
+    assert sum(len(executor.run_calls) for executor in executors) == 20
+    db_session.expire_all()
+    tasks = list(db_session.scalars(select(Task)))
+    assert len(tasks) == 20
+    assert all(task.status == TaskState.REVIEW and task.attempt == 1 for task in tasks)
+    result_counts = dict(
+        db_session.execute(select(Result.task_id, func.count()).group_by(Result.task_id)).all()
+    )
+    assert result_counts == dict.fromkeys(task_ids, 1)
+    claim_counts = dict(
+        db_session.execute(
+            select(Event.task_id, func.count())
+            .where(Event.event_type == "task.acquire")
+            .group_by(Event.task_id)
+        ).all()
+    )
+    assert claim_counts == dict.fromkeys(task_ids, 1)
+    assert db_session.scalar(select(func.count()).select_from(Lease)) == 0
+    assert db_session.scalar(select(func.count()).select_from(LaneStatus)) == 1
+    health = get_lane_status(db_session, lane=Worker.OLLAMA)
+    assert health.status == "ok"
+    assert health.reason == "simulation_ready"
+    assert health.updated_at == health.last_success_at

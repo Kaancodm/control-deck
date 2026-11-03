@@ -105,7 +105,10 @@ Nichtleere `output.files` werden im Rahmen bis zu einer verifizierten Adapter-Da
 abgewiesen. Es wird kein erzeugter Code ausgefuehrt.
 
 Der CLI-Einstieg `python -m app.workers.runner_main` bietet ausschliesslich eine ausdrueckliche
-Simulation. Adapter fuer `ollama run`, `claude -p` und `codex exec` folgen mit Fake-CLI-Tests
+Simulation. `--executor ollama-fake-cli` nutzt ab Etappe 9 die gebuendelte Fake-CLI mit
+Inventarpruefung und begrenzten Prozessen; das Standardprofil bleibt `simulation`.
+Das echte Ollama-Profil ist gesperrt. Details und Inbetriebnahme-Grenzen:
+[LANES.md](LANES.md). Adapter fuer `claude -p` und `codex exec` folgen mit Fake-CLI-Tests
 in den dafuer vorgesehenen Etappen. Inhaltliche Referenzfaelle erstellt der Owner.
 
 ## Inbetriebnahme

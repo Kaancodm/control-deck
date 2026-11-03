@@ -2,21 +2,29 @@
 
 ## Etappe 9 in Arbeit
 
-Branch: `stage/09-ollama`, gestapelt auf `stage/08-runner` / PR #23 (`5fd9704`).
-Der Owner hat die Ollama-CLI mit Fake-CLI-Tests anstelle des HTTP-Adapters gewaehlt.
-Gebaut werden ein begrenzter Prozessadapter, Lane-Gesundheit und simulierte E2E-Laeufe.
-Das Live-Profil bleibt gesperrt: Die offizielle CLI bietet keinen sicheren No-Pull-Schalter
-und kann bei multimodalen Modellen Dateien aus dem Prompt nachladen.
-Die konkreten Voraussetzungen bleiben unter **Inbetriebnahme** offen.
+Draft-PR: [#24](https://github.com/Kaancodm/control-deck/pull/24).
+Branch: `stage/09-ollama`, nach den externen Review-Korrekturen auf
+`stage/08-runner` / PR #23 (`dc81401`) rebased.
 
-Zwischenstand PR [#24](https://github.com/Kaancodm/control-deck/pull/24): Adapter,
-Prozessgrenzen, Lane-Gesundheit und simulierte Host-E2E sind implementiert. Gezielt geprueft:
-80 Prozess-/Adaptertests, 26 E2E-Tests, 48 Gesundheits-/Migrationstests und 6 CLI-Tests.
-Die vollstaendigen Pflichtchecks und der Referenz-CLI-Schalter stehen noch aus.
-Die Arbeit pausiert fuer die externen Review-Korrekturen an Basis-PR #23; danach wird
-Etappe 9 auf dessen neuen Head rebased. Noch nicht reviewbereit.
-`simulation_ready` bezeichnet ausschliesslich die Fake-Inventarpruefung; das Live-Profil
-bleibt `unavailable` / `live_profile_unavailable`. Details: [LANES.md](LANES.md).
+Umgesetzt sind ein begrenzter Ollama-CLI-Prozessadapter, Lane-Gesundheit mit Migration
+`0010`, simulierte Host-E2E-Laeufe und der ausdrueckliche Referenz-Schalter
+`--executor ollama-fake-cli --model <simulationskennung>`. Die neue Executor-Identitaet,
+Pflicht-Lane und Artefaktkonflikt-Behandlung aus der korrigierten Etappe 8 bleiben erhalten.
+Gezielte Tests und Alembic-Check sind gruen; die vollstaendigen Pflichtchecks laufen.
+Beide Referenz-Selector bestehen die vier bestehenden Faelle; neue inhaltliche Faelle
+wurden nicht erstellt.
+
+### Inbetriebnahme
+
+Das Live-Profil ist nicht aktivierbar und startet keinen Prozess. Es bleibt
+`unavailable` / `live_profile_unavailable`. Ein `ok` mit `simulation_ready` sowie
+`last_success_at` belegen ausschliesslich die Fake-Inventarpruefung, keine Live-Bereitschaft.
+Die offizielle CLI bietet keinen No-Pull-Schalter; Cloud-Sperren muessen beim Daemon gelten,
+multimodale CLI-Pfade koennen promptgesteuert Hostdateien lesen, und Exit-Code null allein
+belegt nicht jeden Abschluss. Eine spaetere Live-Anbindung benoetigt nachweisbare Download-/
+Cloud-Sperren, Dateisystem-Isolation und einen eindeutigen Abschlussnachweis. Quellen und
+Details: [LANES.md](LANES.md). Keine echten Modellaufrufe, Logins, API-Keys, Serveraenderungen
+oder produktiven Verbindungen ausgefuehrt.
 
 
 ## Etappe 8 bereit fuer externes Review

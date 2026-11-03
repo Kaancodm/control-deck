@@ -15,7 +15,7 @@ from app.core.schemas import DataClass, ResultStatus, TaskKind, TaskV1, Worker
 from app.privacy.config import PrivacySettings
 from app.privacy.gate import PrivacyInputError
 from app.redaction.engine import RedactionError, rehydrate
-from app.redaction.payload import LaneNotAllowedError, build_payload
+from app.redaction.payload import LaneNotAllowedError, PayloadBuild, build_payload
 from app.reference.schemas import ReferenceExpect
 from app.reference.validate import LoadedReferenceCase
 from app.routing.config import RouterConfig
@@ -95,18 +95,32 @@ class FakeExecutor:
                 wall_seconds=self.fixed_wall_seconds,
             )
 
-        text = self._execute_payload(payload.text, kind=task.kind)
+        result = self._execute_prepared(task, payload, worker)
+        if result.status != ResultStatus.SUCCEEDED:
+            return result
+        text = result.output_text
         if task.data_class == DataClass.CLOUD_REDACTED:
             try:
                 text = rehydrate(text, task_id=task.task_id, mapping=mapping)
             except RedactionError:
-                return ExecutionResult(ResultStatus.FAILED, "", worker, self.fixed_wall_seconds)
+                return ExecutionResult(ResultStatus.FAILED, "", worker, result.wall_seconds)
 
         return ExecutionResult(
             status=ResultStatus.SUCCEEDED,
             output_text=text,
             worker=worker,
-            wall_seconds=self.fixed_wall_seconds,
+            wall_seconds=result.wall_seconds,
+        )
+
+    def _execute_prepared(
+        self, task: TaskV1, payload: PayloadBuild, worker: Worker
+    ) -> ExecutionResult:
+        """Adapt the host's prepared payload while preserving existing fake subclasses."""
+        return ExecutionResult(
+            ResultStatus.SUCCEEDED,
+            self._execute_payload(payload.text, kind=task.kind),
+            worker,
+            self.fixed_wall_seconds,
         )
 
     def _execute_payload(self, text: str, *, kind: TaskKind) -> str:

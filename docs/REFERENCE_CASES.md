@@ -62,7 +62,8 @@ Regressionstests. Sie ersetzen die vom Owner verfassten Referenzfaelle nicht.
 - Keine echten Namen, API-Keys oder produktiven Geheimnisse in Faelle schreiben.
   Traps nutzen eindeutige Platzhalter (z. B. `sk-TEST-...`).
 - `task.data_class` ist immer explizit gesetzt (kein Default).
-- Referenzlaeufe verwenden bis zur Worker-Etappe den `FakeExecutor` (deterministisch).
+- Referenzlaeufe verwenden standardmaessig den `FakeExecutor` (deterministisch).
+  Ab Etappe 9 ist zusaetzlich die gebuendelte Ollama-Fake-CLI ausdruecklich waehlbar.
 - In Etappe 5 ruft dieser die echte Datenschranke auf, mit einer ausdruecklich leeren
   Blockliste nur fuer den lokalen Testlauf. Worker-Ausfuehrung und Ergebnistext bleiben
   simuliert; der Lauf bestaetigt keine produktive Konfiguration oder Cloud-Anbindung.
@@ -80,3 +81,21 @@ uv run python scripts/run_reference.py --cases-dir tests/reference/cases
 ```
 
 Ausgabe pro Fall: `pass`/`fail`, Kategorie, Dauer und bei Abweichung die Gruende.
+
+## Ollama-Fake-CLI
+
+```bash
+uv run python scripts/run_reference.py --executor ollama-fake-cli --model fixture-model
+```
+
+`fixture-model` ist eine frei gewaehlte technische Simulationskennung, kein echtes Modell.
+Der Schalter verlangt eine ausdrueckliche Kennung. Er verwendet dieselbe Datenschranke,
+Routing-Entscheidung und Payload-Vorbereitung wie der reine Fake-Executor, archiviert die
+exakten Versandbytes privat und uebergibt ausschliesslich den vorbereiteten Text an den
+Prozessadapter. Rueckabbildung und Erwartungspruefung erfolgen lokal; die gemessene Zeit
+enthaelt den Prozesslauf. Andere geroutete Lanes werden nicht durch Ollama ersetzt.
+
+Die vier bestehenden Faelle bleiben unveraendert. Die feste Fake-Ausgabe bestaetigt den
+technischen Ablauf, keine semantische Modellqualitaet. Inhaltliche neue Faelle und die
+spaetere echte Modellabnahme bleiben beim Owner. Es gibt keinen Live-Executor-Schalter;
+die konkreten Grenzen stehen unter [Inbetriebnahme in LANES.md](LANES.md#inbetriebnahme).

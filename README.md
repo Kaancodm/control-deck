@@ -51,6 +51,8 @@ beschrieben. Der Runner liefert ausschliesslich geprueften Versandtext aus; unte
 bei `cloud_redacted` lokal ersetzt. Details: [docs/RUNNER.md](docs/RUNNER.md).
 
 Routing und Tagesbudgets: [docs/ROUTING.md](docs/ROUTING.md).
+Ollama-Fake-CLI, Lane-Gesundheit und die gesperrte Live-Anbindung:
+[docs/LANES.md](docs/LANES.md).
 
 Weitere Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/SCHEMA.md](docs/SCHEMA.md),
 [docs/API.md](docs/API.md). Inhaltliche Referenzfaelle schreibt der Owner; der aktuelle Bestand

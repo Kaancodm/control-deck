@@ -37,12 +37,10 @@ type errors fail lint even when ruff is clean.
 - Never point tests or `alembic downgrade` at `DECK_DATABASE_URL`.
 - Without `DECK_TEST_DATABASE_URL` the integration tests are skipped and `make test` stays green.
 - CI starts `postgres:17` on port 5432, creates `controldeck_test`, then runs
-  `alembic upgrade head`, `alembic check`, ruff, mypy, and pytest.
-- Alembic picks the URL in `alembic/env.py`: on `main` it prefers `DECK_TEST_DATABASE_URL` when
-  set, otherwise `DECK_DATABASE_URL`.
-- TODO: open PR #5 changes this. After it merges, pass `-x target=test` for test migrations
-  (`uv run alembic -x target=test upgrade head`) and Alembic aborts when both URLs are set
-  without a target.
+  `alembic -x target=test upgrade head`, `alembic -x target=test check`, ruff, mypy, and pytest.
+- Alembic URL selection is in `alembic/env.py`: pass `-x target=test` (or `DECK_ALEMBIC_TARGET=test`)
+  for test migrations. If both `DECK_DATABASE_URL` and `DECK_TEST_DATABASE_URL` are set, Alembic
+  aborts without an explicit target.
 - Migrations live in `alembic/versions/`. Downgrades are for dev/test databases only.
 
 ## Domain rules
@@ -62,10 +60,18 @@ type errors fail lint even when ruff is clean.
 
 ### Data classes
 
-- `data_class` values: `local_only` (default), `cloud_redacted`, `cloud_ok` (ADR 0005).
-- `task.v1` requires the field explicitly; the database column defaults to `local_only`.
+- ADR 0005: `data_class` is **mandatory on every `task.v1` payload** (no implicit default in the
+  schema). Allowed values: `local_only`, `cloud_redacted`, `cloud_ok`.
+- Legacy: the PostgreSQL column still has server default `local_only` for older rows; new tasks must
+  set `data_class` explicitly in JSON — reject producers that omit it.
 - `local_only` payloads must never reach a cloud lane. `cloud_redacted` is pseudonymised before
   leaving the host. Hits of the data gate set the task to `blocked`.
+
+### Claude Code permissions (not a sandbox)
+
+- `.claude/settings.json` **deny** rules and `guard.sh` reduce accidental secret writes and risky
+  shell commands. They do **not** isolate the host: assume full user privileges unless you enforce
+  limits elsewhere.
 
 ### Lanes and workers
 

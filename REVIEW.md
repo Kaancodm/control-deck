@@ -31,8 +31,10 @@ and line, the violated rule, and the smallest fix. Merge needs an explicit GO fr
 
 ## 4. Data classes
 
-- `data_class` is one of `local_only`, `cloud_redacted`, `cloud_ok`. The database default is
-  **`local_only`**; `task.v1` requires the field explicitly. Reject any other default.
+- ADR 0005: `data_class` is **mandatory** on `task.v1` (no schema default). Values:
+  `local_only`, `cloud_redacted`, `cloud_ok`. Reject payloads or APIs that infer or omit it.
+- Legacy only: the DB column may still default to `local_only` for existing rows; do not treat that
+  as permission to skip the field in new `task.v1` JSON.
 - `local_only` content must never be included in a payload for a cloud lane (`claude`, `codex`),
   including knowledge-base context and attachments. `cloud_redacted` is pseudonymised first.
 - A data-gate hit sets the task to `blocked` and records the hits; it never silently downgrades.

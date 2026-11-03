@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Generator
 
 import pytest
@@ -23,6 +24,7 @@ def migrated_database() -> Generator[None, None, None]:
     get_engine(for_tests=True)
 
     alembic_cfg = Config("alembic.ini")
+    alembic_cfg.cmd_opts = argparse.Namespace(x=["target=test"])
     command.upgrade(alembic_cfg, "head")
     yield
     reset_engine_for_tests()

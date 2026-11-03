@@ -46,3 +46,4 @@ htmlcov/
 
 # Claude Code (per-user overrides)
 .claude/settings.local.json
+tests/hooks/_guard_tmp/

@@ -49,8 +49,11 @@ jobs:
 
       - name: Alembic upgrade and check
         run: |
-          uv run alembic upgrade head
-          uv run alembic check
+          uv run alembic -x target=test upgrade head
+          uv run alembic -x target=test check
+
+      - name: Guard hook tests
+        run: bash tests/hooks/test_guard.sh
 
       - name: Ruff check
         run: uv run ruff check .

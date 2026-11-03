@@ -21,9 +21,10 @@ If the diff is not given, review the files that changed relative to `main` as de
    `failed`, `cancelled`, `expired`. `awaiting_approval` is the initial state before `queued`.
    Flag any transition added outside the table, any status string hard-coded elsewhere, any
    transition that does not emit an audit event, and any forbidden transition that no longer raises.
-3. **Data classes** — `data_class` is one of `local_only`, `cloud_redacted`, `cloud_ok`; the
-   database default is `local_only`. Flag any path where `local_only` content can reach a cloud
-   lane (claude, codex), any new default other than `local_only`, and any pseudonymisation bypass.
+3. **Data classes** — ADR 0005: `data_class` is mandatory on `task.v1` (`local_only`,
+   `cloud_redacted`, `cloud_ok`; no schema default). The DB column may still default to
+   `local_only` for legacy rows only. Flag omitted or inferred `data_class`, any path where
+   `local_only` content can reach a cloud lane (claude, codex), and any pseudonymisation bypass.
 4. **Test-database rule** — Integration tests and destructive Alembic commands run only against
    `DECK_TEST_DATABASE_URL`, whose database name ends in `_test`. Flag tests or fixtures that read
    `DECK_DATABASE_URL`, bypass `get_test_database_url`, or weaken the `_test` check.

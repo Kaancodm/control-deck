@@ -1,7 +1,7 @@
 # Etappe 13 - Codex-CLI als gepruefte Simulation
 
-Status: Implementierung im gestapelten Draft-PR auf Etappe 12. Finale Pflichtchecks folgen
-nach dem Rebase auf den fertigen Vorgaenger. Kein Merge durch Agenten.
+Status: Im gestapelten Draft-PR auf Etappe 12 umgesetzt und lokal vollstaendig geprueft.
+Nachweise und finale CI stehen im PR. Kein Merge durch Agenten.
 
 ## Lieferumfang
 

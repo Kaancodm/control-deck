@@ -1,24 +1,28 @@
 # Stand des Repositorys
 
-## Etappe 13: in Arbeit
+## Etappe 13 implementiert und lokal geprueft
 
 Die Codex-Lane ist im gestapelten [Draft-PR #28](https://github.com/Kaancodm/control-deck/pull/28)
-implementiert. Der versionierte JSONL-Vertrag, eine Fake-CLI und der gemeinsame Reinraum-
-Simulator pruefen ausschliesslich Textausgaben. Der Zwischenstand auf Etappe-12-Checkpoint
-`b6536fa` besteht **1571 Tests**, `make lint`, Alembic-Check sowie beide Referenzmodi mit je
-**4/4 Faellen**. Keine xfail oder Skips; eine bestehende Starlette/httpx-Warnung.
+auf Etappe 12 umgesetzt. Der versionierte JSONL-Vertrag, eine Fake-CLI und der gemeinsame
+Reinraum-Simulator akzeptieren ausschliesslich abgeschlossene Textausgaben. Genau die
+freigegebenen und archivierten Payload-Bytes erreichen stdin; `local_only` bleibt bei Ollama.
+Tool-Ereignisse, Teilantworten und ungueltige Protokolle werden verworfen. Das Codex-Profil
+bleibt vom Claude-Profil getrennt; Abbruch und Timeout behalten eine eigene Bereinigung.
 
-Inzwischen auf Etappe-12-Zwischenstand `2487ca5` mit Etappe 10 und Migration `0012`
-rebased. **183 gezielte Codex-Tests** sowie Lint und Alembic sind dort gruen, einschliesslich
-Lane-Pause/Fallback, persistentem Rate-Limit-Backoff und ausgeschöpftem Acceptance-Budget.
-Der Gesamtzaehler oben bezeichnet weiterhin den vorherigen Stand.
+Pflichtchecks auf isolierter PostgreSQL-17-Testdatenbank: **1896 Tests bestanden**, davon
+**601 Integrationstests** und **1295 Unit-Tests**; keine xfail oder Skips. `make lint`,
+`uv run alembic -x target=test check` sowie beide Referenzmodi mit je **4/4 Faellen** sind
+gruen. Eine bestehende Starlette/httpx-Deprecation-Warnung. Die Tests belegen auch Lane-Pause
+und erlaubten Fallback, 60-/240-Sekunden-Backoff ueber neue Runner hinweg sowie das globale
+Versuchsbudget. Die CI des finalen Heads wird im PR ausgewiesen.
 
-Der finale Rebase auf den fertigen Etappe-12-Stand und danach erneute Pflichtchecks stehen
-noch aus. Diese Zahl ist kein finaler Stack-Nachweis. Das Live-Profil bleibt ohne Prozessstart
-gesperrt: vollstaendige Tool-Deaktivierung, ausgeschlossene interne Subscription-Retries und
-Reinraum-Grenzen sind nicht nachgewiesen. Keine echten Logins, Anbieteraufrufe oder
-Serveraenderungen. Details und Inbetriebnahme: [LANES.md](LANES.md).
+Inbetriebnahme bleibt offen: vollstaendige Tool-Deaktivierung, ausgeschlossene interne
+Subscription-Retries, Rootless-/Netzgrenzen, Image-Build und echte Anmeldung sind nicht
+nachgewiesen. Das Live-Profil startet keinen Prozess und ist nicht aktivierbar; ein
+Simulationserfolg ist kein Live-Nachweis. Keine echten Logins, Anbieteraufrufe, API-Keys
+oder Serveraenderungen. Details und Quellen: [LANES.md](LANES.md).
 
+Externes Review durch einen anderen Anbieter und Owner-Merge bleiben ausstehend.
 
 ## Etappe 12 bereit fuer externes Review
 

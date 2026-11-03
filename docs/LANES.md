@@ -10,10 +10,21 @@ Das Standardprofil `disabled` bleibt ohne Prozessstart `unavailable` mit dem Gru
 `live_profile_unavailable`.
 
 Die Modellkennung stammt aus `lanes.ollama.models.<kind>` oder `.default` in der lokalen
-Routing-Konfiguration. Im Code stehen keine echten Modellnamen. Fehlende Konfiguration,
-fehlende Modelle, eine deaktivierte Lane oder Pause verhindern den Claim und verbrauchen
-keinen Versuch. Die Inventarpruefung laeuft vor jedem Poll ausserhalb einer DB-Transaktion.
-Der Claim prueft die aktuelle Modellwahl erneut gegen die zuvor geprueften Modelle.
+Routing-Konfiguration. Im Code stehen keine echten Modellnamen. Eine Lane ganz ohne
+Modelle, ein konfiguriertes, aber im Inventar fehlendes Modell, eine deaktivierte Lane oder
+Pause verhindern den Claim und verbrauchen keinen Versuch; die Aufgabe bleibt `queued` und
+`lane_status` nennt den Grund. Die Inventarpruefung laeuft vor jedem Poll ausserhalb einer
+DB-Transaktion. Der Claim prueft die aktuelle Modellwahl erneut gegen die zuvor geprueften
+Modelle.
+
+Fehlt dagegen fuer den `kind` einer Aufgabe ein Eintrag und gibt es kein `default`, ist das
+eine dauerhafte Fehlkonfiguration, die kein spaeterer Poll beheben kann. Die Queue setzt die
+Aufgabe ohne Versuch auf `blocked` und schreibt das Ereignis `task.block` mit Grund
+`routing`, Code `model_not_configured`, Lane und `kind`. Im selben Commit wird
+`lane_status` auf `unavailable` / `model_not_configured` gesetzt; andere Aufgaben mit
+konfiguriertem Modell werden im selben Poll weiter bearbeitet. Der naechste Poll ohne
+betroffene Aufgabe meldet wieder `ok`. Diese Regel gilt nur fuer Lanes mit vorheriger
+Inventarpruefung; Claims ohne Inventar verhalten sich wie bisher.
 
 Der Host-Runner gibt genau die UTF-8-Bytes aus `payload.sent.md` auf stdin an
 `run <modell>` weiter. Es wird kein zusaetzlicher Prompt davor- oder dahintergesetzt.

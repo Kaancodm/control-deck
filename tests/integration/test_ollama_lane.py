@@ -18,11 +18,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.schemas import TaskV1, Worker
 from app.db.models import Event, LaneStatus, Lease, RedactionMap, Result, Task
+from app.db.queue import dequeue_next_queued_task
 from app.db.repository import approve_task, create_task_from_v1
 from app.db.settings import update_settings
 from app.db.state_machine import TaskState
 from app.db.transitions import request_operator_cancel
-from app.workers.lane_status import get_lane_status
+from app.workers.lane_status import LaneHealthState, get_lane_status, update_lane_status
 from app.workers.lanes.ollama import OllamaExecutor, OllamaSimulation
 from app.workers.ollama_lane import OllamaLaneRunner
 from tests.integration.test_database import _minimal_task_payload
@@ -52,10 +53,12 @@ def _task(
     text: str = "ordinary task text",
     acceptance: list[dict[str, str]] | None = None,
     approved: bool = True,
+    kind: str = "custom",
 ) -> UUID:
     payload = _minimal_task_payload(uuid4())
     payload["data_class"] = data_class
     payload["instructions"] = text
+    payload["kind"] = kind
     payload["acceptance"] = acceptance or []
     task = create_task_from_v1(session, TaskV1.model_validate(payload))
     if approved:
@@ -303,17 +306,147 @@ def test_unavailable_inventory_does_not_claim_or_consume_attempts(
     assert health.last_success_at is None
 
 
-def test_missing_model_for_task_kind_is_not_claimed(
+def _assert_blocked_for_missing_model(session: Session, task_id: UUID, *, kind: str) -> None:
+    session.expire_all()
+    task = session.get(Task, task_id)
+    assert task is not None
+    assert task.status == TaskState.BLOCKED
+    assert task.attempt == 0
+    assert (
+        session.scalar(select(func.count()).select_from(Lease).where(Lease.task_id == task_id)) == 0
+    )
+    assert (
+        session.scalar(select(func.count()).select_from(Result).where(Result.task_id == task_id))
+        == 0
+    )
+    events = list(
+        session.scalars(
+            select(Event).where(Event.task_id == task_id, Event.event_type == "task.block")
+        )
+    )
+    assert len(events) == 1
+    detail = events[0].detail
+    assert events[0].from_status == TaskState.QUEUED
+    assert events[0].to_status == TaskState.BLOCKED
+    assert detail["reason"] == "routing"
+    assert detail["code"] == "model_not_configured"
+    assert detail["lane"] == "ollama"
+    assert detail["kind"] == kind
+    assert detail["attempt"] == 0
+    assert "ordinary task text" not in json.dumps(detail)
+    health = get_lane_status(session, lane=Worker.OLLAMA)
+    assert health is not None
+    assert health.status == "unavailable"
+    assert health.reason == "model_not_configured"
+
+
+def test_missing_model_for_task_kind_is_blocked_with_reason_and_lane_status(
     db_session: Session, tmp_path: Path, router_file: Path
 ) -> None:
     task_id = _task(db_session)
     _write_config(router_file, models={"summarize": "fixture-model"})
     executor = _executor()
 
-    assert _runner(db_session, tmp_path, executor).run_once().action == "idle"
+    outcome = _runner(db_session, tmp_path, executor).run_once()
 
+    assert outcome.action == "idle"
     assert executor.run_calls == []
+    _assert_blocked_for_missing_model(db_session, task_id, kind="custom")
+    # The inventory probe itself succeeded; only the configuration gap is reported.
+    assert get_lane_status(db_session, lane=Worker.OLLAMA).last_success_at is not None
+
+
+def test_unconfigured_kind_is_blocked_while_configured_kind_still_runs(
+    db_session: Session, tmp_path: Path, router_file: Path
+) -> None:
+    blocked_id = _task(db_session, kind="custom")
+    runnable_id = _task(db_session, kind="summarize")
+    _write_config(router_file, models={"summarize": "fixture-model"})
+    executor = _executor()
+    runner = _runner(db_session, tmp_path, executor)
+
+    first = runner.run_once()
+
+    assert first.action == "completed"
+    assert first.task_id == runnable_id
+    assert first.status == "review"
+    assert executor.run_calls == [("run", "fixture-model")]
+    _assert_blocked_for_missing_model(db_session, blocked_id, kind="custom")
+    assert db_session.get(Task, runnable_id).status == TaskState.REVIEW
+
+    second = runner.run_once()
+
+    # Nothing misconfigured remains queued, so the next poll observes a healthy lane.
+    assert second.action == "idle"
+    assert executor.run_calls == [("run", "fixture-model")]
+    health = get_lane_status(db_session, lane=Worker.OLLAMA)
+    assert health.status == "ok"
+    assert health.reason == "simulation_ready"
+
+
+def test_queue_separates_transient_inventory_gap_from_missing_model_configuration(
+    db_session: Session, router_file: Path
+) -> None:
+    task_id = _task(db_session)
+    update_lane_status(
+        db_session, lane=Worker.OLLAMA, status=LaneHealthState.OK, reason="simulation_ready"
+    )
+    db_session.commit()
+
+    # A configured model missing from the observed inventory is transient: no claim, no event.
+    claimed = dequeue_next_queued_task(
+        db_session,
+        worker=Worker.OLLAMA,
+        lease_ttl=timedelta(seconds=10),
+        available_models=frozenset(),
+    )
+    db_session.commit()
+
+    assert claimed is None
     _assert_unclaimed(db_session, task_id)
+    assert (
+        db_session.scalar(
+            select(func.count())
+            .select_from(Event)
+            .where(Event.task_id == task_id, Event.event_type == "task.block")
+        )
+        == 0
+    )
+    health = get_lane_status(db_session, lane=Worker.OLLAMA)
+    assert health.status == "ok"
+    assert health.reason == "simulation_ready"
+
+    # No model for this task kind at all is permanent: blocked with an audit event.
+    _write_config(router_file, models={"summarize": "fixture-model"})
+    claimed = dequeue_next_queued_task(
+        db_session,
+        worker=Worker.OLLAMA,
+        lease_ttl=timedelta(seconds=10),
+        available_models=frozenset({"fixture-model"}),
+    )
+    db_session.commit()
+
+    assert claimed is None
+    _assert_blocked_for_missing_model(db_session, task_id, kind="custom")
+
+
+def test_lane_without_inventory_does_not_block_unconfigured_kind(
+    db_session: Session, router_file: Path
+) -> None:
+    # Only inventory-backed lanes treat a missing model as misconfiguration; a claim
+    # without an observed inventory keeps the pre-existing executor-decides behaviour.
+    task_id = _task(db_session)
+    _write_config(router_file, models={"summarize": "fixture-model"})
+
+    claimed = dequeue_next_queued_task(
+        db_session, worker=Worker.OLLAMA, lease_ttl=timedelta(seconds=10)
+    )
+
+    assert claimed is not None
+    assert claimed.id == task_id
+    assert claimed.status == TaskState.LEASED
+    assert claimed.plan["models"] == {"ollama": None}
+    assert get_lane_status(db_session, lane=Worker.OLLAMA) is None
 
 
 def test_changed_model_after_preflight_is_not_claimed(

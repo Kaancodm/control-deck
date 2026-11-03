@@ -1,0 +1,10 @@
+<article class="panel task-card">
+  <div class="task-status"><span class="hint">Task-Zustand</span> {% include 'partials/status.html' %}</div>
+  <h3><a href="/ui/tasks/{{ task.id }}">{{ task.payload.title }}</a></h3>
+  <p>{{ task.data_class.value }} · Lane {{ task.lane or 'offen' }} · Versuch {{ task.attempt }}</p>
+  {% set result = task.results|sort(attribute='attempt')|last %}
+  {% include 'partials/result_status.html' %}
+  {% if task.deadline_at %}<p>Owner-Deadline: {{ task.deadline_at.isoformat() }}</p>{% endif %}
+  {% if task.next_attempt_at %}<p>Naechster Versuch ab {{ task.next_attempt_at.isoformat() }}</p>{% endif %}
+  {% if needs_owner %}<a class="button quiet" href="/ui/tasks/{{ task.id }}">{% if task.status.value == 'awaiting_approval' %}Start-Freigabe pruefen{% else %}Ergebnis-Freigabe pruefen{% endif %}</a>{% endif %}
+</article>

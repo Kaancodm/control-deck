@@ -31,10 +31,8 @@ from app.core.validate import validate_task
 from app.db.failures import list_failed_tasks
 from app.db.models import Task
 from app.db.queue import expire_overdue_tasks, expire_task_if_due
-from app.db.repository import approve_task, create_task_from_api_payload
 from app.db.routing import routing_snapshot
-from app.db.state_machine import InvalidTaskTransitionError, TaskState, TaskTransition
-from app.db.transitions import TransitionActor, request_operator_cancel, transition_task
+from app.db.state_machine import InvalidTaskTransitionError, TaskState
 from app.privacy.config import PrivacyConfigurationError
 from app.privacy.gate import (
     PrivacyInputError,
@@ -44,6 +42,7 @@ from app.privacy.gate import (
 )
 from app.routing.config import RouterConfigurationError, get_router_config
 from app.routing.router import route_task
+from app.services.tasks import OwnerTaskError, act_on_task, submit_task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -56,7 +55,7 @@ def create_task(
 ) -> TaskCreateOut | JSONResponse:
     """Validate ``task.v1``, persist awaiting approval, and record audit events."""
     try:
-        task = create_task_from_api_payload(session, body)
+        task = submit_task(session, body)
     except RouterConfigurationError:
         session.rollback()
         return _routing_unavailable()
@@ -278,13 +277,10 @@ def cancel_task(
     _owner: OwnerAuth,
 ) -> TaskDetailOut | JSONResponse:
     """Cancel a task (owner override, no lease required)."""
-    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
-        return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")
     try:
-        request_operator_cancel(session, task=task, reason="api")
+        task = act_on_task(session, task_id, "cancel", reason="api")
+    except OwnerTaskError as exc:
+        return _owner_action_error(exc)
     except InvalidTaskTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     session.refresh(task, attribute_names=["events", "results"])
@@ -298,13 +294,10 @@ def approve_task_endpoint(
     _owner: OwnerAuth,
 ) -> TaskDetailOut | JSONResponse:
     """Owner approval: move task from ``awaiting_approval`` into the queue."""
-    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
-        return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")
     try:
-        approve_task(session, task)
+        task = act_on_task(session, task_id, "approve")
+    except OwnerTaskError as exc:
+        return _owner_action_error(exc)
     except PrivacyInputUnavailable as exc:
         return problem_response(
             status=409,
@@ -337,22 +330,19 @@ def review_task_endpoint(
     _owner: OwnerAuth,
 ) -> TaskDetailOut | JSONResponse:
     """Record the owner's acceptance or rejection of a completed result."""
-    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
-        return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")
     try:
-        transition_task(
-            session,
-            task=task,
-            trigger=(
-                TaskTransition.REVIEW_APPROVE if body.approved else TaskTransition.REVIEW_REJECT
-            ),
-            actor=TransitionActor.OPERATOR,
-            detail={"approved": body.approved, "reason": body.reason},
+        task = act_on_task(
+            session, task_id, "accept" if body.approved else "reject", reason=body.reason
         )
+    except OwnerTaskError as exc:
+        return _owner_action_error(exc)
     except InvalidTaskTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     session.refresh(task, attribute_names=["events", "results"])
     return task_detail(task)
+
+
+def _owner_action_error(error: OwnerTaskError) -> JSONResponse:
+    if error.code == "not_found":
+        raise HTTPException(status_code=404, detail="Task not found")
+    return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")

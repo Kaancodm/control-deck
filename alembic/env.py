@@ -9,6 +9,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.db import models as _models  # noqa: F401 — register ORM metadata
+from app.db import ui_auth as _ui_auth  # noqa: F401 — register UI authentication metadata
 from app.db.base import Base
 from app.db.config import get_database_url, get_test_database_url
 

@@ -1,0 +1,6 @@
+{% if result %}
+{% set result_state = result.payload.status %}
+<span class="status result-status result-{{ result_state }}">Ergebnis · Versuch {{ result.attempt }}:
+  <span aria-hidden="true">{{ result_labels[result_state][0] }}</span> {{ result_labels[result_state][1] }}
+</span>
+{% else %}<span class="hint result-status">Ergebnis: Noch keines</span>{% endif %}

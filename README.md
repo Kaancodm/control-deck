@@ -4,9 +4,10 @@ Lokale Steuerzentrale fuer KI-gestuetzte Aufgaben — ohne bezahlte APIs zur Lau
 Dieses Repository enthaelt API, PostgreSQL-Queue, Uebergabe-Schemas (`task.v1`, `result.v1`),
 Abnahme, Datenschranke und lokale Pseudonymisierung.
 
-**Status:** Etappe 10 ergaenzt dauerhafte begrenzte Retries, Backoff, Fallback und eine
-Owner-Fehlerliste. Host-Runner und Ollama-CLI sind simuliert; echte Anbieteraufrufe bleiben
-aus. Aktueller Arbeitsstand: [docs/STAND.md](docs/STAND.md).
+**Status:** Etappe 11 ergaenzt eine themebare Owner-Oberflaeche mit Passwort-Login,
+Freigaben, Reviews, sicheren Dateien und lokalem Chat mit unverbindlichen Entwuerfen.
+Host-Runner und Chat-Tests sind simuliert; echte Anbieteraufrufe bleiben aus.
+Bedienung: [docs/UI.md](docs/UI.md). Arbeitsstand: [docs/STAND.md](docs/STAND.md).
 
 ## Zweck
 
@@ -25,7 +26,8 @@ standardisierten Format. Menschliche Freigabe ist standardmaessig vorgesehen.
 | `app/routing` | Reiner Router, lokale Regeln und Modellkonfiguration |
 | `app/redaction` | Pseudonymisierung, lokale Maps, Payload-Bau und Versand-Artefakte |
 | `app/workers` | Host-Runner, sichere Vorbereitung, Steuerung und Simulation |
-| `app/ui` | Oberflaeche (spaetere Etappe) |
+| `app/ui` | Themebare Jinja-Oberflaeche, Login, sichere Dateien und lokaler Chat |
+| `app/services` | Gemeinsame Owner-Aktionen fuer API und Oberflaeche |
 | `schemas/` | JSON Schema Draft 2020-12 fuer `task.v1` und `result.v1` |
 | `config/` | Router-Konfiguration ohne echte Modellnamen oder Zugangsdaten |
 | `tests/` | Unit-, Integrations- und Referenztests |

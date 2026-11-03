@@ -15,7 +15,7 @@ from sqlalchemy.engine import Engine
 
 from alembic import command
 from app.db.session import get_engine, reset_engine_for_tests
-from tests.integration.helpers import require_test_database_url
+from tests.integration.helpers import migration_head, require_test_database_url
 from tests.integration.test_database import _minimal_task_payload
 from tests.integration.test_issue_fixes import _teardown_migration_db
 
@@ -94,4 +94,6 @@ def test_0008_downgrade_refuses_to_lose_maps(revision_0007: tuple[Config, Engine
         command.downgrade(cfg, "20251103_0007")
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT count(*) FROM redaction_maps")) == 1
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20251103_0011"
+        assert (
+            connection.scalar(text("SELECT version_num FROM alembic_version")) == migration_head()
+        )

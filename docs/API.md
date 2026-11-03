@@ -14,7 +14,8 @@ Basis-Pfad fuer versionierte Endpunkte: **`/api/v1`**. OpenAPI: `/api/v1/docs`, 
 | `DECK_WORKER_TOKEN_OLLAMA` | Eigenes Token fuer die Ollama-Lane (`Authorization: Bearer …` oder Header `X-Deck-Worker-Token`) |
 | `DECK_WORKER_TOKEN_CLAUDE` | Eigenes Token fuer die Claude-Lane |
 | `DECK_WORKER_TOKEN_CODEX` | Eigenes Token fuer die Codex-Lane |
-| `DECK_OWNER_TOKEN` | Gemeinsames Geheimnis fuer Owner-Endpunkte (`Authorization: Bearer …`); Login folgt in Etappe 15 |
+| `DECK_OWNER_TOKEN` | Bearer-Geheimnis fuer Owner-API-Endpunkte; getrennt vom UI-Passwort und von Worker-Tokens |
+| `DECK_OWNER_PASSWORD_HASH` | Argon2id-Hash fuer den lokalen UI-Login, seit Etappe 11 |
 | `DECK_LEASE_TTL_SECONDS` | Default-Lease-Dauer beim Pull (Default `900`) |
 | `DECK_HEARTBEAT_EXTEND_SECONDS` | Verlaengerung bei Heartbeat (Default `300`) |
 | `DECK_ROUTER_FILE` | Optionale lokale Router-Konfiguration mit Regeln, Modellen und Tagesgrenzen |
@@ -22,6 +23,10 @@ Basis-Pfad fuer versionierte Endpunkte: **`/api/v1`**. OpenAPI: `/api/v1/docs`, 
 | `DECK_BLOCKLIST_PATH` | Lokale UTF-8-Literalliste ausserhalb des Repositories; fuer Cloud-Auftraege Pflicht |
 
 Owner-Endpunkte verlangen **`DECK_OWNER_TOKEN`** als Bearer-Token (401 ohne gueltiges Token).
+Die Oberflaeche unter `/ui` verwendet eigene serverseitige Sessions und CSRF. UI-Cookies
+authentifizieren keine API-/Worker-Endpunkte. API und UI rufen fuer Erstellung, Freigabe,
+Review und Abbruch dieselben Funktionen in `app/services/tasks.py` auf; kein HTTP-Aufruf
+an den eigenen Server. Details: [UI.md](UI.md).
 
 ## Fehlerformat
 

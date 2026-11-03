@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select
@@ -37,8 +37,11 @@ def settings(tmp_path: Path) -> PrivacySettings:
     return PrivacySettings(inbox=inbox, blocklist_configured=True)
 
 
-def _store_task(session: Session, **changes: object) -> tuple[Task, TaskV1]:
-    payload = _minimal_task_payload(uuid4())
+def _store_task(
+    session: Session, *, task_id: UUID | None = None, **changes: object
+) -> tuple[Task, TaskV1]:
+    # Random UUIDs in the rendered payload can accidentally match privacy patterns.
+    payload = _minimal_task_payload(task_id if task_id is not None else UUID(int=1))
     payload.update(data_class="cloud_redacted", instructions=_email())
     payload.update(changes)
     model = TaskV1.model_validate(payload)
@@ -93,10 +96,15 @@ def test_persisted_payload_roundtrip_retry_and_artifact_are_consistent(
     assert _email() not in repr(first)
 
 
+@pytest.mark.parametrize(
+    "task_id,expected_maps",
+    [(UUID(int=1), 1), (UUID("aaaaaaaa-aaaa-4aaa-8aaa-0234567890aa"), 2)],
+    ids=["email-only", "phone-pattern-in-task-id"],
+)
 def test_maps_never_appear_in_owner_task_serialization(
-    db_session: Session, settings: PrivacySettings
+    db_session: Session, settings: PrivacySettings, task_id: UUID, expected_maps: int
 ) -> None:
-    row, task = _store_task(db_session)
+    row, task = _store_task(db_session, task_id=task_id)
     prepare_task_payload(db_session, task, lane=Worker.CLAUDE, attempt=1, settings=settings)
     db_session.flush()
 
@@ -105,14 +113,16 @@ def test_maps_never_appear_in_owner_task_serialization(
     assert "redaction_maps" not in serialized and "file_hashes" not in serialized
     assert "original_sha256" not in serialized and "first_attempt" not in serialized
     assert "[[CD_" not in serialized
-    assert _map_count(db_session) == 1
+    assert _map_count(db_session) == expected_maps
 
 
 def test_other_task_cannot_rehydrate_prepared_payload(
     db_session: Session, settings: PrivacySettings
 ) -> None:
     first_row, first_task = _store_task(db_session)
-    second_row, second_task = _store_task(db_session, instructions=_email("second"))
+    second_row, second_task = _store_task(
+        db_session, task_id=UUID(int=2), instructions=_email("second")
+    )
     first = prepare_task_payload(
         db_session, first_task, lane=Worker.CLAUDE, attempt=1, settings=settings
     )

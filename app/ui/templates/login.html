@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Anmelden · Control Deck{% endblock %}
+{% block content %}
+<section class="panel narrow">
+  <p class="eyebrow">Owner-Zugang</p><h1>Anmelden</h1>
+  <p>Ein lokales Owner-Konto. Arbeiter-Zugangsdaten gelten hier nicht.</p>
+  <form action="/ui/login" method="post">
+    {% include 'partials/csrf.html' %}
+    <label for="password">Passwort</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+    <button type="submit">Anmelden</button>
+  </form>
+</section>
+{% endblock %}

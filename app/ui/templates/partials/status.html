@@ -1,0 +1,3 @@
+{% set state = task.status.value %}
+<span class="status status-{{ state }}"><span aria-hidden="true">{{ status_labels[state][0] }}</span> {{ status_labels[state][1] }}</span>
+{% if task.cancel_requested %}<span class="status">Abbruch angefordert</span>{% endif %}

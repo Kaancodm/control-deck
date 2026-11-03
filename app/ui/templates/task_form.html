@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Neuer Auftrag · Control Deck{% endblock %}
+{% block content %}
+<h1>Neuer Auftrag</h1>
+{% if draft %}<p class="notice">Unverbindlicher Chat-Entwurf. Pruefe alle Felder. Er wird erst mit diesem Formular gespeichert und benoetigt danach eine eigene Start-Freigabe.</p>{% endif %}
+<form action="/ui/tasks/new" method="post" enctype="multipart/form-data" class="panel form-stack">
+  {% include 'partials/csrf.html' %}
+  <label for="title">Titel</label><input id="title" name="title" required maxlength="120" value="{{ values.get('title','') }}">
+  <label for="instructions">Anweisung</label><textarea id="instructions" name="instructions" required rows="5">{{ values.get('instructions','') }}</textarea>
+  <div class="field-grid">
+    <div><label for="kind">Auftragstyp</label><select id="kind" name="kind">{% for kind in ['custom','summarize','research','draft','code','review','classify'] %}<option {% if values.get('kind') == kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}</select></div>
+    <div><label for="data_class">Datenklasse (Pflicht)</label><select id="data_class" name="data_class" required>{% for value in ['local_only','cloud_redacted','cloud_ok'] %}<option {% if values.get('data_class','local_only') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+  </div>
+  <p class="hint">Vorschlag: local_only. Nur Ollama darf lokalen Text erhalten. Cloud-Klassen umgehen keine Datenschranke.</p>
+  <label class="check"><input type="checkbox" name="cloud_confirm" value="yes"> Ich bestaetige einen ausdruecklich gewaehlten Cloud-Versand.</label>
+  <label for="input_text">Zusaetzlicher Text</label><textarea id="input_text" name="input_text" rows="4">{{ values.get('input_text','') }}</textarea>
+  <label for="files">Dateien: UTF-8-Text, Markdown, JSON oder CSV</label><input id="files" name="files" type="file" multiple accept=".txt,.md,.markdown,.json,.csv">
+  <p class="hint">Maximal 16 Dateien, 1 MiB je Datei und 5 MiB pro Auftrag. PDF, Office, Bilder und Archive sind ausgeschlossen.</p>
+  <label for="fallback_chain">Fallback-Reihenfolge</label><input id="fallback_chain" name="fallback_chain" required value="{{ values.get('fallback_chain','ollama') }}" aria-describedby="chain-help">
+  <p id="chain-help" class="hint">Kommagetrennt: ollama, claude, codex. Datenklasse und lokale Regeln begrenzen die Auswahl.</p>
+  <div class="field-grid"><div><label for="max_attempts">Maximale Versuche</label><input id="max_attempts" type="number" name="max_attempts" min="1" max="5" required value="{{ values.get('max_attempts','3') }}"></div>
+    <div><label for="timeout_s">Zeitlimit je Versuch (Sekunden)</label><input id="timeout_s" name="timeout_s" type="number" min="30" max="7200" required value="{{ values.get('timeout_s','900') }}"></div></div>
+  <label class="check"><input type="checkbox" name="require_review" value="yes" {% if values.get('require_review','yes') == 'yes' %}checked{% endif %}> Ergebnis benoetigt mein Review</label>
+  <details><summary>Weitere Vorgaben</summary>
+    <label for="allowed_workers">Erlaubte Worker (leer: keine weitere Einschraenkung)</label><input id="allowed_workers" name="allowed_workers" value="{{ values.get('allowed_workers','') }}">
+    <label for="forbidden_workers">Verbotene Worker</label><input id="forbidden_workers" name="forbidden_workers" value="{{ values.get('forbidden_workers','') }}">
+    <label for="acceptance">Abnahmeregeln als JSON-Liste</label><textarea id="acceptance" name="acceptance" rows="4">{{ values.get('acceptance','[]') }}</textarea>
+    <p class="hint">Typen: must_contain, must_not_contain, regex, json_schema, max_chars, human. Je Regel: type und optional value.</p>
+    <label for="deadline_at">Owner-Deadline (optional, ISO-Zeit mit Zeitzone)</label><input id="deadline_at" name="deadline_at" placeholder="YYYY-MM-DDTHH:MM:SS+00:00">
+  </details>
+  <button type="submit">Auftrag zur Start-Freigabe speichern</button>
+</form>
+{% endblock %}

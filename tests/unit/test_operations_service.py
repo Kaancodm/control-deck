@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import configparser
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -36,6 +39,29 @@ def test_install_is_idempotent_and_never_starts_services(
     runner = (destination / "deck-runner@.service").read_text()
     assert "RestartPreventExitStatus=78" in runner
     assert "--simulate" not in runner
+
+
+def test_unit_templates_have_valid_offline_syntax(tmp_path: Path) -> None:
+    environment = tmp_path / "env"
+    environment.write_text("")
+    templates = service.render_units(Path.cwd(), environment)
+    paths = []
+    for name, content in templates.items():
+        parser = configparser.ConfigParser(interpolation=None, strict=True)
+        parser.read_string(content.decode())
+        assert "Unit" in parser and ("Service" in parser or "Timer" in parser)
+        if "Service" in parser:
+            assert parser["Service"]["UMask"] == "0077"
+            assert parser["Service"]["NoNewPrivileges"] == "true"
+        destination = tmp_path / name
+        destination.write_bytes(content)
+        paths.append(str(destination))
+    verifier = shutil.which("systemd-analyze")
+    if verifier:
+        result = subprocess.run(
+            [verifier, "verify", "--man=no", *paths], capture_output=True, timeout=15, check=False
+        )
+        assert result.returncode == 0
 
 
 def test_install_refuses_conflicting_units(tmp_path: Path) -> None:

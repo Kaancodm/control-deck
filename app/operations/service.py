@@ -117,6 +117,7 @@ def update_checkout(repository: Path, *, database_url: str, backup_root: Path) -
     ):
         raise OperationError("unsupported_update_branch")
     create_backup(database_url, backup_root)
+    run_command(("systemctl", "--user", "stop", *_SERVICES), env=environment, maximum_output=65536)
     run_command(("git", "-C", root, "fetch", "origin"), env=environment, maximum_output=65536)
     run_command(
         ("git", "-C", root, "merge", "--ff-only", "origin/main"),

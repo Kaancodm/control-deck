@@ -132,9 +132,11 @@ fehlgeschlagener Lauf ist deshalb sichtbar und wird niemals als abgeschlossen be
 ## Update und Fehlerbehandlung
 
 Ein ausdrueckliches Update verlangt einen sauberen Arbeitsbaum auf `main`. Vor der ersten
-Aenderung wird ein Backup angelegt. Danach folgen Fetch, ausschliesslicher Fast-forward,
-`uv sync --frozen`, Migration und erst bei Erfolg ein Neustart. Konflikte, Migration- oder
-Backup-Fehler beenden den Ablauf. Es gibt keinen automatischen Rollback einer Migration.
+Aenderung wird ein Backup angelegt. Danach werden API und Runner gestoppt; Fetch,
+ausschliesslicher Fast-forward, `uv sync --frozen` und Migration erfolgen ohne laufende
+alte Worker. Erst bei Erfolg folgt ein Neustart. Konflikte, Migration- oder Backup-Fehler
+beenden den Ablauf; nach einem Stopp bleiben die Dienste bis zum ausdruecklichen
+Owner-Start gestoppt. Es gibt keinen automatischen Rollback einer Migration.
 
 Betriebsfehler melden stabile Codes und Operation-IDs. Die geschuetzte Audit-Ansicht aus
 Etappe 17 kann diese Phasen anzeigen. Rohdaten, Passwoerter, Dateipfade und Ausgabe von

@@ -1,5 +1,16 @@
 # Stand des Repositorys
 
+## Etappe 11 in Arbeit
+
+Branch: `stage/11-ui-chat`, gestapelt auf Etappe 10 (`stage/10-error-paths`, PR #25).
+Die Oberflaeche erhaelt zentrale CSS-Variablen und wiederverwendbare Partials. Das spaetere
+Design wird separat abgenommen. Geplant sind Passwort-Login mit Argon2id, serverseitige
+Sessions und CSRF, gemeinsame Task-Dienste, sichere Dateien sowie ein lokaler Chat mit
+unverbindlichen Auftragsentwuerfen. Chat darf weder freigeben noch exportieren oder steuern.
+Es gibt keine Datenschutz-Umgehung fuer blockierte Tasks. Pflichtchecks, Browser-Smoke bei
+390 und 1024 Pixeln sowie Review-Bereitschaft folgen nach dem Rebase auf die fertige Etappe 10.
+Echte Modellaufrufe, Logins und Serverinstallation bleiben unter Inbetriebnahme offen.
+
 ## Etappe 10 bereit fuer externes Review
 
 Draft-PR: [#25](https://github.com/Kaancodm/control-deck/pull/25).

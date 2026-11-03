@@ -39,6 +39,7 @@ from app.db.state_machine import (
         (TaskState.REVIEW, TaskTransition.REVIEW_APPROVE, TaskState.DONE),
         (TaskState.REVIEW, TaskTransition.REVIEW_REJECT, TaskState.FAILED),
         (TaskState.REVIEW, TaskTransition.CANCEL, TaskState.CANCELLED),
+        (TaskState.BLOCKED, TaskTransition.UNBLOCK, TaskState.QUEUED),
         *[
             (state, TaskTransition.EXPIRE, TaskState.EXPIRED)
             for state in (
@@ -69,7 +70,6 @@ def test_allowed_transitions(
         TaskState.DONE,
         TaskState.EXPIRED,
         TaskState.FAILED,
-        TaskState.BLOCKED,
         TaskState.CANCELLED,
     ],
 )
@@ -77,6 +77,22 @@ def test_terminal_states_reject_all_triggers(terminal: TaskState) -> None:
     for trigger in TaskTransition:
         with pytest.raises(InvalidTaskTransitionError):
             apply_transition(terminal, trigger)
+    assert allowed_triggers(terminal) == frozenset()
+
+
+def test_blocked_accepts_only_the_owner_unblock() -> None:
+    """``blocked`` stays parked for sweeps and claims; only an explicit unblock leaves it."""
+    assert allowed_triggers(TaskState.BLOCKED) == frozenset({TaskTransition.UNBLOCK})
+    for trigger in TaskTransition:
+        if trigger == TaskTransition.UNBLOCK:
+            continue
+        with pytest.raises(InvalidTaskTransitionError):
+            apply_transition(TaskState.BLOCKED, trigger)
+    for state in TaskState:
+        if state == TaskState.BLOCKED:
+            continue
+        with pytest.raises(InvalidTaskTransitionError):
+            apply_transition(state, TaskTransition.UNBLOCK)
 
 
 def test_invalid_transition_from_queued() -> None:

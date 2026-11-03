@@ -6,7 +6,10 @@
 {% include 'partials/result_status.html' %}
 {% if task.status.value == 'review' %}<p class="hint">Das Ergebnis wartet auf deine Freigabe; der Auftrag ist noch nicht erledigt.</p>{% endif %}
 <p>{{ task.data_class.value }} · Lane {{ task.lane or 'offen' }} · Versuch {{ task.attempt }}</p>
-{% if task.status.value == 'blocked' %}<p class="notice">Datenschranke oder Routing blockiert diesen Auftrag. Die Zeitlinie zeigt sichere Gruende. Dieser unveraenderliche Auftrag kann nicht entsperrt werden; korrigierte Inhalte benoetigen einen neuen Auftrag und eine neue Start-Freigabe.</p>{% endif %}
+{% if task.status.value == 'blocked' %}<p class="notice">Datenschranke oder Routing blockiert diesen Auftrag. Die Zeitlinie zeigt sichere Gruende. Der unveraenderliche Auftrag kann nur mit begruendetem Owner-Entscheid zurueck in die Warteschlange; korrigierte Inhalte benoetigen einen neuen Auftrag.</p>
+<section class="panel"><h2>Auftrag entsperren</h2><div class="action-grid">
+<form method="post" action="/ui/tasks/{{ task.id }}/unblock">{% include 'partials/csrf.html' %}<label for="unblock-reason">Begruendung (mindestens 10 Zeichen)</label><textarea id="unblock-reason" name="reason" required minlength="10" maxlength="2000"></textarea><label class="check"><input type="checkbox" name="confirm" value="yes" required> Sperrgrund geprueft, Auftrag darf in die Warteschlange</label><button class="danger">Auftrag entsperren</button></form>
+</div></section>{% endif %}
 {% if task.status.value in ['awaiting_approval','review','queued','leased','running'] %}
 <section class="panel"><h2>Owner-Entscheid</h2><div class="action-grid">
 {% if task.status.value == 'awaiting_approval' %}

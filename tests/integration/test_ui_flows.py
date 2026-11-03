@@ -17,9 +17,10 @@ from app.api.app import create_app
 from app.api.deps import get_db
 from app.core.schemas import Worker
 from app.db.models import Event, Result, Task
-from app.db.state_machine import TaskState
+from app.db.state_machine import InvalidTaskTransitionError, TaskState
 from app.db.ui_auth import UiSession
 from app.redaction.placeholders import PLACEHOLDER_PATTERN
+from app.services.tasks import OwnerTaskError, act_on_task
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.ui.chat import SimulatedChat
 from app.ui.forms import task_from_form
@@ -378,7 +379,7 @@ def test_submission_failure_cleans_uploaded_files(ui_client, db_session, tmp_pat
     assert db_session.scalar(select(func.count()).select_from(Task)) == 0
 
 
-def test_blocked_task_has_no_unblock_action(ui_client, db_session, tmp_path, monkeypatch):
+def create_blocked(ui_client, tmp_path, monkeypatch):
     blocklist = tmp_path / "blocklist.txt"
     blocklist.write_text("SyntheticProtectedTerm")
     monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(blocklist))
@@ -391,18 +392,110 @@ def test_blocked_task_has_no_unblock_action(ui_client, db_session, tmp_path, mon
         cloud_confirm="yes",
         fallback_chain="claude",
     )
-    task = db_session.get(Task, UUID(location.rsplit("/", 1)[1]))
+    return csrf, location, UUID(location.rsplit("/", 1)[1])
+
+
+def test_blocked_task_can_be_unblocked_with_reason(ui_client, db_session, tmp_path, monkeypatch):
+    csrf, location, task_id = create_blocked(ui_client, tmp_path, monkeypatch)
+    task = db_session.get(Task, task_id)
     assert task.status == TaskState.BLOCKED
-    assert "kann nicht entsperrt werden" in ui_client.get(location).text
-    assert (
-        ui_client.post(location + "/unblock", data={"csrf": csrf, "confirm": "yes"}).status_code
-        == 404
+    page = ui_client.get(location)
+    assert "Auftrag entsperren" in page.text and "kann nicht entsperrt werden" not in page.text
+    assert f'action="/ui/tasks/{task_id}/unblock"' in page.text
+    reason = "Owner checked the flagged term; it is synthetic test data."
+    response = ui_client.post(
+        location + "/unblock",
+        data={"csrf": csrf, "confirm": "yes", "reason": reason},
+        follow_redirects=False,
     )
+    assert response.status_code == 303 and response.headers["location"] == location
+    db_session.expire_all()
+    task = db_session.get(Task, task_id)
+    assert task.status == TaskState.QUEUED
+    assert task.approved_at is not None
+    event = next(item for item in task.events if item.event_type == "task.unblock")
+    assert event.actor == "owner" and event.detail["actor"] == "owner"
+    assert event.from_status == TaskState.BLOCKED and event.to_status == TaskState.QUEUED
+    assert event.detail["reason"] == reason
+    assert reason in ui_client.get(location).text
+    # Unblocking is a single owner decision: repeating it is rejected.
     assert (
-        ui_client.post(location + "/approve", data={"csrf": csrf, "confirm": "yes"}).status_code
+        ui_client.post(
+            location + "/unblock", data={"csrf": csrf, "confirm": "yes", "reason": reason}
+        ).status_code
         == 409
     )
-    assert task.status == TaskState.BLOCKED
+
+
+@pytest.mark.parametrize("reason", ["", "   ", "too short", "123456789", "  nine ch  "])
+def test_unblock_requires_reason_of_ten_chars(ui_client, db_session, tmp_path, monkeypatch, reason):
+    csrf, location, task_id = create_blocked(ui_client, tmp_path, monkeypatch)
+    before = db_session.scalar(select(func.count()).select_from(Event))
+    response = ui_client.post(
+        location + "/unblock", data={"csrf": csrf, "confirm": "yes", "reason": reason}
+    )
+    assert response.status_code == 422
+    db_session.expire_all()
+    assert db_session.get(Task, task_id).status == TaskState.BLOCKED
+    assert db_session.scalar(select(func.count()).select_from(Event)) == before
+
+
+def test_unblock_requires_confirmation_and_csrf(ui_client, db_session, tmp_path, monkeypatch):
+    csrf, location, task_id = create_blocked(ui_client, tmp_path, monkeypatch)
+    reason = "Owner reviewed the block and accepts the content."
+    assert (
+        ui_client.post(location + "/unblock", data={"csrf": csrf, "reason": reason}).status_code
+        == 422
+    )
+    assert (
+        ui_client.post(
+            location + "/unblock", data={"csrf": "forged", "confirm": "yes", "reason": reason}
+        ).status_code
+        == 403
+    )
+    db_session.expire_all()
+    assert db_session.get(Task, task_id).status == TaskState.BLOCKED
+
+
+@pytest.mark.parametrize(
+    "state", [TaskState.AWAITING_APPROVAL, TaskState.QUEUED, TaskState.REVIEW, TaskState.FAILED]
+)
+def test_unblock_only_for_blocked_tasks(ui_client, db_session, state):
+    csrf = login(ui_client)
+    task = seed_list_task(db_session, "Not blocked", state)
+    db_session.commit()
+    location = f"/ui/tasks/{task.id}"
+    before = db_session.scalar(select(func.count()).select_from(Event))
+    response = ui_client.post(
+        location + "/unblock",
+        data={"csrf": csrf, "confirm": "yes", "reason": "Owner wants to release this task."},
+    )
+    assert response.status_code == 409
+    db_session.expire_all()
+    assert db_session.get(Task, task.id).status == state
+    assert db_session.scalar(select(func.count()).select_from(Event)) == before
+
+
+def test_act_on_task_unblock_validates_state_and_reason(db_session):
+    blocked = seed_list_task(db_session, "Blocked by gate", TaskState.BLOCKED)
+    waiting = seed_list_task(db_session, "Waiting", TaskState.AWAITING_APPROVAL)
+    db_session.commit()
+    with pytest.raises(OwnerTaskError) as short:
+        act_on_task(db_session, blocked.id, "unblock", reason="too short")
+    assert short.value.code == "invalid_reason"
+    with pytest.raises(OwnerTaskError) as missing:
+        act_on_task(db_session, blocked.id, "unblock")
+    assert missing.value.code == "invalid_reason"
+    with pytest.raises(InvalidTaskTransitionError):
+        act_on_task(db_session, waiting.id, "unblock", reason="Owner releases this task now.")
+    db_session.rollback()
+    assert db_session.get(Task, blocked.id).status == TaskState.BLOCKED
+    assert db_session.get(Task, waiting.id).status == TaskState.AWAITING_APPROVAL
+    task = act_on_task(db_session, blocked.id, "unblock", reason="Owner releases this task now.")
+    db_session.commit()
+    assert task.status == TaskState.QUEUED and task.approved_at is not None
+    event = next(item for item in task.events if item.event_type == "task.unblock")
+    assert event.actor == "owner" and event.detail["reason"] == "Owner releases this task now."
 
 
 def test_chat_default_is_unavailable_and_does_not_mutate_tasks(ui_client, db_session):
@@ -627,7 +720,8 @@ def test_list_and_detail_show_latest_and_historical_result_states_separately(ui_
 
 
 @pytest.mark.parametrize(
-    "action", ["approve-start", "approve-result", "approve", "accept", "reject", "cancel"]
+    "action",
+    ["approve-start", "approve-result", "approve", "accept", "reject", "cancel", "unblock"],
 )
 @pytest.mark.parametrize("bad_csrf", ["", "forged", "other-session"])
 def test_all_task_posts_require_session_bound_csrf(ui_client, db_session, action, bad_csrf):

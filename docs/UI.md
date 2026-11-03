@@ -26,7 +26,9 @@ Speichern erstellt einen Auftrag zur Start-Freigabe; eine erkannte Sperre fuehrt
 Start- und Ergebnis-Freigabe sind getrennte, bestaetigte Aktionen. Ergebnis-Ablehnung mit
 Grund schliesst als `failed` ab. Laufende Abbrueche bleiben als angefordert sichtbar, bis der
 Worker sie bestaetigt oder sein Lease endet. Nur die Owner-Deadline erzeugt `expired`.
-Blockierte und andere terminale Auftraege werden nicht wiederbelebt oder entsperrt.
+Blockierte Auftraege kann der Owner mit Begruendung (mindestens 10 Zeichen) entsperren
+(`blocked → queued`, Event `unblock` mit `actor = owner`, D8/F6); andere terminale Auftraege
+werden nicht wiederbelebt.
 
 Auftragslisten, Details, Zeitlinien und Fehlerlisten fuehren keine Deadline-Sweeps aus und
 nehmen keine Task-Zeilensperren. Der Login stellt dagegen eine kurzlebige Session aus.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Request
@@ -29,7 +30,15 @@ from app.db.ui_auth import (
 )
 from app.privacy.config import PrivacyConfigurationError, get_privacy_settings
 from app.routing.config import RouterConfigurationError
-from app.services.tasks import OwnerTaskError, act_on_task, find_task, list_owner_tasks, submit_task
+from app.services.tasks import (
+    MIN_UNBLOCK_REASON_CHARS,
+    OwnerAction,
+    OwnerTaskError,
+    act_on_task,
+    find_task,
+    list_owner_tasks,
+    submit_task,
+)
 from app.ui.auth import (
     SESSION_COOKIE,
     AuthConfigurationError,
@@ -295,20 +304,17 @@ async def action(request: Request, task_id: UUID, action: str, session: DbSessio
     data = await form(request)
     csrf(request, session, data)
     action = {"approve-start": "approve", "approve-result": "accept"}.get(action, action)
-    if action not in {"approve", "accept", "reject", "cancel"}:
+    if action not in {"approve", "accept", "reject", "cancel", "unblock"}:
         raise UiError("invalid_action", 404)
     if _value(data, "confirm") != "yes":
         raise UiError("confirmation_required")
-    if action == "reject" and not _value(data, "reason").strip():
+    reason = _value(data, "reason").strip()
+    if action == "reject" and not reason:
         raise UiError("reason_required")
+    if action == "unblock" and len(reason) < MIN_UNBLOCK_REASON_CHARS:
+        raise UiError("reason_required", 422)
     try:
-        from typing import cast
-
-        from app.services.tasks import OwnerAction
-
-        act_on_task(
-            session, task_id, cast(OwnerAction, action), reason=_value(data, "reason") or None
-        )
+        act_on_task(session, task_id, cast(OwnerAction, action), reason=reason or None)
     except (OwnerTaskError, InvalidTaskTransitionError, ValueError):
         # Retain committed expiry / safe gate-error observations, as the API does.
         session.commit()

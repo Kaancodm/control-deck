@@ -14,7 +14,9 @@ Umgesetzt:
 - Task-Formular, begrenzte sichere UTF-8-Dateien, Liste, Detail, Audit-Zeitlinie,
   Start-Freigabe, Ergebnis-Review und Abbruch ueber gemeinsame API-/UI-Geschaeftsfunktionen.
 - Schreibgeschuetzte Fehlerliste, Lane-Zustand, Pause und bestaetigter Not-Aus. Blockierte
-  Tasks bleiben terminal; Review-Ablehnung fuehrt zu `failed`. Auftrags-GETs schreiben nicht.
+  Tasks entsperrt nur der Owner ausdruecklich (`blocked -> queued`, Pflichtbegruendung ab
+  10 Zeichen, Audit-Event `task.unblock` mit `actor=owner`); Datenschranke und Routing
+  pruefen beim Lauf erneut. Review-Ablehnung fuehrt zu `failed`. Auftrags-GETs schreiben nicht.
 - Lokaler Fake-CLI-Chat mit explizitem Kontext und unverbindlichem validiertem Entwurf.
   Keine Aktionsrechte, kein dauerhaft gespeicherter Verlauf und keine automatische
   Uebernahme von Chat-Kontext in Cloud-Auftraege. Das Live-Profil bleibt unverfuegbar.

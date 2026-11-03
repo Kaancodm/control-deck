@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -12,10 +13,13 @@ from app.core.schemas import DataClass, Worker
 from app.db.models import Task
 from app.db.queue import expire_task_if_due
 from app.db.repository import approve_task, create_task_from_api_payload
-from app.db.state_machine import TaskState, TaskTransition
+from app.db.state_machine import InvalidTaskTransitionError, TaskState, TaskTransition
 from app.db.transitions import TransitionActor, request_operator_cancel, transition_task
 
-OwnerAction = Literal["approve", "accept", "reject", "cancel"]
+OwnerAction = Literal["approve", "accept", "reject", "cancel", "unblock"]
+
+# An unblock reverses a data-gate or routing block, so the owner must justify it (stage 11 D8).
+MIN_UNBLOCK_REASON_CHARS = 10
 
 
 class OwnerTaskError(ValueError):
@@ -70,6 +74,25 @@ def act_on_task(
             ),
             actor=TransitionActor.OPERATOR,
             detail={"approved": action == "accept", "reason": reason},
+        )
+    elif action == "unblock":
+        justification = (reason or "").strip()
+        if len(justification) < MIN_UNBLOCK_REASON_CHARS:
+            raise OwnerTaskError("invalid_reason")
+        if task.status != TaskState.BLOCKED:
+            raise InvalidTaskTransitionError(
+                f"unblock is only allowed from 'blocked', not {task.status.value!r}"
+            )
+        # The owner's justified release also counts as the start approval a blocked
+        # task never received; without it the queue would never claim the task.
+        if task.approved_at is None:
+            task.approved_at = datetime.now(tz=UTC)
+        transition_task(
+            session,
+            task=task,
+            trigger=TaskTransition.UNBLOCK,
+            actor=TransitionActor.OWNER,
+            detail={"reason": justification},
         )
     else:
         raise OwnerTaskError("invalid_action")

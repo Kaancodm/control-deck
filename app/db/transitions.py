@@ -60,6 +60,7 @@ class TransitionActor(StrEnum):
     SYSTEM = "system"
     OPERATOR = "operator"
     RUNNER = "runner"
+    OWNER = "owner"  # Explicit owner decisions that must be attributable in the audit trail.
 
 
 class LeaseOwnershipError(PermissionError):
@@ -289,6 +290,8 @@ def transition_task(
         TransitionActor.OPERATOR,
     ):
         raise InvalidTaskTransitionError("deadline expiry requires system or owner authority")
+    if trigger == TaskTransition.UNBLOCK and actor != TransitionActor.OWNER:
+        raise InvalidTaskTransitionError("unblocking requires an explicit owner decision")
 
     effective_trigger = resolve_trigger(task, trigger)
     if effective_trigger != trigger:

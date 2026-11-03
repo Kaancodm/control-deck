@@ -51,6 +51,7 @@ class TaskTransition(StrEnum):
     REVIEW_APPROVE = "review_approve"
     REVIEW_REJECT = "review_reject"
     EXPIRE = "expire"
+    UNBLOCK = "unblock"  # Explicit owner decision with a mandatory reason.
 
 
 # from_state -> trigger -> to_state
@@ -98,6 +99,10 @@ _TRANSITION_TABLE: dict[TaskState | None, dict[TaskTransition, TaskState]] = {
         TaskTransition.CANCEL: TaskState.CANCELLED,
         TaskTransition.EXPIRE: TaskState.EXPIRED,
     },
+    # ``blocked`` stays parked (no sweeps, no claims) until the owner unblocks it explicitly.
+    TaskState.BLOCKED: {
+        TaskTransition.UNBLOCK: TaskState.QUEUED,
+    },
 }
 
 
@@ -128,12 +133,12 @@ def apply_transition(
     trigger: TaskTransition,
 ) -> TaskTransitionResult:
     """Return the next state for ``trigger`` or raise ``InvalidTaskTransitionError``."""
-    if current in TERMINAL_STATES:
+    by_trigger = _TRANSITION_TABLE.get(current)
+    if current in TERMINAL_STATES and (by_trigger is None or trigger not in by_trigger):
         raise InvalidTaskTransitionError(
             f"terminal state {current.value!r} does not accept trigger {trigger.value!r}"
         )
 
-    by_trigger = _TRANSITION_TABLE.get(current)
     if by_trigger is None or trigger not in by_trigger:
         from_label = "initial" if current is None else current.value
         raise InvalidTaskTransitionError(
@@ -151,7 +156,5 @@ def apply_transition(
 
 
 def allowed_triggers(current: TaskState | None) -> frozenset[TaskTransition]:
-    """Triggers permitted from ``current`` (empty for terminal states)."""
-    if current in TERMINAL_STATES:
-        return frozenset()
+    """Triggers permitted from ``current`` (only explicit owner exits for terminal states)."""
     return frozenset(_TRANSITION_TABLE.get(current, {}).keys())

@@ -28,7 +28,7 @@ def dequeue_next_queued_task(
         select(Task)
         .where(
             Task.status == TaskState.QUEUED,
-            (Task.requires_approval.is_(False)) | (Task.approved_at.is_not(None)),
+            Task.approved_at.is_not(None),
         )
         .order_by(Task.created_at.asc())
         .limit(1)

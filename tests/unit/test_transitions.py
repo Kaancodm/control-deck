@@ -5,8 +5,12 @@ from __future__ import annotations
 import uuid
 
 from app.db.models import Task
-from app.db.state_machine import TaskTransition
-from app.db.transitions import max_attempts_for_task, resolve_trigger
+from app.db.state_machine import TaskState, TaskTransition
+from app.db.transitions import (
+    _resolve_requeue_target,
+    max_attempts_for_task,
+    resolve_trigger,
+)
 
 
 def _task_with_policy(max_attempts: int, attempt: int) -> Task:
@@ -37,3 +41,19 @@ def test_max_attempts_default() -> None:
     task_id = uuid.uuid4()
     task = Task(id=task_id, payload={"task_id": str(task_id), "data_class": "local_only"})
     assert max_attempts_for_task(task) == 3
+
+
+def test_requeue_without_approved_at_goes_to_awaiting_approval() -> None:
+    task_id = uuid.uuid4()
+    task = Task(
+        id=task_id,
+        requires_approval=False,
+        approved_at=None,
+        payload={"task_id": str(task_id), "data_class": "local_only"},
+    )
+    target = _resolve_requeue_target(
+        task,
+        TaskTransition.LEASE_EXPIRED,
+        TaskState.QUEUED,
+    )
+    assert target == TaskState.AWAITING_APPROVAL

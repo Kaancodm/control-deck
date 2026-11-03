@@ -40,7 +40,7 @@ Authentifizierung ueber `DECK_WORKER_TOKEN` (Pflicht).
 | `POST` | `/worker/heartbeat` | Lease verlaengern (`lease_id`, `task_id`, optional `extend_seconds`). |
 | `POST` | `/worker/result` | `result.v1` validieren, speichern, Transition fenced per `lease_id` (auto-`start` aus `leased`). |
 
-Dequeue beruecksichtigt **`requires_approval`** und **`approved_at`**: nur freigegebene Tasks in `queued` werden gezogen.
+Dequeue verlangt ein gesetztes **`approved_at`** (Owner-Freigabe); Tasks in `queued` ohne Freigabe werden nicht gezogen.
 
 ## Health
 

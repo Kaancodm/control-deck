@@ -58,6 +58,8 @@ Revision `20251103_0004` korrigiert idempotent DBs, die noch die **urspruenglich
 
 Revision `20251103_0005` entzieht DBs, die die alte Auto-Freigabe in 0002/0004 erhalten haben, `approved_at` wieder, wenn kein Audit-Event `task.approve` existiert.
 
+Revision `20251103_0006` setzt bei nicht-terminalen Tasks mit `requires_approval = false`, `approved_at IS NULL` und ohne `task.approve`-Event `requires_approval = true` (idle `queued` → `awaiting_approval`). Laufzeit-Requeue und Dequeue verlangen ein gesetztes `approved_at`.
+
 Alembic liegt im Projektroot (`alembic.ini`, `alembic/versions/`). Typischer Ablauf:
 
 ```bash

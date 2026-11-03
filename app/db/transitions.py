@@ -94,7 +94,7 @@ def _resolve_requeue_target(
         return to_state
     if trigger not in (TaskTransition.LEASE_EXPIRED, TaskTransition.RETRY):
         return to_state
-    if task.requires_approval and task.approved_at is None:
+    if task.approved_at is None:
         return TaskState.AWAITING_APPROVAL
     return to_state
 
@@ -143,7 +143,7 @@ def _atomic_acquire(session: Session, *, task_id: uuid.UUID, now: datetime) -> T
             WHERE t.id = :task_id
               AND t.status = 'queued'
               AND t.cancel_requested = false
-              AND (t.requires_approval = false OR t.approved_at IS NOT NULL)
+              AND t.approved_at IS NOT NULL
             RETURNING t.id
             """
         ),

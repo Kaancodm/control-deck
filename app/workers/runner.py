@@ -155,7 +155,13 @@ class HostRunner:
             session.commit()
         return RunOutcome(decision.action.value, prepared.task_id, prepared.attempt)
 
-    def run_once(self, worker: Worker, executor: LaneExecutor) -> RunOutcome:
+    def run_once(
+        self,
+        worker: Worker,
+        executor: LaneExecutor,
+        *,
+        available_models: frozenset[str] | None = None,
+    ) -> RunOutcome:
         """Claim, prepare, start and execute once, closing each DB session before execution."""
         if not isinstance(worker, Worker) or not _executor_matches_lane(executor, worker):
             return RunOutcome("error", error_code="executor_lane_mismatch")
@@ -172,6 +178,7 @@ class HostRunner:
                     lease_ttl=self.lease_ttl,
                     runs_root=self.runs_root,
                     holder="host-runner",
+                    available_models=available_models,
                 )
                 session.commit()
         except Exception:

@@ -184,6 +184,7 @@ def claim_prepared_attempt(
     lease_ttl: timedelta,
     runs_root: Path,
     holder: str | None = None,
+    available_models: frozenset[str] | None = None,
 ) -> PreparedAttempt | None:
     """Claim a safe transport, skipping a bounded number of immutable conflicts.
 
@@ -196,7 +197,11 @@ def claim_prepared_attempt(
         try:
             with session.begin_nested():
                 task = dequeue_next_queued_task(
-                    session, worker=worker, lease_ttl=lease_ttl, holder=holder
+                    session,
+                    worker=worker,
+                    lease_ttl=lease_ttl,
+                    holder=holder,
+                    available_models=available_models,
                 )
                 if task is None:
                     return None

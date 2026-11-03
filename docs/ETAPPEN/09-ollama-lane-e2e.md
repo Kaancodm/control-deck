@@ -1,5 +1,12 @@
 # Etappe 09 - Lane Ollama und erster End-to-End-Lauf
 
+> Aktualisierung nach Owner-GO: Die Ollama-CLI mit Fake-CLI-Tests ersetzt den unten
+> beschriebenen HTTP-Entwurf. Gestapelte Repo-Umsetzung ist freigegeben; echte Modellaufrufe
+> und Serveraenderungen sind ausgeschlossen. Die Live-Lane bleibt gesperrt, bis No-Pull,
+> No-Cloud, Dateisystem-Isolation und Abschlussnachweis technisch durchgesetzt sind.
+> Der aktuelle Vertrag steht in [LANES.md](../LANES.md). Die folgende historische
+> Detailplanung ist keine Freigabe fuer Live-Ausfuehrung oder einen Remote-Override.
+
 Status: startklar, sobald VB-1, VB-3, VB-10 erfuellt und Etappen 6, 7, 8 gemergt sind
 Branch-Vorschlag: `stage/09-lane-ollama-e2e`
 Abhaengig von: VB-1, VB-3, VB-7, VB-10, Etappe 6 (Payload), Etappe 7 (`plan`, `lane`, `router.yaml`), Etappe 8 (`AttemptContext`, `settings`, Runner-Schleife)

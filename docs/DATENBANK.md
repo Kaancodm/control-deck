@@ -12,6 +12,7 @@ Etappe `03-db-schema` fuehrt PostgreSQL als persistente Queue und Audit-Store ei
 | `leases` | Pull-Lease pro Task (`lease_id`, `expires_at`, `heartbeat_at`, optional `holder`) |
 | `settings` | Typisierte lokale Runner-Steuerung: Pause, Not-Aus, Lane-Pause, Parallelitaet |
 | `redaction_maps` | Lokale, taskgebundene Zuordnung stabiler Platzhalter zu exakten Originalwerten |
+| `lane_status` | Persistierte Lane-Gesundheit mit sicherem Grund und DB-Zeitstempeln |
 
 ### `data_class`
 
@@ -183,3 +184,16 @@ Einstellungen, damit Pause und Not-Aus nicht still verloren gehen.
 
 `task.prepare` bindet Versandhash, Lane, Versuch, Lease und Artefaktpfad an den committed
 Claim. Der Host prueft diese Metadaten vor Start und Ergebnisannahme. Details: [RUNNER.md](RUNNER.md).
+
+## Lane-Gesundheit (Revision 0010)
+
+`lane_status` speichert pro Lane den Status (`ok`, `unavailable`, `auth_required`, `paused`),
+einen sicheren begrenzten Grundcode, `updated_at` und `last_success_at`. Der Upsert sperrt
+die Zeile vor dem Lesen der DB-Uhr; parallele Beobachtungen koennen den Zeitstempel dadurch
+nicht rueckwaerts setzen. Ein Fehler erhaelt den letzten positiven Zeitpunkt.
+
+Ein `ok` mit Grund `simulation_ready` ist ausschliesslich eine erfolgreiche Fake-Pruefung,
+keine Live-Bereitschaft. Das echte Ollama-Profil bleibt `unavailable` mit Grund
+`live_profile_unavailable`. `last_success_at` ist eine Gesundheitsbeobachtung, kein Beleg
+fuer einen abgeschlossenen Modelllauf. Der Downgrade verweigert eine nichtleere Tabelle.
+Details: [LANES.md](LANES.md).

@@ -15,7 +15,7 @@ from app.core.schemas import DataClass, ResultStatus, TaskKind, TaskV1, Worker
 from app.privacy.config import PrivacySettings
 from app.privacy.gate import PrivacyInputError
 from app.redaction.engine import RedactionError, rehydrate
-from app.redaction.payload import LaneNotAllowedError, build_payload
+from app.redaction.payload import LaneNotAllowedError, PayloadBuild, build_payload
 from app.reference.schemas import ReferenceExpect
 from app.reference.validate import LoadedReferenceCase
 from app.routing.config import RouterConfig
@@ -25,6 +25,15 @@ from app.routing.router import route_task
 class CaseOutcome(StrEnum):
     PASS = "pass"
     FAIL = "fail"
+    SKIP = "skip"
+
+
+class CaseNotApplicable(Exception):
+    """An executor cannot exercise this case on its lane; the run counts it as skipped.
+
+    Executors raise it only after routing and the privacy gates have run, so blocked
+    traps still surface as ``blocked`` results and never as skipped cases.
+    """
 
 
 @dataclass(frozen=True)
@@ -95,18 +104,32 @@ class FakeExecutor:
                 wall_seconds=self.fixed_wall_seconds,
             )
 
-        text = self._execute_payload(payload.text, kind=task.kind)
+        result = self._execute_prepared(task, payload, worker)
+        if result.status != ResultStatus.SUCCEEDED:
+            return result
+        text = result.output_text
         if task.data_class == DataClass.CLOUD_REDACTED:
             try:
                 text = rehydrate(text, task_id=task.task_id, mapping=mapping)
             except RedactionError:
-                return ExecutionResult(ResultStatus.FAILED, "", worker, self.fixed_wall_seconds)
+                return ExecutionResult(ResultStatus.FAILED, "", worker, result.wall_seconds)
 
         return ExecutionResult(
             status=ResultStatus.SUCCEEDED,
             output_text=text,
             worker=worker,
-            wall_seconds=self.fixed_wall_seconds,
+            wall_seconds=result.wall_seconds,
+        )
+
+    def _execute_prepared(
+        self, task: TaskV1, payload: PayloadBuild, worker: Worker
+    ) -> ExecutionResult:
+        """Adapt the host's prepared payload while preserving existing fake subclasses."""
+        return ExecutionResult(
+            ResultStatus.SUCCEEDED,
+            self._execute_payload(payload.text, kind=task.kind),
+            worker,
+            self.fixed_wall_seconds,
         )
 
     def _execute_payload(self, text: str, *, kind: TaskKind) -> str:
@@ -222,6 +245,7 @@ class CaseRunResult:
     outcome: CaseOutcome
     duration_seconds: float
     failures: list[ExpectCheckFailure] = field(default_factory=list)
+    skip_reason: str | None = None
 
 
 @dataclass
@@ -237,6 +261,10 @@ class RunSummary:
         return sum(1 for r in self.results if r.outcome == CaseOutcome.FAIL)
 
     @property
+    def skipped(self) -> int:
+        return sum(1 for r in self.results if r.outcome == CaseOutcome.SKIP)
+
+    @property
     def total(self) -> int:
         return len(self.results)
 
@@ -249,14 +277,20 @@ def run_cases(
     for loaded in cases:
         started = time.perf_counter()
         failures: list[ExpectCheckFailure] = []
+        skip_reason: str | None = None
         try:
             task = TaskV1.model_validate(loaded.task_payload)
             execution = executor.execute(task)
             failures = evaluate_expect(loaded.case.expect, execution)
+        except CaseNotApplicable as exc:
+            skip_reason = str(exc) or "not applicable to this executor"
         except Exception as exc:  # noqa: BLE001 — per-case isolation for reference runs
             failures = [ExpectCheckFailure(rule="execution", detail=f"{type(exc).__name__}: {exc}")]
         duration = time.perf_counter() - started
-        outcome = CaseOutcome.PASS if not failures else CaseOutcome.FAIL
+        if skip_reason is not None:
+            outcome = CaseOutcome.SKIP
+        else:
+            outcome = CaseOutcome.PASS if not failures else CaseOutcome.FAIL
         results.append(
             CaseRunResult(
                 case_id=loaded.case.id,
@@ -264,6 +298,7 @@ def run_cases(
                 outcome=outcome,
                 duration_seconds=duration,
                 failures=failures,
+                skip_reason=skip_reason,
             )
         )
     return RunSummary(results=results)
@@ -276,7 +311,12 @@ def format_summary(summary: RunSummary) -> str:
         lines.append(
             f"[{status_label}] {result.case_id} ({result.category}) {result.duration_seconds:.3f}s"
         )
+        if result.skip_reason is not None:
+            lines.append(f"  - skipped: {result.skip_reason}")
         for failure in result.failures:
             lines.append(f"  - {failure.rule}: {failure.detail}")
-    lines.append(f"Summary: {summary.passed}/{summary.total} passed, {summary.failed} failed")
+    lines.append(
+        f"Summary: {summary.passed}/{summary.total} passed, "
+        f"{summary.failed} failed, {summary.skipped} skipped"
+    )
     return "\n".join(lines)

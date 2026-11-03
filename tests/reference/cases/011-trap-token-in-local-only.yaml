@@ -1,0 +1,33 @@
+# Vom Owner bestaetigt 2026-11-03
+id: "011-trap-token-in-local-only"
+category: trap
+description: "Zugangstoken (Platzhalter) wird auch bei local_only nicht an einen Worker gegeben."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: api
+  kind: summarize
+  title: "Trap Token lokal"
+  instructions: "Fasse die Konfiguration zusammen."
+  inputs:
+    - name: source
+      type: text
+      value: "ghp_TESTPLACEHOLDERNOTREAL0000"
+  context_refs: []
+  data_class: local_only
+  policy:
+    forbidden_workers: []
+    require_review: false
+  acceptance: []
+  fallback_chain:
+    - ollama
+  labels:
+    suite: reference
+expect:
+  status: blocked
+  must_contain: []
+  must_not_contain: []
+  regex: null
+  max_chars: null
+  max_seconds: 30
+  allowed_workers: []

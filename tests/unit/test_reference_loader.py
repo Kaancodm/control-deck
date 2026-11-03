@@ -21,7 +21,7 @@ CASES_DIR = Path(__file__).resolve().parents[1] / "reference" / "cases"
 def test_load_all_dummy_cases() -> None:
     loaded, issues = load_all_cases(CASES_DIR)
     assert not issues
-    assert len(loaded) == 4
+    assert len(loaded) == 12
     assert [item.case.id for item in loaded] == sorted(item.case.id for item in loaded)
 
 

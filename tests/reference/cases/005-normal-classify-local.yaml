@@ -1,0 +1,35 @@
+# Vom Owner bestaetigt 2026-11-03
+id: "005-normal-classify-local"
+category: normal
+description: "Lokale Klassifikation eines kurzen Textes."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: ui
+  kind: classify
+  title: "Referenz Klassifikation"
+  instructions: "Ordne den Text einer Kategorie zu: Rechnung, Termin oder Sonstiges."
+  inputs:
+    - name: source
+      type: text
+      value: "Bitte den Termin am Donnerstag bestaetigen."
+  context_refs: []
+  data_class: local_only
+  policy:
+    forbidden_workers: []
+    require_review: false
+  acceptance: []
+  fallback_chain:
+    - ollama
+  labels:
+    suite: reference
+expect:
+  status: succeeded
+  must_contain:
+    - reference-ok
+  must_not_contain: []
+  regex: null
+  max_chars: 500
+  max_seconds: 30
+  allowed_workers:
+    - ollama

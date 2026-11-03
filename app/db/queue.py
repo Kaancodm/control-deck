@@ -29,6 +29,7 @@ from app.db.transitions import (
 )
 from app.privacy.gate import PrivacyInputUnavailable, inspect_stored_task
 from app.routing.config import get_router_config
+from app.workers.lane_status import LaneHealthState, update_lane_status
 
 
 def dequeue_next_queued_task(
@@ -37,11 +38,17 @@ def dequeue_next_queued_task(
     lease_ttl: timedelta,
     holder: str | None = None,
     worker: Worker,
+    available_models: frozenset[str] | None = None,
 ) -> Task | None:
     """
     Atomically claim the oldest ``queued`` task and move it to ``leased``.
 
     Uses ``FOR UPDATE SKIP LOCKED`` so concurrent workers receive distinct rows.
+    ``available_models`` is the inventory a lane observed before this transaction.
+    For such a lane, a configured model that is missing from the inventory is a
+    transient outage and leaves the task queued, whereas a task kind without any
+    configured model is a permanent configuration gap: the task is blocked with an
+    audit event and the lane health records ``model_not_configured``.
     """
     if not isinstance(worker, Worker):
         raise ValueError("A known worker is required.")
@@ -126,6 +133,40 @@ def dequeue_next_queued_task(
         if task.lane != worker.value:
             unavailable_ids.add(task.id)
             continue
+        if available_models is not None:
+            model = plan.models.get(worker)
+            if model is None:
+                # No model for this task kind and no default: a later poll cannot
+                # change this without a configuration change, so the task must not
+                # wait silently. Block it without consuming an attempt.
+                try:
+                    transition_task(
+                        session,
+                        task=task,
+                        trigger=TaskTransition.BLOCK,
+                        detail={
+                            "reason": "routing",
+                            "code": "model_not_configured",
+                            "lane": worker.value,
+                            "kind": task.payload.get("kind"),
+                        },
+                    )
+                except InvalidTaskTransitionError:
+                    if not expire_task_if_due(session, task=task):
+                        raise
+                else:
+                    update_lane_status(
+                        session,
+                        lane=worker,
+                        status=LaneHealthState.UNAVAILABLE,
+                        reason="model_not_configured",
+                    )
+                continue
+            if model not in available_models:
+                # The lane's external preflight observed this inventory before the
+                # transaction. Missing or newly reconfigured models consume no claim.
+                unavailable_ids.add(task.id)
+                continue
         detail = {"lane": task.lane, "budget_date": snapshot.budget_date.isoformat()}
         if holder:
             detail["holder"] = holder

@@ -145,7 +145,7 @@ def test_migration_0007_refuses_downgrade_with_new_task_states(
         with engine.begin() as conn:
             assert (
                 conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20251103_0009"
+                == "20251103_0010"
             )
 
 

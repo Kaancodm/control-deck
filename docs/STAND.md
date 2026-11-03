@@ -1,5 +1,38 @@
 # Stand des Repositorys
 
+## Etappe 9 bereit fuer externes Review
+
+Draft-PR: [#24](https://github.com/Kaancodm/control-deck/pull/24).
+Branch: `stage/09-ollama`, nach den externen Review-Korrekturen auf
+`stage/08-runner` / PR #23 (`dc81401`) rebased.
+
+Umgesetzt sind ein begrenzter Ollama-CLI-Prozessadapter, Lane-Gesundheit mit Migration
+`0010`, simulierte Host-E2E-Laeufe und der ausdrueckliche Referenz-Schalter
+`--executor ollama-fake-cli --model <simulationskennung>`. Die neue Executor-Identitaet,
+Pflicht-Lane und Artefaktkonflikt-Behandlung aus der korrigierten Etappe 8 bleiben erhalten.
+
+Pflichtchecks vom 2026-11-03: `make lint` gruen (Ruff ohne Cache, Format, Mypy),
+`uv run alembic -x target=test check` ohne Schemaabweichung, `make test` mit
+**1264 bestandenen Tests** (**425 Integration**, **839 Unit**), **keine xfail oder Skips**.
+Eine bestehende Starlette/httpx-Deprecation-Warnung. `make reference`: **4/4**;
+der zusaetzliche Ollama-Fake-CLI-Referenzlauf ebenfalls **4/4**. Isolierte PostgreSQL-17-
+Testdatenbank. Zwei parallele Fake-CLI-Runner schliessen 20 Auftraege jeweils genau einmal
+ab. Neue inhaltliche Referenzfaelle wurden nicht erstellt. Die CI des finalen Heads wird
+im PR ausgewiesen; externes Review und Merge bleiben beim Owner.
+
+### Inbetriebnahme
+
+Das Live-Profil ist nicht aktivierbar und startet keinen Prozess. Es bleibt
+`unavailable` / `live_profile_unavailable`. Ein `ok` mit `simulation_ready` sowie
+`last_success_at` belegen ausschliesslich die Fake-Inventarpruefung, keine Live-Bereitschaft.
+Die offizielle CLI bietet keinen No-Pull-Schalter; Cloud-Sperren muessen beim Daemon gelten,
+multimodale CLI-Pfade koennen promptgesteuert Hostdateien lesen, und Exit-Code null allein
+belegt nicht jeden Abschluss. Eine spaetere Live-Anbindung benoetigt nachweisbare Download-/
+Cloud-Sperren, Dateisystem-Isolation und einen eindeutigen Abschlussnachweis. Quellen und
+Details: [LANES.md](LANES.md). Keine echten Modellaufrufe, Logins, API-Keys, Serveraenderungen
+oder produktiven Verbindungen ausgefuehrt.
+
+
 ## Etappe 8 bereit fuer externes Review
 
 Draft-PR: [#23](https://github.com/Kaancodm/control-deck/pull/23).

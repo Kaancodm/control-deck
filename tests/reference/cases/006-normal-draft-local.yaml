@@ -1,0 +1,35 @@
+# Vom Owner bestaetigt 2026-11-03
+id: "006-normal-draft-local"
+category: normal
+description: "Lokaler Textentwurf ohne Cloud-Pfad."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: api
+  kind: draft
+  title: "Referenz Entwurf"
+  instructions: "Schreibe einen kurzen hoeflichen Antwortentwurf."
+  inputs:
+    - name: brief
+      type: text
+      value: "Danke fuer die Unterlagen, Rueckmeldung folgt naechste Woche."
+  context_refs: []
+  data_class: local_only
+  policy:
+    forbidden_workers: []
+    require_review: false
+  acceptance: []
+  fallback_chain:
+    - ollama
+  labels:
+    suite: reference
+expect:
+  status: succeeded
+  must_contain:
+    - reference-ok
+  must_not_contain: []
+  regex: null
+  max_chars: 500
+  max_seconds: 30
+  allowed_workers:
+    - ollama

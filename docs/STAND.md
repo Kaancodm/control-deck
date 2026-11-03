@@ -1,5 +1,14 @@
 # Stand des Repositorys
 
+## Etappe 13: in Arbeit
+
+Die Codex-Lane entsteht als gestapelter Draft-PR auf Etappe 12. Ein versionierter
+JSONL-Vertrag, eine Fake-CLI und der gemeinsame Reinraum-Simulator pruefen ausschliesslich
+Textausgaben. Das Live-Profil bleibt bis zum Nachweis technisch deaktivierter Tools und
+der Reinraum-Grenzen gesperrt. Keine echten Logins, Anbieteraufrufe oder Serveraenderungen.
+Pflichtchecks und finale Testzahl folgen nach dem Rebase auf den fertigen Etappe-12-Stand.
+
+
 ## Etappe 12 bereit fuer externes Review
 
 Branch: `stage/12-claude`, gestapelt auf Etappe 11 (`stage/11-ui-chat`, PR #26).

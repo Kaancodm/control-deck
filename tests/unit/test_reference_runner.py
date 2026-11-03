@@ -119,15 +119,15 @@ def test_run_cases_counts_not_applicable_as_skipped_without_failing() -> None:
 
     summary = run_cases(cases, LocalOnlyExecutor())
     skipped = [r for r in summary.results if r.outcome == CaseOutcome.SKIP]
-    assert {r.case_id[:3] for r in skipped} == {"002", "007", "008", "010"}
+    assert {r.case_id[:3] for r in skipped} == {"002", "007", "008", "010", "013", "014"}
     assert all(r.failures == [] for r in skipped)
     assert summary.failed == 0
-    assert summary.skipped == 4
+    assert summary.skipped == 6
     assert summary.passed == 8
     text = format_summary(summary)
     assert "[SKIP] 002-trap-fake-api-key (trap)" in text
     assert "  - skipped: cloud lane not available on this executor" in text
-    assert text.endswith("Summary: 8/14 passed, 0 failed, 4 skipped")
+    assert text.endswith("Summary: 8/14 passed, 0 failed, 6 skipped")
 
 
 def test_fake_executor_blocked_on_trap_pattern() -> None:

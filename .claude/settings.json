@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv sync*)",
+      "Bash(uv run pytest*)",
+      "Bash(uv run ruff*)",
+      "Bash(uv run mypy*)",
+      "Bash(uv run alembic*)",
+      "Bash(make lint)",
+      "Bash(make test)",
+      "Bash(make reference)",
+      "Bash(make validate)"
+    ],
+    "deny": [
+      "Read(./.env)"
+    ]
+  }
+}

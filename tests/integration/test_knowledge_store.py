@@ -27,7 +27,10 @@ def kb_engine():
 
 
 @pytest.fixture
-def knowledge_store(kb_engine):
+def knowledge_store(kb_engine, tmp_path, monkeypatch):
+    blocklist = tmp_path / "knowledge-blocklist.txt"
+    blocklist.write_text("")
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(blocklist))
     store = KnowledgeStore(kb_engine)
     yield store
     with kb_engine.begin() as connection:
@@ -200,3 +203,10 @@ def test_knowledge_migration_roundtrip(knowledge_store):
         command.upgrade(configuration, "head")
     knowledge_store.check_contract(write=True)
     command.check(configuration)
+
+
+def test_cloud_knowledge_requires_current_blocklist(knowledge_store, monkeypatch):
+    monkeypatch.delenv("DECK_BLOCKLIST_PATH", raising=False)
+    with pytest.raises(KnowledgeError) as error:
+        insert(knowledge_store, DataClass.CLOUD_OK)
+    assert error.value.code == "knowledge_privacy_configuration_unavailable"

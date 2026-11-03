@@ -10,10 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.deps import DbSession, OwnerAuth
 from app.api.errors import problem_response
-from app.core.schemas import DataClass
+from app.core.schemas import DataClass, TaskV1
+from app.db.models import Task
 from app.kb.contracts import KnowledgeError
 from app.kb.export import export_task
 from app.kb.repository import configured_store
+from app.kb.snapshots import load_snapshots
+from app.privacy.gate import PrivacyInputError
 
 router = APIRouter(tags=["knowledge"])
 
@@ -86,5 +89,35 @@ def search_knowledge(body: SearchRequest, _owner: OwnerAuth) -> dict[str, object
                 "sha256": item.sha256,
             }
             for item in hits
+        ]
+    }
+
+
+@router.get("/tasks/{task_id}/contexts", response_model=None)
+def task_contexts(
+    task_id: UUID, session: DbSession, _owner: OwnerAuth
+) -> dict[str, object] | JSONResponse:
+    task = session.get(Task, task_id)
+    if task is None:
+        return problem_response(
+            status=404, title="Task not found", detail="The task does not exist."
+        )
+    try:
+        blocks = load_snapshots(session, TaskV1.model_validate(task.payload))
+    except PrivacyInputError:
+        return problem_response(
+            status=409,
+            title="Context snapshots unavailable",
+            detail="The complete context snapshot set is unavailable.",
+        )
+    return {
+        "contexts": [
+            {
+                "reference": item.reference,
+                "data_class": item.data_class.value,
+                "text": item.text,
+                "sha256": item.sha256,
+            }
+            for item in blocks
         ]
     }

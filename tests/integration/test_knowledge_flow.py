@@ -94,6 +94,17 @@ def test_approved_snapshot_is_used_when_external_knowledge_is_unavailable(
         assert approval.detail["context_hashes"][0]["sha256"] == snapshot.content_sha256
 
 
+def test_only_owner_can_inspect_context_before_approval(api_client, knowledge_store):
+    task_id = create_context_task(api_client, knowledge_store, content="Owner-only context")
+    endpoint = f"/api/v1/tasks/{task_id}/contexts"
+    assert api_client.get(endpoint, headers=_worker()).status_code == 401
+    response = api_client.get(endpoint, headers=_owner())
+    assert response.status_code == 200
+    assert response.json()["contexts"][0]["text"].endswith("Owner-only context")
+    with Session(get_engine(for_tests=True)) as session:
+        assert session.get(Task, task_id).status.value == "awaiting_approval"
+
+
 def test_secret_context_is_never_stored_in_host_database(api_client, knowledge_store, monkeypatch):
     task_id = uuid4()
     from app.kb.contracts import ContextBlock, digest_text

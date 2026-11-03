@@ -40,6 +40,8 @@ def check_knowledge_text(title: str, content: str, data_class: DataClass) -> Non
     if not 1 <= len(title) <= 120 or not 1 <= size <= MAX_DOCUMENT_BYTES:
         raise KnowledgeError("knowledge_text_too_large")
     settings = get_privacy_settings()
+    if data_class != DataClass.LOCAL_ONLY and not settings.blocklist_configured:
+        raise KnowledgeError("knowledge_privacy_configuration_unavailable")
     try:
         findings = scan_text(
             title + "\n" + content, source="knowledge", blocklist=settings.blocklist

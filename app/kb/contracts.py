@@ -52,6 +52,8 @@ class ContextBlock:
     sha256: str
 
     def validate(self, task_class: DataClass) -> None:
+        if not isinstance(self.data_class, DataClass):
+            raise KnowledgeError("invalid_data_class")
         try:
             parsed = UUID(self.reference)
         except (ValueError, AttributeError):

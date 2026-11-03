@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.schemas import DataClass  # noqa: E402
 from app.kb.contracts import KnowledgeError, digest_text  # noqa: E402
 from app.kb.repository import configured_store  # noqa: E402
-from app.privacy.config import get_privacy_settings  # noqa: E402
+from app.privacy.config import PrivacyConfigurationError, get_privacy_settings  # noqa: E402
 from app.privacy.files import FileInputError, read_text_input  # noqa: E402
 
 
@@ -38,7 +38,7 @@ def main() -> int:
             )
         finally:
             store.engine.dispose()
-    except (KnowledgeError, FileInputError) as exc:
+    except (KnowledgeError, FileInputError, PrivacyConfigurationError) as exc:
         print("Import rejected: " + exc.code, file=sys.stderr)
         return 1
     print(identifier)

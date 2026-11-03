@@ -406,27 +406,41 @@ Betriebsrechte und echte Login-Einrichtung. Keine Netzwerk-Scans, echten Logins,
 Anbieter-/Modellaufrufe, API-Keys, produktiven DB-Verbindungen oder Serveraenderungen.
 Details: [SECURITY.md](SECURITY.md), [UI.md](UI.md). Keine neuen inhaltlichen Referenzfaelle.
 
-## Etappe 16: Betriebsvorlagen in Arbeit
+## Etappe 16: implementiert und vollstaendig lokal geprueft
 
-Sicherer Zwischenstand auf Owner-Wunsch: [Draft-PR #31](https://github.com/Kaancodm/control-deck/pull/31),
-Branch `stage/16-operations`, weiterhin auf dem fruehen Etappe-15-Stand `7c015709`.
-Die Umsetzung ist pausiert und **noch nicht reviewbereit**.
+Draft-PR [#31](https://github.com/Kaancodm/control-deck/pull/31), Branch `stage/16-operations`,
+gestapelt auf Etappe 15; die finale Eltern-SHA steht im PR. Kein Merge.
 
-Vorbereitet sind getrennte Betriebsereignisse, sichere Backup-/Restore-Werkzeuge,
-explizite Retention, systemd-Benutzervorlagen und ein ausschliesslich ausdruecklich
-simulierter Runner-Supervisor. Der woechentliche Restore-Timer ist eine
-Trockenlauf-Erinnerung und kein ausgefuehrter Wiederherstellungsnachweis.
+Migration `0015`, append-only Betriebsereignisse, private atomare Backups mit konsistentem
+Snapshot, expliziter Test-Restore, 14-/90-Tage-Aufbewahrung und wiederaufnehmbare Retention
+sind integriert. systemd-Benutzervorlagen und begrenzter Simulations-Supervisor bleiben
+Repo-Code; keine Installation oder Dienststarts auf einem Betriebsserver.
 
-Nachgewiesen: **66 neue Unit-Tests**, Ruff/Mypy fuer die neuen Module und die
-Offline-Pruefung gerenderter Units mit `systemd-analyze verify`. Geschrieben, aber noch
-nicht ausgefuehrt: DB-Retention, echter Dump-/Restore-Roundtrip und Wiederaufnahme nach
-Dienstabbruch. Die zentralen und Wissens-Testdatenbanken sind separat vorbereitet.
+Die erste echte Restore-Probe deckte auf, dass der schema-begrenzte Dump `public` neu
+anlegt. Der Restore prueft jetzt Archiv und Ziel erneut und entfernt ausschliesslich das
+leere `public` ohne `CASCADE`; vorhandene oder zwischenzeitlich eingefuegte Daten bleiben
+geschuetzt. Regressionen pruefen korrupte Archive und ein waehrend der Pruefung gefuelltes
+Ziel. Echte Prozessgruppenbeendigung inklusive Unterprozess und anschliessender Lease-Retry
+sind belegt; Dienstende wird nicht als Owner-Abbruch gespeichert. Ein Downgrade verweigert
+das Loeschen vorhandener Betriebsnachweise.
 
-Ausstehend: Rebase auf den endgueltigen Etappe-15-Stand mit Migrationen `0011` bis `0014`,
-zentrale und Wissens-Migrationen samt Checks, neue Integrationstests, vollstaendiges
-`make lint`, `make test`, `make reference` und finale CI. Migration `0015` dieser Etappe
-verweist auf die reale Etappe-15-Migration `0014`, die im fruehen Parent noch fehlt.
+Frischer Gesamtlauf auf `d67c141`: **2174 Tests bestanden**, keine Skips oder xfail;
+eine bestehende Starlette/httpx-Deprecation-Warnung. `make lint`, beide Alembic-Pruefungen,
+KB-Upgrade und Hook-Pruefungen sind gruen. Beide Referenzmodi bestehen mit **4/4**.
+Der Gesamtlauf enthaelt echte Wegwerf-DB-Dump-/Restore-Proben, Chromium bei 390/1024 Pixeln
+und Offline-`systemd-analyze verify`. PostgreSQL-17-Clients passen zum isolierten Testserver;
+zentrale und KB-Datenbank sind getrennt. Der Lauf enthaelt die gemeinsame UUID-Korrektur
+aus Etappe 14 und die sichere Codex-Fehlerdiagnose. Die abschliessende Elternaktualisierung
+uebernimmt nur Dokumentation; Anwendung, Tests, Migrationen, Konfiguration und
+Abhaengigkeiten bleiben identisch. Finale Head-SHA und CI stehen im PR.
+Externes Review bleibt offen; der PR bleibt Draft.
 
-Keine Installation, Dienststarts oder produktiven Zugriffe. Host-Bindung, Lingering,
-Backup-Ziel, automatische Bereitstellung leerer Restore-Ziele und echte Lane-Prozesse
-bleiben Inbetriebnahme. Details: [OPERATIONS.md](OPERATIONS.md).
+### Inbetriebnahme
+
+Offen bleiben reale Bindung/TLS, User-Manager und Lingering, Datei-/Backup-Ziele, Speicher,
+Off-site-Kopie und Restore, Restic-Konfiguration sowie echte Lane-Isolation und Anmeldung.
+Der Dump umfasst nur das zentrale `public`, nicht die separate KB-Datenbank. Deren Backup-
+Vertrag und ein konsistenter Gesamt-Snapshot mit Laufdateien bleiben separat nachzuweisen.
+Der woechentliche Restore-Timer ist eine Trockenlauf-Erinnerung, kein Erfolgsnachweis.
+Keine echten Logins, Anbieteraufrufe, API-Keys, produktiven Verbindungen oder Serveraenderungen.
+Details: [OPERATIONS.md](OPERATIONS.md). Etappe 18 bleibt eine vorbereitete Checkliste.

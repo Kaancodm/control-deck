@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import jsonschema
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import ValidationError
 
+from app.core.schema_loader import load_schema
 from app.core.schemas import ResultV1, TaskV1
 
-_SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "schemas"
+_FORMAT_CHECKER = FormatChecker()
+
+_TASK_VALIDATOR = Draft202012Validator(
+    load_schema("task.v1.json"),
+    format_checker=_FORMAT_CHECKER,
+)
+_RESULT_VALIDATOR = Draft202012Validator(
+    load_schema("result.v1.json"),
+    format_checker=_FORMAT_CHECKER,
+)
 
 
 @dataclass(frozen=True)
@@ -21,16 +29,6 @@ class ValidationIssue:
     path: str
     message: str
     source: str
-
-
-def _load_schema(name: str) -> dict[str, Any]:
-    path = _SCHEMAS_DIR / name
-    with path.open(encoding="utf-8") as handle:
-        return cast(dict[str, Any], json.load(handle))
-
-
-_TASK_VALIDATOR = Draft202012Validator(_load_schema("task.v1.json"))
-_RESULT_VALIDATOR = Draft202012Validator(_load_schema("result.v1.json"))
 
 
 def _format_jsonschema_errors(

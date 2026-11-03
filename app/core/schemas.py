@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SHA256_HEX = re.compile(r"^[a-f0-9]{64}$")
 RELATIVE_FILE_PATH = re.compile(r"^(?!/)(?!.*\.\.).+$")
@@ -124,7 +123,7 @@ class TaskV1(StrictModel):
     schema_version: Literal["task.v1"]
     task_id: UUID
     parent_task_id: UUID | None
-    created_at: datetime
+    created_at: AwareDatetime
     requested_by: RequestedBy
     kind: TaskKind
     title: str = Field(max_length=120)
@@ -155,7 +154,7 @@ class OutputFile(StrictModel):
     @field_validator("sha256")
     @classmethod
     def validate_sha256(cls, value: str) -> str:
-        if not SHA256_HEX.match(value):
+        if not SHA256_HEX.fullmatch(value):
             raise ValueError("sha256 must be a 64-character lowercase hex string")
         return value
 
@@ -176,10 +175,17 @@ class ResultUsage(StrictModel):
     output_tokens: int | None = Field(default=None, ge=0)
     wall_seconds: float = Field(ge=0)
 
+    @field_validator("input_tokens", "output_tokens", mode="before")
+    @classmethod
+    def reject_null_token_fields(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("token counts must be omitted or a non-null integer")
+        return value
+
 
 class ResultTiming(StrictModel):
-    started_at: datetime
-    finished_at: datetime
+    started_at: AwareDatetime
+    finished_at: AwareDatetime
 
 
 class ResultError(StrictModel):
@@ -210,7 +216,7 @@ class ResultV1(StrictModel):
     @field_validator("payload_hash")
     @classmethod
     def validate_payload_hash(cls, value: str) -> str:
-        if not SHA256_HEX.match(value):
+        if not SHA256_HEX.fullmatch(value):
             raise ValueError("payload_hash must be a 64-character lowercase hex string")
         return value
 

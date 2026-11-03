@@ -6,7 +6,7 @@ Etappe `03-db-schema` fuehrt PostgreSQL als persistente Queue und Audit-Store ei
 
 | Tabelle | Zweck |
 |---------|--------|
-| `tasks` | Unveraenderlicher `task.v1`-Payload (JSONB), Laufstatus, `data_class`, Versuchszaehler |
+| `tasks` | Unveraenderlicher `task.v1`-Payload (JSONB), Laufstatus, `data_class`, Versuchszaehler, Freigabe (`requires_approval`, `approved_at`) |
 | `results` | `result.v1`-Snapshots pro Versuch (eindeutig pro `task_id` + `attempt`) |
 | `events` | Append-only Audit-Log (Uebergaenge, Metadaten in JSONB) |
 | `leases` | Pull-Lease pro Task (`lease_id`, `expires_at`, `heartbeat_at`, optional `holder`) |
@@ -19,7 +19,8 @@ Pflichtfeld gemaess ADR 0005, Datenbank-Default **`local_only`**. Erlaubte Werte
 
 | Status | Bedeutung |
 |--------|-----------|
-| `queued` | Validiert, wartet auf Lease |
+| `awaiting_approval` | Validiert, wartet auf Owner-Freigabe (HTTP-API) |
+| `queued` | Freigegeben, wartet auf Lease |
 | `leased` | Runner haelt Lease, Start steht aus |
 | `running` | Ausfuehrung aktiv |
 | `succeeded` | Erfolgreich abgeschlossen |
@@ -66,4 +67,13 @@ Lokal ohne `DECK_TEST_DATABASE_URL` werden Integrationstests uebersprungen; `mak
 
 ## Betrieb (Hinweis)
 
-Die produktive Instanz (Port 5433, Datenbank `controldeck`) wird ausserhalb dieses Repos verwaltet. Agents legen keine DB-Rollen an und greifen nicht auf Server zu — nur Schema, Migrationen und Tests im Repository.
+Die produktive PostgreSQL-Instanz wird ausserhalb dieses Repos verwaltet. Agents legen keine DB-Rollen an und greifen nicht auf Server zu — nur Schema, Migrationen und Tests im Repository.
+
+Alembic waehlt **nicht** still `DECK_TEST_DATABASE_URL`: fuer Tests `-x target=test` (siehe `tests/integration/conftest.py`). Sind Runtime- und Test-URL gleichzeitig gesetzt, bricht `alembic upgrade` ohne explizites Ziel ab.
+
+## Integritaet
+
+- CHECKs auf `task.v1` / `result.v1`-Felder in JSONB (inkl. NOT NULL auf Pflicht-Keys)
+- Trigger `tasks_immutable_payload`: kein UPDATE von `payload`, `data_class`, `id`, `created_at`
+- Trigger `events_append_only`: kein UPDATE/DELETE auf Events; FK `RESTRICT` (Tasks werden nicht geloescht)
+- Spalten `cancel_requested`, `cancel_reason`; Events mit `actor`, `attempt`, `lease_id`

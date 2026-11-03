@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "httpx>=0.27.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "types-jsonschema>=4.0",
@@ -26,6 +27,7 @@ dev = [
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "httpx>=0.27.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "types-jsonschema>=4.0",

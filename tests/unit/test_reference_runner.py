@@ -98,15 +98,15 @@ def test_evaluate_regex_max_chars_max_seconds_workers() -> None:
 
 
 def test_fake_executor_and_run_cases_integration() -> None:
-    cases = load_all_cases(CASES_DIR)
+    cases, _issues = load_all_cases(CASES_DIR)
     summary = run_cases(cases, FakeExecutor())
-    assert summary.total == 3
+    assert summary.total == 4
     assert summary.failed == 0
     assert all(r.outcome == CaseOutcome.PASS for r in summary.results)
 
 
 def test_fake_executor_blocked_on_trap_pattern() -> None:
-    cases = load_all_cases(CASES_DIR)
+    cases, _issues = load_all_cases(CASES_DIR)
     trap = next(c for c in cases if c.case.id.startswith("002"))
     task = TaskV1.model_validate(trap.task_payload)
     result = FakeExecutor().execute(task)
@@ -125,7 +125,7 @@ def test_evaluate_expect_empty_failures_means_pass() -> None:
 
 
 def test_run_cases_catches_executor_exception() -> None:
-    cases = load_all_cases(CASES_DIR)
+    cases, _issues = load_all_cases(CASES_DIR)
 
     class BrokenExecutor:
         def execute(self, task: TaskV1) -> ExecutionResult:

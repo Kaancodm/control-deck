@@ -17,6 +17,9 @@ def record_transition_event(
     task_id: UUID,
     result: TaskTransitionResult,
     detail: dict[str, Any] | None = None,
+    actor: str | None = None,
+    attempt: int | None = None,
+    lease_id: UUID | None = None,
 ) -> Event:
     """Append an audit row for a validated state transition."""
     from_state = TaskState(result.from_status) if result.from_status is not None else None
@@ -27,6 +30,9 @@ def record_transition_event(
         from_status=from_state,
         to_status=to_state,
         detail=detail,
+        actor=actor,
+        attempt=attempt,
+        lease_id=lease_id,
     )
     session.add(event)
     return event

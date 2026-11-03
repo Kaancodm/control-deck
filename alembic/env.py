@@ -10,7 +10,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.db import models as _models  # noqa: F401 — register ORM metadata
 from app.db.base import Base
-from app.db.config import get_test_database_url
+from app.db.config import get_database_url, get_test_database_url
 
 config = context.config
 
@@ -20,14 +20,39 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _alembic_target() -> str | None:
+    opts = config.cmd_opts
+    raw = getattr(opts, "x", None) if opts is not None else None
+    if raw:
+        for item in raw:
+            if isinstance(item, str) and item.startswith("target="):
+                return item.split("=", 1)[1].strip()
+    env_target = os.environ.get("DECK_ALEMBIC_TARGET", "").strip()
+    return env_target or None
+
+
 def _database_url() -> str:
-    test = os.environ.get("DECK_TEST_DATABASE_URL", "").strip()
-    if test:
+    target = _alembic_target()
+    runtime_url = os.environ.get("DECK_DATABASE_URL", "").strip()
+    test_url = os.environ.get("DECK_TEST_DATABASE_URL", "").strip()
+
+    if target == "test":
+        if not test_url:
+            raise RuntimeError("DECK_TEST_DATABASE_URL must be set when Alembic target is 'test'")
         return get_test_database_url()
-    url = os.environ.get("DECK_DATABASE_URL", "").strip()
-    if not url:
-        raise RuntimeError("DECK_DATABASE_URL or DECK_TEST_DATABASE_URL must be set to run Alembic")
-    return url
+
+    if runtime_url and test_url:
+        raise RuntimeError(
+            "Both DECK_DATABASE_URL and DECK_TEST_DATABASE_URL are set; "
+            "pass `-x target=test` (or set DECK_ALEMBIC_TARGET=test) for test migrations"
+        )
+
+    if runtime_url:
+        return get_database_url()
+
+    raise RuntimeError(
+        "DECK_DATABASE_URL is not set; use `-x target=test` with DECK_TEST_DATABASE_URL for tests"
+    )
 
 
 def run_migrations_offline() -> None:

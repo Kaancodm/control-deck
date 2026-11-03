@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
-from app.core.schemas import ResultStatus, TaskV1, Worker
+from app.core.schemas import DataClass, ResultStatus, TaskV1, Worker
 from app.reference.schemas import ReferenceExpect
 from app.reference.validate import LoadedReferenceCase
 
@@ -44,7 +44,15 @@ class FakeExecutor:
         worker = task.fallback_chain[0]
         blob = _task_text_blob(task)
 
-        if _FAKE_KEY_PATTERN.search(blob):
+        if task.data_class == DataClass.LOCAL_ONLY and worker != Worker.OLLAMA:
+            return ExecutionResult(
+                status=ResultStatus.BLOCKED,
+                output_text="",
+                worker=worker,
+                wall_seconds=self.fixed_wall_seconds,
+            )
+
+        if task.data_class != DataClass.LOCAL_ONLY and _FAKE_KEY_PATTERN.search(blob):
             return ExecutionResult(
                 status=ResultStatus.BLOCKED,
                 output_text="",

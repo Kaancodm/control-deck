@@ -331,14 +331,23 @@ lokale Fake-Embeddings, Freigabe-Hashes und wiederaufnehmbare explizite Owner-Ex
 Owner-API und UI bieten Suche, Kontextvorschau, Export aus `done` mit CSRF/Bestaetigung
 und sicheren Inbox-Import. Keine KB-Aufrufe unter Task-/Lease-Locks.
 
-Frische Pflichtchecks vom 2026-11-03 auf Code-Stand `1067c5a`: **1984 Tests bestanden**,
+Frische Pflichtchecks vom 2026-11-03 auf Code-Stand `6b9d470`: **1991 Tests bestanden**,
 keine Skips oder xfail; eine bestehende Starlette/httpx-Deprecation-Warnung.
 `make lint`, zentraler Alembic-Check und separate KB-Migration samt Check sind gruen.
 `make reference` und Ollama-Fake-CLI-Referenzmodus: jeweils **4/4**. Hook-Pruefungen gruen.
 Echte Chromium-Laeufe bei 390 Pixeln mit und 1024 Pixeln ohne JavaScript sind enthalten.
 Zentrale und KB-Testdatenbank sind getrennte isolierte PostgreSQL-17-/pgvector-Datenbanken.
-Die folgenden Commits aendern ausschliesslich Dokumentation; finale Head-SHA und deren CI
+Der folgende Commit aendert ausschliesslich Dokumentation; finale Head-SHA und dessen CI
 werden im PR ausgewiesen. Externes Review bleibt offen, der PR bleibt Draft. Kein Merge.
+
+Die Schlusspruefung identifizierte eine gemeinsame Fehlerursache frueherer sporadischer
+Codex-`idle`-Fehler: Die generierte Task-UUID im Prompt konnte wie eine Telefonnummer
+aussehen. Die Datengrenze blockierte dann einen sauberen Cloud-Auftrag oder erzeugte eine
+unnoetige Redaktionsabbildung. Interne IDs bleiben nun in den strukturierten Daten und
+Archivpfaden; die generierte Prompt-Ueberschrift enthaelt sie nicht mehr. Der vollstaendige
+Scanner bleibt unveraendert. Sechs feste Regressionen scheiterten vor der Korrektur;
+anschliessend bestanden alle 62 betroffenen Tests und der obige Gesamtlauf. Derselbe
+Zahlenblock in Nutzertext wird weiterhin blockiert beziehungsweise redigiert.
 
 ### Inbetriebnahme
 

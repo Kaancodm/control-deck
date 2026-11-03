@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import signal
 import sys
 import time
@@ -12,6 +13,9 @@ from pathlib import Path
 import pytest
 
 from app.workers.process import run_process
+
+# Hang guard for tests whose stop is driven by an event, never by this deadline.
+_SAFETY_TIMEOUT_S = 10.0
 
 
 def _run(tmp_path: Path, source: str, **overrides):
@@ -26,24 +30,35 @@ def _run(tmp_path: Path, source: str, **overrides):
     return run_process([sys.executable, "-c", source], **arguments)
 
 
-def _running(pid: int) -> bool:
-    """A terminated orphan may briefly remain a zombie under a container's init."""
+def _wait_for_exit(pid: int, timeout_s: float) -> bool:
+    """Return True once ``pid`` has terminated; False if it is still alive after ``timeout_s``.
+
+    The descendant is reparented to the container's init after the leader dies, so it
+    cannot be reaped with ``waitpid`` here. A pidfd becomes readable on termination,
+    including while the process is still a zombie awaiting its new parent. Probing
+    ``/proc/<pid>/stat`` instead raced that reaping: the entry can open and then
+    fail with ``ESRCH`` once init collects the zombie.
+    """
     try:
-        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-    except FileNotFoundError:
-        return False
-    return fields[0] != "Z"
+        pidfd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return True
+    try:
+        readable, _, _ = select.select([pidfd], [], [], timeout_s)
+    finally:
+        os.close(pidfd)
+    return bool(readable)
 
 
 def _assert_child_stopped(pid_path: Path) -> None:
     assert pid_path.exists(), "The fake child must start before cleanup is exercised"
     pid = int(pid_path.read_text())
-    until = time.monotonic() + 2
-    while _running(pid) and time.monotonic() < until:
-        time.sleep(0.01)
-    if _running(pid):
+    if not _wait_for_exit(pid, timeout_s=_SAFETY_TIMEOUT_S):
         # A failed regression must not itself leave a synthetic orphan behind.
-        os.kill(pid, signal.SIGKILL)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         pytest.fail("The subprocess group left a running descendant")
 
 
@@ -200,19 +215,35 @@ def test_missing_executable_has_a_safe_failure_result(tmp_path):
 
 @pytest.mark.parametrize("leader_exits", [False, True])
 def test_descendants_holding_pipes_are_terminated_with_the_group(tmp_path, leader_exits):
+    # The descendant publishes its pid atomically once it is running; both the leader and
+    # the test key off that file, so no step depends on how fast Python starts under load.
     child = (
         "import os, time; from pathlib import Path; "
-        "Path('child.pid').write_text(str(os.getpid())); time.sleep(30)"
+        "Path('child.pid.tmp').write_text(str(os.getpid())); "
+        "os.replace('child.pid.tmp', 'child.pid'); time.sleep(30)"
     )
     source = (
         "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
         f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
-        + ("time.sleep(0.1)\n" if leader_exits else "time.sleep(30)\n")
+        "while not Path('child.pid').exists():\n"
+        "    time.sleep(0.01)\n" + ("" if leader_exits else "time.sleep(30)\n")
     )
-    result = _run(tmp_path, source, timeout_s=0.5)
-    assert result.status in ("completed", "timeout")
-    assert result.wall_seconds < 3
-    _assert_child_stopped(tmp_path / "child.pid")
+    pid_path = tmp_path / "child.pid"
+    if leader_exits:
+        # The leader exits as soon as the descendant holds the pipes; cleanup must follow
+        # from the leader's exit alone.
+        result = _run(tmp_path, source, timeout_s=_SAFETY_TIMEOUT_S)
+        assert result.status == "completed"
+        assert result.returncode == 0
+    else:
+        # The leader keeps running; cancellation fires only once the descendant exists.
+        result = _run(
+            tmp_path, source, timeout_s=_SAFETY_TIMEOUT_S, cancel_requested=pid_path.exists
+        )
+        assert result.status == "cancelled"
+        assert result.returncode is not None
+    _assert_child_stopped(pid_path)
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf")])

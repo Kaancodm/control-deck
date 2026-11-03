@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, timedelta
 from typing import Any
 
-from sqlalchemy import exists, select, update
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.schemas import ResultStatus, ResultV1
@@ -35,32 +35,50 @@ def refresh_lease_heartbeat(
     task_id: uuid.UUID,
     extend_by: timedelta,
 ) -> Lease:
-    """Extend ``expires_at`` when the lease is still valid and the fence token matches."""
-    now = datetime.now(tz=UTC)
-    new_expires = now + extend_by
-    active_task = exists(
-        select(1).where(
-            Task.id == Lease.task_id,
-            Task.id == task_id,
-            Task.status.in_((TaskState.LEASED, TaskState.RUNNING)),
-        )
-    )
+    """Extend ``expires_at`` after row lock when the lease is still valid (DB clock)."""
     stmt = (
-        update(Lease)
+        select(Lease)
+        .join(Task, Task.id == Lease.task_id)
         .where(
             Lease.lease_id == lease_id,
             Lease.task_id == task_id,
-            active_task,
-            Lease.expires_at > now,
+            Task.status.in_((TaskState.LEASED, TaskState.RUNNING)),
         )
-        .values(heartbeat_at=now, expires_at=new_expires)
-        .returning(Lease)
+        .with_for_update(of=Lease)
     )
     lease = session.scalars(stmt).first()
     if lease is None:
         raise WorkerOperationError(
             "lease not found, expired, or fencing token does not match active lease"
         )
+
+    now_db = session.scalar(text("SELECT clock_timestamp()"))
+    if now_db is None:
+        raise WorkerOperationError("database clock unavailable")
+    if now_db.tzinfo is None:
+        now_db = now_db.replace(tzinfo=UTC)
+    if lease.expires_at <= now_db:
+        raise WorkerOperationError(
+            "lease not found, expired, or fencing token does not match active lease"
+        )
+
+    extend_seconds = extend_by.total_seconds()
+    session.execute(
+        text(
+            """
+            UPDATE leases
+            SET heartbeat_at = clock_timestamp(),
+                expires_at = clock_timestamp() + CAST(:extend AS interval)
+            WHERE lease_id = :lease_id AND task_id = :task_id
+            """
+        ),
+        {
+            "lease_id": lease_id,
+            "task_id": task_id,
+            "extend": f"{extend_seconds} seconds",
+        },
+    )
+    session.refresh(lease)
     session.flush()
     return lease
 

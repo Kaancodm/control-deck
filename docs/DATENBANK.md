@@ -45,6 +45,17 @@ Worker-Uebergaenge aus `leased`/`running` erfordern die passende `lease_id` (Fen
 
 ## Migrationen
 
+### Freigabe-Gate (Revision 0002 / 0004)
+
+Revision `20251103_0002` fuehrt `awaiting_approval` ein. **Legacy-Bestand:**
+
+- **`queued` ohne `approved_at`** → `awaiting_approval` (Owner-Freigabe noetig).
+- **`leased` / `running` ohne `approved_at`** → `approved_at = created_at` (Grandfathering: bereits laufende Arbeit bleibt dequeue-faehig nach Retry/Lease-Ablauf).
+
+Laufzeit: `transition_task` leitet unapproved Requeues von `lease_expired`/`retry` nach `awaiting_approval` statt in ein blockiertes `queued`.
+
+Revision `20251103_0004` korrigiert idempotent DBs, die noch die **urspruengliche** 0002-Massen-Freigabe (`requires_approval = false`, gesetztes `approved_at` auf allen Zeilen) angewendet haben.
+
 Alembic liegt im Projektroot (`alembic.ini`, `alembic/versions/`). Typischer Ablauf:
 
 ```bash

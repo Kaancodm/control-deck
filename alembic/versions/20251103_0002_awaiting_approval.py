@@ -39,7 +39,18 @@ def upgrade() -> None:
         "tasks",
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
     )
-    # Legacy rows from 0001 were created as queued without owner approval; gate them.
+    # In-flight work from 0001 already passed the implicit queue gate: grandfather approval.
+    op.execute(
+        sa.text(
+            """
+            UPDATE tasks
+            SET approved_at = COALESCE(approved_at, created_at)
+            WHERE approved_at IS NULL
+              AND status IN ('leased', 'running')
+            """
+        )
+    )
+    # Idle legacy queued rows without owner approval move to awaiting_approval.
     op.execute(
         sa.text(
             """

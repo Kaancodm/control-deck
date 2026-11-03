@@ -5,12 +5,25 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import Lease, Task
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import TransitionActor, transition_task, upsert_lease
+
+_LOCAL_ONLY_LANE_ELIGIBLE = text(
+    """
+    (
+        data_class::text <> 'local_only'
+        OR NOT EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(payload->'fallback_chain') AS chain(worker)
+            WHERE chain.worker <> 'ollama'
+        )
+    )
+    """
+)
 
 
 def dequeue_next_queued_task(
@@ -29,6 +42,7 @@ def dequeue_next_queued_task(
         .where(
             Task.status == TaskState.QUEUED,
             (Task.requires_approval.is_(False)) | (Task.approved_at.is_not(None)),
+            _LOCAL_ONLY_LANE_ELIGIBLE,
         )
         .order_by(Task.created_at.asc())
         .limit(1)

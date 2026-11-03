@@ -143,3 +143,44 @@ def test_status_exposes_only_allowlisted_states(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(service, "_read_command", lambda command, env: b"private raw diagnostic")
     with pytest.raises(OperationError):
         service.service_status()
+
+
+def test_update_requires_complete_backup_before_service_mutation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        service, "_read_command", lambda command, env: b"" if "status" in command else b"main"
+    )
+    monkeypatch.setattr(service, "run_command", lambda *a, **k: pytest.fail("No mutation"))
+    with pytest.raises(OperationError) as error:
+        service.update_checkout(
+            tmp_path,
+            database_url="postgresql://example/central_test",
+            backup_root=tmp_path / "backup",
+        )
+    assert error.value.code == "knowledge_database_required"
+
+
+def test_update_threads_knowledge_database_to_backup(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        service, "_read_command", lambda command, env: b"" if "status" in command else b"main"
+    )
+    seen = []
+    monkeypatch.setattr(service, "create_backup", lambda *a, **k: seen.append(k))
+    monkeypatch.setattr(service, "run_command", lambda *a, **k: None)
+    service.update_checkout(
+        tmp_path,
+        database_url="synthetic-central",
+        knowledge_url="synthetic-kb",
+        backup_root=tmp_path,
+    )
+    assert seen == [{"knowledge_url": "synthetic-kb"}]
+
+
+def test_restore_timer_is_only_a_weekly_dry_run_reminder(tmp_path):
+    rendered = service.render_units(Path.cwd(), tmp_path / "env")
+    timer = configparser.ConfigParser(interpolation=None)
+    timer.read_string(rendered["deck-restore-probe.timer"].decode())
+    unit = configparser.ConfigParser(interpolation=None)
+    unit.read_string(rendered["deck-restore-probe.service"].decode())
+    assert timer["Timer"]["OnCalendar"] == "weekly"
+    assert "--apply" not in unit["Service"]["ExecStart"]
+    assert unit["Service"]["ExecStart"].endswith("app.operations.main restore-probe")

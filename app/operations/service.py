@@ -9,7 +9,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from app.operations.backup import create_backup
+from app.operations.backup import configured_knowledge_url, create_backup
 from app.operations.errors import OperationError
 from app.operations.files import private_root, read_file, write_file
 from app.operations.process import run_command
@@ -105,7 +105,9 @@ def _read_command(command: tuple[str, ...], environment: dict[str, str]) -> byte
         return stream.read(65536)
 
 
-def update_checkout(repository: Path, *, database_url: str, backup_root: Path) -> None:
+def update_checkout(
+    repository: Path, *, database_url: str, backup_root: Path, knowledge_url: str | None = None
+) -> None:
     """Backup before mutation; require a clean main branch and only fast-forward updates."""
     root = _template_path(repository)
     environment = service_environment()
@@ -116,7 +118,7 @@ def update_checkout(repository: Path, *, database_url: str, backup_root: Path) -
         != b"main"
     ):
         raise OperationError("unsupported_update_branch")
-    create_backup(database_url, backup_root)
+    create_backup(database_url, backup_root, knowledge_url=knowledge_url)
     run_command(("systemctl", "--user", "stop", *_SERVICES), env=environment, maximum_output=65536)
     run_command(("git", "-C", root, "fetch", "origin"), env=environment, maximum_output=65536)
     run_command(
@@ -198,6 +200,7 @@ def main() -> int:
             update_checkout(
                 arguments.repository,
                 database_url=get_database_url(),
+                knowledge_url=configured_knowledge_url(for_tests=False),
                 backup_root=Path(os.environ.get("DECK_BACKUP_DIR", "backups")),
             )
         elif arguments.action == "status":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import sys
@@ -19,11 +20,13 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
-from app.core.schemas import TaskV1
+from app.core.schemas import DataClass, TaskV1
 from app.db.config import get_test_database_url
 from app.db.models import Event, Lease, RedactionMap, Result, Task
 from app.db.repository import create_task_from_v1
 from app.db.state_machine import TaskState
+from app.kb.config import get_kb_test_database_url
+from app.kb.repository import KnowledgeStore
 from app.kb.state import ContextSnapshot, KnowledgeExport
 from app.operations import backup, retention
 from app.operations.audit import record_operation
@@ -33,6 +36,8 @@ from app.operations.models import OperationEvent
 from app.operations.restic import copy_with_restic
 from app.operations.restore import restore_backup
 from tests.integration.test_database import _minimal_task_payload
+from tests.integration.test_knowledge_store import kb_engine as kb_engine
+from tests.integration.test_knowledge_store import knowledge_store as knowledge_store
 
 
 def _task(session: Session, *, status=TaskState.DONE, age=timedelta(days=91)) -> Task:
@@ -250,6 +255,17 @@ def test_operations_migration_preserves_evidence_and_roundtrips(db_session: Sess
     command.check(config)
 
 
+@pytest.fixture(autouse=True)
+def operations_knowledge_database(kb_engine):
+    """Operations always protect the separate migrated knowledge database."""
+    yield
+
+
+@pytest.fixture
+def knowledge_restore_target(db_session):
+    yield from restore_target.__wrapped__(db_session)
+
+
 @pytest.fixture
 def restore_target(db_session: Session):
     source_url = make_url(get_test_database_url())
@@ -281,27 +297,54 @@ def _client(name: str) -> tuple[str, ...]:
 
 
 def test_real_backup_and_restore_share_snapshot_counts(
-    db_session: Session, tmp_path: Path, restore_target: str, monkeypatch: pytest.MonkeyPatch
+    db_session: Session,
+    tmp_path: Path,
+    restore_target: str,
+    knowledge_restore_target: str,
+    monkeypatch: pytest.MonkeyPatch,
+    knowledge_store,
 ) -> None:
     first = _task(db_session, status=TaskState.AWAITING_APPROVAL)
     first_id = first.id
     factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
     original = backup.run_command
     inserted = []
+    document_id, later_document = uuid4(), uuid4()
+    content = "Synthetic knowledge retained with its vector and immutable contract"
+    knowledge_store.put_document(
+        document_id=document_id,
+        source_task_id=first_id,
+        title="Backup evidence",
+        content=content,
+        data_class=DataClass.LOCAL_ONLY,
+    )
 
     def concurrent_change(command, **kwargs):
-        with factory() as session:
-            inserted.append(_task(session).id)
+        if "--schema=deck_kb" not in command:
+            with factory() as session:
+                inserted.append(_task(session).id)
+        else:
+            knowledge_store.put_document(
+                document_id=later_document,
+                title="After snapshot",
+                content="Later knowledge",
+                data_class=DataClass.LOCAL_ONLY,
+            )
         return original(command, **kwargs)
 
     monkeypatch.setattr(backup, "run_command", concurrent_change)
     result = backup.create_backup(
-        get_test_database_url(), tmp_path / "backups", dump_command=_client("pg_dump")
+        get_test_database_url(),
+        tmp_path / "backups",
+        knowledge_url=get_kb_test_database_url(),
+        dump_command=_client("pg_dump"),
     )
     restore_backup(
         tmp_path / "backups",
         result.name,
         target_url=restore_target,
+        knowledge_target_url=knowledge_restore_target,
+        knowledge_source_url=get_kb_test_database_url(),
         audit_url=get_test_database_url(),
         restore_command=_client("pg_restore"),
     )
@@ -313,6 +356,25 @@ def test_real_backup_and_restore_share_snapshot_counts(
             assert session.scalar(select(func.count()).select_from(Task)) == 1
     finally:
         target_engine.dispose()
+    knowledge_target = create_engine(knowledge_restore_target)
+    try:
+        store = KnowledgeStore(knowledge_target)
+        blocks = store.resolve((str(document_id),), task_class=DataClass.LOCAL_ONLY)
+        assert blocks[0].text.endswith("\n" + content)
+        hits = store.search(content, task_class=DataClass.LOCAL_ONLY, limit=5)
+        assert [hit.reference for hit in hits] == [str(document_id)]
+        with knowledge_target.connect() as connection:
+            assert connection.scalar(text("SELECT count(*) FROM deck_kb.documents")) == 1
+            assert connection.scalar(text("SELECT content FROM deck_kb.chunks")) == content
+            assert (
+                connection.scalar(text("SELECT source_task_id FROM deck_kb.documents")) == first_id
+            )
+            assert (
+                connection.scalar(text("SELECT count(*) FROM pg_extension WHERE extname='vector'"))
+                == 1
+            )
+    finally:
+        knowledge_target.dispose()
     assert db_session.scalar(select(func.count()).select_from(Task)) == 2
     phases = db_session.scalars(
         select(OperationEvent.phase)
@@ -328,6 +390,7 @@ def test_failed_dump_is_not_published(db_session: Session, tmp_path: Path) -> No
         backup.create_backup(
             get_test_database_url(),
             root,
+            knowledge_url=get_kb_test_database_url(),
             dump_command=(
                 sys.executable,
                 "-c",
@@ -349,13 +412,19 @@ def test_restore_rechecks_target_and_archive_before_schema_preparation(
     db_session: Session,
     tmp_path: Path,
     restore_target: str,
+    knowledge_restore_target: str,
     monkeypatch: pytest.MonkeyPatch,
     change: str,
 ) -> None:
     from app.operations import restore
 
     root = tmp_path / "backups"
-    result = backup.create_backup(get_test_database_url(), root, dump_command=_client("pg_dump"))
+    result = backup.create_backup(
+        get_test_database_url(),
+        root,
+        knowledge_url=get_kb_test_database_url(),
+        dump_command=_client("pg_dump"),
+    )
     target = create_engine(restore_target)
     if change == "corrupt_dump":
         with (root / result.name / "database.dump").open("ab") as output:
@@ -363,11 +432,15 @@ def test_restore_rechecks_target_and_archive_before_schema_preparation(
     else:
         original = restore.digest_file
 
+        changed = []
+
         def changed_target(*args, **kwargs):
             evidence = original(*args, **kwargs)
-            with target.begin() as connection:
-                connection.execute(text("CREATE TABLE preserve_racing_data (id integer)"))
-                connection.execute(text("INSERT INTO preserve_racing_data VALUES (42)"))
+            if not changed:
+                with target.begin() as connection:
+                    connection.execute(text("CREATE TABLE preserve_racing_data (id integer)"))
+                    connection.execute(text("INSERT INTO preserve_racing_data VALUES (42)"))
+                changed.append(True)
             return evidence
 
         monkeypatch.setattr(restore, "digest_file", changed_target)
@@ -375,7 +448,12 @@ def test_restore_rechecks_target_and_archive_before_schema_preparation(
     try:
         with pytest.raises(OperationError) as error:
             restore_backup(
-                root, result.name, target_url=restore_target, audit_url=get_test_database_url()
+                root,
+                result.name,
+                target_url=restore_target,
+                audit_url=get_test_database_url(),
+                knowledge_target_url=knowledge_restore_target,
+                knowledge_source_url=get_kb_test_database_url(),
             )
         assert error.value.code == (
             "backup_checksum_mismatch" if change == "corrupt_dump" else "restore_target_not_empty"
@@ -392,7 +470,11 @@ def test_restore_rechecks_target_and_archive_before_schema_preparation(
 
 
 def test_restore_rejects_nonempty_target_before_process(
-    db_session: Session, tmp_path: Path, restore_target: str, monkeypatch: pytest.MonkeyPatch
+    db_session: Session,
+    tmp_path: Path,
+    restore_target: str,
+    knowledge_restore_target: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = create_engine(restore_target)
     with target.begin() as connection:
@@ -406,6 +488,8 @@ def test_restore_rejects_nonempty_target_before_process(
             tmp_path / "missing",
             "backup-" + uuid4().hex,
             target_url=restore_target,
+            knowledge_target_url=knowledge_restore_target,
+            knowledge_source_url=get_kb_test_database_url(),
             audit_url=get_test_database_url(),
         )
     assert error.value.code == "restore_target_not_empty"
@@ -422,6 +506,7 @@ def test_optional_restic_hook_uses_fake_cli_and_private_credential_descriptor(
     )
     for root in (backup_root, runs_root, configuration):
         root.mkdir(mode=0o700)
+    _complete_backup(tmp_path)
     password = configuration / "password"
     password.write_text("fake-restic-password")
     password.chmod(0o600)
@@ -475,3 +560,201 @@ def test_restic_hook_refuses_unsafe_credential_before_process(
         db_session.scalar(select(OperationEvent.phase).order_by(OperationEvent.id.desc()).limit(1))
         == "failed"
     )
+
+
+def _complete_backup(tmp_path: Path):
+    return backup.create_backup(
+        get_test_database_url(),
+        tmp_path / "backups",
+        knowledge_url=get_kb_test_database_url(),
+        dump_command=_client("pg_dump"),
+    )
+
+
+def _restore_complete(tmp_path, name, central, knowledge, **kwargs):
+    return restore_backup(
+        tmp_path / "backups",
+        name,
+        target_url=central,
+        audit_url=get_test_database_url(),
+        knowledge_target_url=knowledge,
+        knowledge_source_url=get_kb_test_database_url(),
+        restore_command=_client("pg_restore"),
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize(
+    "corruption,expected",
+    [
+        ("dump", "backup_checksum_mismatch"),
+        ("checksum", "backup_checksum_mismatch"),
+        ("missing", "unsafe_path"),
+        ("revision", "restore_revision_mismatch"),
+        ("schema", "invalid_backup_manifest"),
+    ],
+)
+def test_invalid_knowledge_archive_never_mutates_either_target(
+    db_session,
+    tmp_path,
+    restore_target,
+    knowledge_restore_target,
+    monkeypatch,
+    corruption,
+    expected,
+):
+    from app.operations import restore
+
+    result = _complete_backup(tmp_path)
+    directory = tmp_path / "backups" / result.name
+    if corruption == "dump":
+        with (directory / "knowledge.dump").open("ab") as output:
+            output.write(b"changed")
+    elif corruption == "checksum":
+        (directory / "knowledge.sha256").write_text("0" * 64 + "\n")
+    elif corruption == "missing":
+        (directory / "knowledge.dump").unlink()
+    else:
+        manifest = json.loads((directory / "manifest.json").read_text())
+        if corruption == "revision":
+            manifest["knowledge"]["schema_revision"] = "kb_9999"
+        else:
+            manifest["knowledge"]["row_counts"]["unexpected.documents"] = 1
+        (directory / "manifest.json").write_text(json.dumps(manifest))
+    monkeypatch.setattr(restore, "run_command", lambda *a, **k: pytest.fail("No process"))
+    with pytest.raises(OperationError) as error:
+        _restore_complete(tmp_path, result.name, restore_target, knowledge_restore_target)
+    assert error.value.code == expected
+    for url in (restore_target, knowledge_restore_target):
+        engine = create_engine(url)
+        try:
+            with engine.connect() as connection:
+                restore._require_empty_target(connection)
+                assert (
+                    connection.scalar(
+                        text("SELECT count(*) FROM pg_namespace WHERE nspname='public'")
+                    )
+                    == 1
+                )
+        finally:
+            engine.dispose()
+    assert (
+        "completed"
+        not in db_session.scalars(
+            select(OperationEvent.phase).where(OperationEvent.operation_type == "restore")
+        ).all()
+    )
+
+
+def test_nonempty_knowledge_target_preserves_both_databases(
+    db_session,
+    tmp_path,
+    restore_target,
+    knowledge_restore_target,
+    monkeypatch,
+):
+    from app.operations import restore
+
+    target = create_engine(knowledge_restore_target)
+    try:
+        with target.begin() as connection:
+            connection.execute(text("CREATE TABLE preserved (id integer)"))
+            connection.execute(text("INSERT INTO preserved VALUES (42)"))
+        monkeypatch.setattr(restore, "run_command", lambda *a, **k: pytest.fail("No process"))
+        with pytest.raises(OperationError) as error:
+            _restore_complete(
+                tmp_path, "backup-" + uuid4().hex, restore_target, knowledge_restore_target
+            )
+        assert error.value.code == "restore_target_not_empty"
+        with target.connect() as connection:
+            assert connection.scalar(text("SELECT id FROM preserved")) == 42
+        central = create_engine(restore_target)
+        try:
+            with central.connect() as connection:
+                restore._require_empty_target(connection)
+        finally:
+            central.dispose()
+    finally:
+        target.dispose()
+
+
+def test_second_dump_failure_never_publishes_a_central_only_set(db_session, tmp_path, monkeypatch):
+    original = backup.run_command
+    dumped = []
+
+    def second_fails(command, **kwargs):
+        if "--schema=deck_kb" in command:
+            raise OperationError("process_failed")
+        original(command, **kwargs)
+        dumped.append(True)
+
+    monkeypatch.setattr(backup, "run_command", second_fails)
+    with pytest.raises(OperationError):
+        _complete_backup(tmp_path)
+    assert dumped == [True]
+    assert not list((tmp_path / "backups").iterdir())
+    assert db_session.scalars(
+        select(OperationEvent.phase)
+        .where(OperationEvent.operation_type == "backup")
+        .order_by(OperationEvent.id)
+    ).all() == ["started", "failed"]
+
+
+@pytest.mark.parametrize("failure", ["second_process", "row_evidence", "knowledge_check"])
+def test_partial_restore_never_reports_success(
+    db_session,
+    tmp_path,
+    restore_target,
+    knowledge_restore_target,
+    monkeypatch,
+    failure,
+):
+    from app.operations import restore
+
+    task_id = _task(db_session).id
+    result = _complete_backup(tmp_path)
+    if failure == "row_evidence":
+        path = tmp_path / "backups" / result.name / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["knowledge"]["row_counts"]["deck_kb.documents"] += 1
+        path.write_text(json.dumps(manifest))
+    original = restore.run_command
+
+    def fail_second(command, **kwargs):
+        if (
+            "--dbname" in command
+            and kwargs["env"]["PGDATABASE"] == make_url(knowledge_restore_target).database
+        ):
+            raise OperationError("process_failed")
+        return original(command, **kwargs)
+
+    if failure == "second_process":
+        monkeypatch.setattr(restore, "run_command", fail_second)
+    kwargs = (
+        {"knowledge_check_command": (sys.executable, "-c", "raise SystemExit(1)")}
+        if failure == "knowledge_check"
+        else {}
+    )
+    with pytest.raises(OperationError) as error:
+        _restore_complete(tmp_path, result.name, restore_target, knowledge_restore_target, **kwargs)
+    assert error.value.code == "restore_partial_failure"
+    phases = db_session.scalars(
+        select(OperationEvent.phase)
+        .where(OperationEvent.operation_type == "restore")
+        .order_by(OperationEvent.id)
+    ).all()
+    assert phases == ["started", "failed"]
+    assert (
+        db_session.scalar(
+            select(OperationEvent.detail).where(
+                OperationEvent.operation_type == "restore", OperationEvent.phase == "failed"
+            )
+        )["reason"]
+        == "restore_partial_failure"
+    )
+    central = create_engine(restore_target)
+    try:
+        with Session(central) as session:
+            assert session.get(Task, task_id) is not None
+    finally:
+        central.dispose()

@@ -10,11 +10,27 @@ from uuid import uuid4
 
 import pytest
 
+from app.operations import backup
 from app.operations.audit import record_operation
-from app.operations.backup import BackupManifest, postgres_environment, prune_backups
+from app.operations.backup import (
+    BackupManifest,
+    DatabaseEvidence,
+    postgres_environment,
+    prune_backups,
+)
 from app.operations.errors import OperationError
 from app.operations.files import child_directory, private_root, write_file
 from app.operations.restore import validate_restore_databases
+
+
+def test_backup_requires_explicit_knowledge_database_before_any_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(backup, "create_engine", lambda *a, **k: pytest.fail("No connection"))
+    with pytest.raises(OperationError) as error:
+        backup.create_backup("postgresql://example/source_test", tmp_path / "backups")
+    assert error.value.code == "knowledge_database_required"
+    assert not (tmp_path / "backups").exists()
 
 
 def _backup(root: Path, created: datetime) -> Path:
@@ -23,10 +39,24 @@ def _backup(root: Path, created: datetime) -> Path:
     manifest = BackupManifest(
         operation_id=operation_id,
         created_at=created,
-        sha256=hashlib.sha256(data).hexdigest(),
-        size_bytes=len(data),
-        schema_revision="20251103_0015",
-        row_counts={"tasks": 2},
+        central=DatabaseEvidence(
+            sha256=hashlib.sha256(data).hexdigest(),
+            size_bytes=len(data),
+            schema_revision="20251103_0015",
+            row_counts={"public.tasks": 2, "public.alembic_version": 1},
+        ),
+        knowledge=DatabaseEvidence(
+            sha256=hashlib.sha256(data).hexdigest(),
+            size_bytes=len(data),
+            schema_revision="kb_0001",
+            vector_version="0.8.1",
+            row_counts={
+                "public.alembic_kb_version": 1,
+                "deck_kb.contract": 1,
+                "deck_kb.documents": 0,
+                "deck_kb.chunks": 0,
+            },
+        ),
     )
     name = "backup-" + operation_id.hex
     with (
@@ -34,8 +64,10 @@ def _backup(root: Path, created: datetime) -> Path:
         child_directory(parent, name, create=True) as directory,
     ):
         write_file(directory, "database.dump", data)
+        write_file(directory, "knowledge.dump", data)
+        write_file(directory, "knowledge.sha256", (manifest.knowledge.sha256 + "\n").encode())
         write_file(directory, "manifest.json", manifest.model_dump_json().encode())
-        write_file(directory, "dump.sha256", (manifest.sha256 + "\n").encode())
+        write_file(directory, "dump.sha256", (manifest.central.sha256 + "\n").encode())
     return root / name
 
 
@@ -97,7 +129,10 @@ def test_restore_refuses_unsafe_databases_before_connecting(target: str, audit: 
 
 def test_restore_accepts_distinct_explicit_test_databases() -> None:
     validate_restore_databases(
-        "postgresql://example/target_test", "postgresql://example/source_test"
+        "postgresql://example/target_test",
+        "postgresql://example/source_test",
+        knowledge_target_url="postgresql://example/kb_target_test",
+        knowledge_source_url="postgresql://example/kb_source_test",
     )
 
 
@@ -128,3 +163,63 @@ def test_operation_metadata_refuses_unbounded_details(detail: dict) -> None:
         record_operation(
             None, operation_id=uuid4(), operation_type="backup", phase="started", **detail
         )
+
+
+@pytest.mark.parametrize(
+    "target,source",
+    [
+        ("source_test", "kb_source_test"),
+        ("target_test", "kb_source_test"),
+        ("kb_source_test", "kb_source_test"),
+        ("kb_target_test", "source_test"),
+        ("runtime", "kb_source_test"),
+    ],
+)
+def test_restore_rejects_aliasing_or_unsafe_knowledge_databases(target, source):
+    with pytest.raises(OperationError) as error:
+        validate_restore_databases(
+            "postgresql://example/target_test",
+            "postgresql://example/source_test",
+            knowledge_target_url="postgresql://example/" + target,
+            knowledge_source_url="postgresql://example/" + source,
+        )
+    assert error.value.code == "unsafe_restore_target"
+
+
+@pytest.mark.parametrize("artifact", ["knowledge.dump", "knowledge.sha256"])
+def test_missing_knowledge_artifact_blocks_retention(tmp_path, artifact):
+    now = datetime.now(UTC)
+    old = _backup(tmp_path, now - timedelta(days=30))
+    fresh = _backup(tmp_path, now)
+    (fresh / artifact).unlink()
+    with pytest.raises((OperationError, OSError)):
+        prune_backups(tmp_path, now=now, apply=True)
+    assert old.exists()
+
+
+def test_legacy_central_only_manifest_is_never_a_complete_set(tmp_path):
+    import json
+
+    now = datetime.now(UTC)
+    old = _backup(tmp_path, now - timedelta(days=30))
+    fresh = _backup(tmp_path, now)
+    manifest = json.loads((fresh / "manifest.json").read_text())
+    legacy = {
+        "version": 1,
+        "operation_id": manifest["operation_id"],
+        "created_at": manifest["created_at"],
+        **manifest["central"],
+    }
+    (fresh / "manifest.json").write_text(json.dumps(legacy))
+    with pytest.raises(OperationError) as error:
+        prune_backups(tmp_path, now=now, apply=True)
+    assert error.value.code == "invalid_backup_manifest"
+    assert old.exists()
+
+
+def test_runtime_knowledge_configuration_never_uses_test_fallback(monkeypatch):
+    monkeypatch.delenv("DECK_KB_DATABASE_URL", raising=False)
+    monkeypatch.setenv("DECK_KB_TEST_DATABASE_URL", "postgresql+psycopg://example/kb_test")
+    with pytest.raises(OperationError) as error:
+        backup.configured_knowledge_url(for_tests=False)
+    assert error.value.code == "knowledge_database_required"

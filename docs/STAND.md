@@ -411,8 +411,8 @@ Details: [SECURITY.md](SECURITY.md), [UI.md](UI.md). Keine neuen inhaltlichen Re
 Draft-PR [#31](https://github.com/Kaancodm/control-deck/pull/31), Branch `stage/16-operations`,
 gestapelt auf Etappe 15; die finale Eltern-SHA steht im PR. Kein Merge.
 
-Migration `0015`, append-only Betriebsereignisse, private atomare Backups mit konsistentem
-Snapshot, expliziter Test-Restore, 14-/90-Tage-Aufbewahrung und wiederaufnehmbare Retention
+Migration `0015`, append-only Betriebsereignisse, private atomare Backup-Saetze beider DBs
+mit je DB konsistentem Snapshot, expliziter Zwei-Ziel-Test-Restore, 14-/90-Tage-Aufbewahrung und wiederaufnehmbare Retention
 sind integriert. systemd-Benutzervorlagen und begrenzter Simulations-Supervisor bleiben
 Repo-Code; keine Installation oder Dienststarts auf einem Betriebsserver.
 
@@ -424,7 +424,7 @@ Ziel. Echte Prozessgruppenbeendigung inklusive Unterprozess und anschliessender 
 sind belegt; Dienstende wird nicht als Owner-Abbruch gespeichert. Ein Downgrade verweigert
 das Loeschen vorhandener Betriebsnachweise.
 
-Frischer Gesamtlauf auf `d67c141`: **2174 Tests bestanden**, keine Skips oder xfail;
+Vorheriger Gesamtlauf vor der Zwei-DB-Erweiterung auf `d67c141`: **2174 Tests bestanden**, keine Skips oder xfail;
 eine bestehende Starlette/httpx-Deprecation-Warnung. `make lint`, beide Alembic-Pruefungen,
 KB-Upgrade und Hook-Pruefungen sind gruen. Beide Referenzmodi bestehen mit **4/4**.
 Der Gesamtlauf enthaelt echte Wegwerf-DB-Dump-/Restore-Proben, Chromium bei 390/1024 Pixeln
@@ -433,14 +433,19 @@ zentrale und KB-Datenbank sind getrennt. Der Lauf enthaelt die gemeinsame UUID-K
 aus Etappe 14 und die sichere Codex-Fehlerdiagnose. Die abschliessende Elternaktualisierung
 uebernimmt nur Dokumentation; Anwendung, Tests, Migrationen, Konfiguration und
 Abhaengigkeiten bleiben identisch. Finale Head-SHA und CI stehen im PR.
-Externes Review bleibt offen; der PR bleibt Draft.
+Die aktuelle Erweiterung verlangt ein Manifest in Version 2 mit zentralem und Wissens-Dump.
+Beide Archive und beide leeren Testziele werden vor dem ersten Restore validiert; Erfolg
+verlangt beide Schema-/Zeilennachweise und Alembic-Checks. Teilfehler bleiben fehlgeschlagen
+und hinterlassen Diagnoseziele ohne automatische Bereinigung. Der finale neue Gesamtlauf
+folgt nach Integration des Elternstands. Externes Review bleibt offen; der PR bleibt Draft.
 
 ### Inbetriebnahme
 
 Offen bleiben reale Bindung/TLS, User-Manager und Lingering, Datei-/Backup-Ziele, Speicher,
 Off-site-Kopie und Restore, Restic-Konfiguration sowie echte Lane-Isolation und Anmeldung.
-Der Dump umfasst nur das zentrale `public`, nicht die separate KB-Datenbank. Deren Backup-
-Vertrag und ein konsistenter Gesamt-Snapshot mit Laufdateien bleiben separat nachzuweisen.
+Der vollstaendige Backup-Satz umfasst zentrale und separate Wissens-DB samt pgvector.
+Beide Dumps sind je DB snapshot-konsistent; ein konsistenter Gesamtzeitpunkt ueber beide
+Datenbanken und Laufdateien bleibt separat nachzuweisen.
 Der woechentliche Restore-Timer ist eine Trockenlauf-Erinnerung, kein Erfolgsnachweis.
 Keine echten Logins, Anbieteraufrufe, API-Keys, produktiven Verbindungen oder Serveraenderungen.
 Details: [OPERATIONS.md](OPERATIONS.md). Etappe 18 bleibt eine vorbereitete Checkliste.

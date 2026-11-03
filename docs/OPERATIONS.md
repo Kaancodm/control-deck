@@ -17,8 +17,11 @@ Erst `ARGS='--apply ...'` fuehrt die jeweilige Aktion aus. Weder ein fehlender P
 noch eine fehlende Konfiguration aktiviert einen Ersatzpfad.
 
 Wartung verlangt ein ausdrueckliches Ziel. `--target test` verwendet ausschliesslich
-`DECK_TEST_DATABASE_URL` mit einem Datenbanknamen auf `_test`; `--target runtime`
-verwendet `DECK_DATABASE_URL`. Restore akzeptiert ausschliesslich das Testziel.
+`DECK_TEST_DATABASE_URL` und `DECK_KB_TEST_DATABASE_URL` mit Namen auf `_test`;
+`--target runtime` verwendet ausdruecklich `DECK_DATABASE_URL` und `DECK_KB_DATABASE_URL`.
+Eine fehlende Wissens-DB bricht Backup und Update ab; es gibt kein zentrales Ersatzbackup.
+Die Runtime-Variable gilt nur fuer Wartung und aktiviert keinen Live-Wissensadapter.
+Restore akzeptiert ausschliesslich vier getrennte Testdatenbanken.
 Keine Zugangsdaten erscheinen in Prozessargumenten oder normaler Kommandoausgabe.
 
 ## Dienstvorlagen
@@ -70,16 +73,27 @@ Er setzt den ausdruecklichen Abbruchpfad fuer aktive Aufgaben.
 
 ## Backup und 14 Tage Aufbewahrung
 
-`backup --apply` erstellt ein PostgreSQL-Custom-Dump des Deck-Schemas in einem privaten
-Staging-Verzeichnis. `pg_dump` und die Tabellenzaehlungen teilen dieselbe exportierte
-Snapshot-Transaktion. Danach folgen SHA-256, Schema-Revision, Zeit und Zaehler im
-versionierten Manifest. Erst eine atomare Umbenennung veroeffentlicht den vollstaendigen
-Satz. Fehlgeschlagenes privates Staging wird sicher entfernt. Unsichere oder waehrenddessen
-veraenderte `.pending-*`-Verzeichnisse bleiben zur Diagnose erhalten und sind keine fertigen Backups.
+`backup --apply` erstellt einen vollstaendigen Satz aus zwei PostgreSQL-Custom-Dumps:
+`database.dump` fuer das zentrale `public` und `knowledge.dump` fuer `public`, `deck_kb`
+und die pgvector-Erweiterung der separaten Wissens-DB. Pro Datenbank teilen Dump,
+Tabellenzaehlungen und Revision dieselbe exportierte Snapshot-Transaktion. Die beiden
+Datenbanken teilen **keinen** gemeinsamen Snapshot; parallele Exporte koennen daher
+unterschiedliche Zeitpunkte abbilden.
+
+Das Manifest in Version 2 verlangt beide Datenbanken mit SHA-256, Groesse, Revision und
+schemaqualifizierten Tabellenzaehlern; fuer Wissen kommt die pgvector-Version hinzu.
+Erst nach beiden erfolgreichen Dumps veroeffentlicht eine atomare Umbenennung den Satz.
+Ein Fehler beim zweiten Dump publiziert auch den ersten nicht. Fehlgeschlagenes privates
+Staging wird sicher entfernt. Unsichere oder waehrenddessen veraenderte `.pending-*`-
+Verzeichnisse bleiben zur Diagnose erhalten und sind keine fertigen Backups.
+
+Aeltere zentrale Saetze in Manifestversion 1 bleiben unvollstaendige Altsicherungen.
+Restore, Restic und Pruning lehnen sie ab; sie werden weder als vollstaendig bezeichnet
+noch automatisch geloescht. Ein neuer vollstaendiger Satz ist erforderlich.
 
 Backups enthalten auch sensible lokale Daten wie Maps und Authentisierungsdaten.
 Verzeichnisse sind `0700`, Dateien `0600`; sie gehoeren nicht ins Repo. Die maximale
-Dump-Groesse ist ein GiB, die Prozesszeit begrenzt. Ein Limitfehler publiziert keinen
+Dump-Groesse ist je Datenbank ein GiB, die Prozesszeit begrenzt. Ein Limitfehler publiziert keinen
 abgeschnittenen Dump.
 
 Nur vollstaendige, verifizierte Saetze aelter als 14 Tage werden entfernt, und nur wenn
@@ -87,42 +101,54 @@ mindestens ein neuerer gueltiger Satz vorhanden ist. Der letzte alte Backup-Satz
 bei ausgefallener Sicherung erhalten. Das Manifest enthaelt keine Verbindungs-URL.
 
 `--restic` aktiviert nach einem erfolgreichen Dump einen ausdruecklich konfigurierten
-Hook fuer Backup- und Laufverzeichnisse. Repository und private Passwortdatei bleiben
+Hook fuer Backup- und Laufverzeichnisse. Vor dem Kopieren muessen vorhandene Saetze
+beide Archive und gueltige Pruefsummen enthalten; ein leeres Backup-Verzeichnis reicht nicht. Repository und private Passwortdatei bleiben
 extern. Der Prozess erhaelt einen geprueften offenen Dateideskriptor fuer das Passwort;
 normale Logs enthalten weder Werte noch Prozessdiagnosen. Die Hook-Phasen werden separat
 auditiert. Ein DB-Dump und eine parallele Dateikopie sind kein atomarer Gesamt-Snapshot;
 Off-site-Restore und konsistente Artefaktwiederherstellung bleiben Inbetriebnahme.
-Der Dump umfasst ausschliesslich `public` in der zentralen Deck-Datenbank. Die separate
-Wissens-DB wird damit nicht gesichert; deren Sicherungs-/Restore-Vertrag ist ebenfalls
-Inbetriebnahme. Ein zentraler Dump ist kein Gesamtbackup beider Datenbanken.
+Die zentrale und die separate Wissens-DB sind Teil desselben publizierten Backup-Satzes.
+Ein konsistenter Gesamtzeitpunkt ueber beide Datenbanken und Laufdateien bleibt Inbetriebnahme.
 
-## Restore nur in eine leere Testdatenbank
+## Restore nur in zwei leere Testdatenbanken
 
-Eine Probe benoetigt einen ausdruecklich ausgewaehlten Backup-Satz sowie zwei verschiedene
-`_test`-Datenbanken auf dem vorgesehenen Testdienst: Auditquelle und leeres Restore-Ziel.
-Das Werkzeug erstellt oder loescht keine Datenbanken und keine Rollen. Nichtleere Ziele,
-falsche Namen, fremde Pfade, geaenderte Dumps oder widerspruechliche Manifeste werden
-abgewiesen. Beispiel mit vom Owner bereitgestellter leerer Testdatenbank:
+Eine Probe benoetigt einen ausgewaehlten Backup-Satz und vier verschiedene `_test`-DBs
+auf dem vorgesehenen Testdienst: zentrale Auditquelle, Wissensquelle, leeres zentrales
+Ziel und leeres Wissensziel. Die Ziele werden explizit ueber `DECK_RESTORE_TEST_DATABASE_URL`
+und `DECK_KB_RESTORE_TEST_DATABASE_URL` gesetzt. Quellen oder dasselbe Ziel duerfen nicht
+wiederverwendet werden. Das Werkzeug erstellt oder loescht keine Datenbanken und Rollen.
 
 ```text
 make restore-probe ARGS='--apply --target test --backup-name <backup-id>'
 ```
 
-Nach Manifest-/Pruefsummenpruefung wird das Ziel erneut auf Leerheit geprueft. Das leere
-Schema `public` wird ohne `CASCADE` entfernt, weil der schema-begrenzte Dump es selbst
-anlegt. Ein inzwischen befuelltes Ziel wird abgewiesen; es gibt kein `--clean` gegen
-bestehende Objekte. Nach einem Fehler bleibt das Wegwerf-Ziel zur Diagnose erhalten.
+Vor dem ersten Eingriff muessen **beide** Ziele leer sein, beide Archive samt Pruefsummen
+vorliegen und beide Manifest-Revisionen zum aktuellen Code passen. Falsche Schemaangaben,
+eine fehlende oder korrupte Wissensdatei und ein befuelltes Wissensziel lassen das zentrale
+Ziel unveraendert. Die geprueften Dateideskriptoren bleiben fuer die Wiederherstellung offen.
+Nach Archivpruefung wird die Leerheit erneut kontrolliert. Nur das leere `public` wird ohne
+`CASCADE` entfernt, weil die Dumps es selbst anlegen; bestehende Objekte werden nie mit
+`--clean` entfernt.
 
-`pg_restore` laeuft in einer Transaktion ohne Owner-/Rechteuebernahme. Danach muessen
-Tabellenzaehlungen, Revision und `alembic -x target=test check` passen. Erfolg wird erst
-anschliessend in der separaten Auditquelle gespeichert. Ein Fehler hinterlaesst keinen
-Erfolgsnachweis. Die Wiederherstellung einer bereits verwendeten Testdatenbank wird
-abgewiesen; der Owner stellt fuer die naechste Probe ein frisches Ziel bereit.
+`pg_restore` verwendet je Datenbank eine Transaktion, ohne Owner-/Rechteuebernahme. Danach
+muessen beide Tabelleninventare, Zeilenzaehler und Revisionen sowie die pgvector-Version
+passen. Der Wissensvertrag prueft unter anderem Vektordimension und unveraenderliche
+Dokumente. Zentrales `alembic -x target=test check` und separates
+`alembic -c alembic_kb.ini check` laufen gegen die jeweiligen Ziele. Erst danach wird ein
+vollstaendiger Erfolg in der separaten zentralen Auditquelle gespeichert.
 
-Der woechentliche Timer ist bewusst eine **Trockenlauf-Erinnerung**, keine bestaetigte
-Restore-Probe. Ein automatisch bereitgestelltes isoliertes Ziel und der operative Ablauf
-muessen bei der Inbetriebnahme festgelegt werden. Die Integrationstests verwenden echte
-Wegwerf-Testdatenbanken und passende PostgreSQL-Clients, keine uebersprungenen Ersatztests.
+Es gibt keine verteilte Restore-Transaktion. Scheitert der zweite Restore oder eine
+nachfolgende Pruefung, bleibt die Probe **fehlgeschlagen** (`restore_partial_failure`),
+auch wenn ein Ziel bereits Daten enthaelt. Beide Wegwerf-Ziele bleiben zur Diagnose
+zurueck und gelten als gesperrt fuer eine Uebernahme; es gibt keinen automatischen
+Rollback und keinen Erfolgsnachweis. Fuer einen neuen Versuch sind zwei frische leere
+Ziele erforderlich. Das Werkzeug raeumt keine fremden Daten weg.
+
+Der woechentliche Timer ist ueberall eine **Trockenlauf-Erinnerung**, keine automatische
+oder bestaetigte Restore-Probe. Seine Service-Vorlage startet nur `restore-probe` ohne
+`--apply`. Automatische Bereitstellung leerer Ziele und der operative Ablauf bleiben
+Inbetriebnahme. Integrationstests verwenden echte Wegwerf-Testdatenbanken und passende
+PostgreSQL-17-Clients, keine uebersprungenen Ersatztests.
 
 ## 90 Tage fuer abgeschlossene Laufdaten
 
@@ -146,7 +172,7 @@ fehlgeschlagener Lauf ist deshalb sichtbar und wird niemals als abgeschlossen be
 ## Update und Fehlerbehandlung
 
 Ein ausdrueckliches Update verlangt einen sauberen Arbeitsbaum auf `main`. Vor der ersten
-Aenderung wird ein Backup angelegt. Danach werden API und Runner gestoppt; Fetch,
+Aenderung wird ein vollstaendiger Backup-Satz beider Datenbanken angelegt. Danach werden API und Runner gestoppt; Fetch,
 ausschliesslicher Fast-forward, `uv sync --frozen` und Migration erfolgen ohne laufende
 alte Worker. Erst bei Erfolg folgt ein Neustart. Konflikte, Migration- oder Backup-Fehler
 beenden den Ablauf; nach einem Stopp bleiben die Dienste bis zum ausdruecklichen

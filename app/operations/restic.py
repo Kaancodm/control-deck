@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.operations.audit import record_operation
+from app.operations.backup import verified_sets
 from app.operations.errors import OperationError
 from app.operations.files import READ_FLAGS, private_root, validate_private
 from app.operations.process import run_command
@@ -43,10 +44,12 @@ def copy_with_restic(
             )
             session.commit()
         with (
-            private_root(backup_root),
+            private_root(backup_root) as backups,
             private_root(runs_root),
             private_root(credential.parent) as parent,
         ):
+            if not verified_sets(backups):
+                raise OperationError("complete_backup_required")
             descriptor = os.open(credential.name, READ_FLAGS, dir_fd=parent)
             try:
                 metadata = os.fstat(descriptor)

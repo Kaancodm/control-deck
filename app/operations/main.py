@@ -12,7 +12,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.config import get_database_url, get_test_database_url
-from app.operations.backup import backup_summary, create_backup, prune_backups
+from app.operations.backup import (
+    backup_summary,
+    configured_knowledge_url,
+    create_backup,
+    prune_backups,
+)
 from app.operations.errors import OperationError
 from app.operations.restore import restore_backup
 from app.operations.retention import retain_tasks
@@ -39,12 +44,18 @@ def main() -> int:
                 arguments.backup_name,
                 target_url=os.environ.get("DECK_RESTORE_TEST_DATABASE_URL", ""),
                 audit_url=get_test_database_url(),
+                knowledge_target_url=os.environ.get("DECK_KB_RESTORE_TEST_DATABASE_URL", ""),
+                knowledge_source_url=configured_knowledge_url(for_tests=True),
             )
             print(json.dumps({"operation_id": str(operation_id), "status": "completed"}))
             return 0
         url = get_test_database_url() if arguments.target == "test" else get_database_url()
         if arguments.operation == "backup":
-            result = create_backup(url, root)
+            result = create_backup(
+                url,
+                root,
+                knowledge_url=configured_knowledge_url(for_tests=arguments.target == "test"),
+            )
             if arguments.restic:
                 from app.operations.restic import copy_with_restic
 

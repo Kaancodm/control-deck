@@ -1,5 +1,5 @@
 [Unit]
-Description=Weekly Control Deck isolated restore rehearsal reminder
+Description=Weekly Control Deck restore dry-run reminder (no restore)
 
 [Timer]
 OnCalendar=weekly

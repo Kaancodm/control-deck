@@ -8,12 +8,14 @@ Deployment und Gesamt-Abnahme sind nicht freigegeben.
 ## Umgesetzter Vertrag
 
 - Migration `0015` nach `0014`: append-only `operations_events` mit sicheren Metadaten.
-- Private, atomar publizierte PostgreSQL-Custom-Dumps des zentralen `public`-Schemas.
-  Dump, Manifest und Tabellenzaehlungen stammen aus demselben exportierten Snapshot.
-- Restore nur in eine ausdrueckliche leere `_test`-DB, getrennt von der Auditquelle.
-  Nach verifiziertem Archiv wird die Leerheit erneut geprueft und das leere `public`
-  ohne `CASCADE` fuer den Dump vorbereitet. Pruefsumme, Zaehler, Revision und Alembic
-  muessen passen, bevor Erfolg auditiert wird.
+- Private, atomar publizierte PostgreSQL-Custom-Dumps fuer zentrale DB und separate
+  Wissens-DB einschliesslich `deck_kb` und pgvector. Manifestversion 2 verlangt beide
+  Archive; je DB sind Dump, Revision und Tabellenzaehlungen snapshot-konsistent.
+- Restore ausschliesslich in zwei ausdrueckliche leere `_test`-DBs, getrennt voneinander
+  und von beiden Quellen. Beide Archive, Pruefsummen, Revisionen und Ziele werden vor
+  dem ersten Eingriff validiert. Beide Schema-/Zeilenbelege und Alembic-Checks muessen
+  passen, bevor Erfolg auditiert wird. Teilfehler bleiben fehlgeschlagen; keine verteilte
+  Transaktion und kein automatisches Loeschen bereits restaurierter Diagnoseziele.
 - Vollstaendige Backups bleiben 14 Tage; ohne neueren gueltigen Satz bleibt der letzte
   alte Dump bestehen. Retention ist standardmaessig ein Trockenlauf.
 - Laufartefakte, Maps und Kontext-Snapshots duerfen nach 90 Tagen nur fuer terminale
@@ -21,8 +23,8 @@ Deployment und Gesamt-Abnahme sind nicht freigegeben.
   bleiben erhalten. Teilfehler sind sichtbar und wiederaufnehmbar.
 - systemd-Benutzervorlagen und feste Install-/Start-/Stop-/Status-/Update-Befehle.
   Standardmaessig nur Planung; kein Aufruf dieser Dienste durch die Implementierung.
-  Update verlangt sauberes `main`, Backup, Stopp und Fast-forward; Neustart nur nach
-  erfolgreicher Migration. Der Restore-Timer ist eine Trockenlauf-Erinnerung.
+  Update verlangt sauberes `main`, beide Backups, Stopp und Fast-forward; Neustart nur nach
+  erfolgreicher Migration. Der woechentliche Restore-Timer ist nur eine Trockenlauf-Erinnerung ohne `--apply`.
 - Begrenzter Simulations-Supervisor: Dienstende beendet die Prozessgruppe, setzt keinen
   Owner-Abbruch und laesst die Lease-Recovery uebernehmen. Live bleibt Exit-Code 78.
 - Optionaler expliziter Restic-Hook, nur mit Fake-CLI getestet.
@@ -39,8 +41,9 @@ Service-Container. Gerenderte systemd-Units werden ausschliesslich offline gepru
 ## Inbetriebnahme
 
 Reale Bindung/TLS, Lingering, Dateirechte am Ziel, Speicher-/Backup-Ziel, Restic und
-Off-site-Restore sowie echte Lane-Isolation bleiben offen. Der zentrale Dump sichert
-nicht die separate KB-Datenbank und ist kein atomarer Gesamt-Snapshot mit Laufdateien.
+Off-site-Restore sowie echte Lane-Isolation bleiben offen. Der vollstaendige Backup-Satz
+sichert beide Datenbanken mit getrennten Snapshots; ein konsistenter Gesamtzeitpunkt
+ueber beide DBs und Laufdateien bleibt separat nachzuweisen.
 Keine echten Logins, Anbieteraufrufe, API-Keys, produktiven DB-Verbindungen, Serveraenderungen,
 Tags, Releases oder Merges. Etappe 18 bleibt eine vorbereitete Checkliste.
 

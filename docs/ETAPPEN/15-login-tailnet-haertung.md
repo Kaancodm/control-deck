@@ -19,7 +19,7 @@ ausserhalb des Repos. Der Zwischen-Login aus Etappe 11 wird ersetzt.
 |-------|-------|
 | Zwischen-Login mit Owner-Token, `app/ui/session.py`, CSRF, Sicherheits-Header | Etappe 11 |
 | `DECK_BIND_HOST`, `DECK_SECRET_KEY` als Platzhalter | belegt (`.env.example`) |
-| Bearer-Tokens `DECK_WORKER_TOKEN`, `DECK_OWNER_TOKEN` fuer Maschinenzugriff | PR #5 (Annahme) |
+| Eigene Bearer-Tokens je Worker-Lane (`DECK_WORKER_TOKEN_OLLAMA`, `DECK_WORKER_TOKEN_CLAUDE`, `DECK_WORKER_TOKEN_CODEX`) und separates `DECK_OWNER_TOKEN` | Etappe 8; doppelte Tokens und Owner-Kollisionen werden abgewiesen |
 | Plan Abschnitt 9: Bindung ausschliesslich auf die Tailnet-Adresse; Login als zweite Schicht | Plan v1.1 |
 
 ## 3 Scope

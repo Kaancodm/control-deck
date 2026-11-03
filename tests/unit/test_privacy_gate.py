@@ -41,7 +41,7 @@ def test_secrets_are_rejected_for_every_class(
 
 
 @pytest.mark.parametrize(
-    "data_class,blocked", [("local_only", False), ("cloud_ok", True), ("cloud_redacted", True)]
+    "data_class,blocked", [("local_only", False), ("cloud_ok", True), ("cloud_redacted", False)]
 )
 def test_personal_data_policy(settings: PrivacySettings, data_class: str, blocked: bool) -> None:
     email = "sample" + "@" + "example.invalid"

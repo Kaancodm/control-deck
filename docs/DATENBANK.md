@@ -10,6 +10,7 @@ Etappe `03-db-schema` fuehrt PostgreSQL als persistente Queue und Audit-Store ei
 | `results` | `result.v1`-Snapshots pro Versuch (eindeutig pro `task_id` + `attempt`) |
 | `events` | Append-only Audit-Log (Uebergaenge, Metadaten in JSONB) |
 | `leases` | Pull-Lease pro Task (`lease_id`, `expires_at`, `heartbeat_at`, optional `holder`) |
+| `settings` | Typisierte lokale Runner-Steuerung: Pause, Not-Aus, Lane-Pause, Parallelitaet |
 | `redaction_maps` | Lokale, taskgebundene Zuordnung stabiler Platzhalter zu exakten Originalwerten |
 
 ### `data_class`
@@ -172,3 +173,13 @@ Alembic waehlt **nicht** still `DECK_TEST_DATABASE_URL`: fuer Tests `-x target=t
 - Trigger `events_append_only`: kein UPDATE/DELETE auf Events; FK `RESTRICT` (Tasks werden nicht geloescht)
 - Spalten `cancel_requested`, `cancel_reason`; Events mit `actor`, `attempt`, `lease_id`
 - Redaction-Maps: Taskbindung, eindeutige Originalhashes und Platzhalter, unveraenderliche Eintraege
+
+## Runner-Steuerung (Revision 0009)
+
+`settings` speichert Schluessel, JSONB-Wert und Aenderungszeit. Unbekannte Schluessel und
+ungueltige Typen verhindern Claims. Der globale Admission-Lock serialisiert Claims gegen
+Steuerungs-Aenderungen; Task-Locks folgen danach. Der Downgrade verweigert vorhandene
+Einstellungen, damit Pause und Not-Aus nicht still verloren gehen.
+
+`task.prepare` bindet Versandhash, Lane, Versuch, Lease und Artefaktpfad an den committed
+Claim. Der Host prueft diese Metadaten vor Start und Ergebnisannahme. Details: [RUNNER.md](RUNNER.md).

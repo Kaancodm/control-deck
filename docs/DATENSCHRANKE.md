@@ -1,4 +1,4 @@
-# Datenschranke (Etappen 5 und 6)
+# Datenschranke (Etappen 5 bis 8)
 
 `app/privacy` prueft den unveraenderlichen Auftrag, seine Text-Metadaten und unterstuetzte
 Dateien. Dieselbe Pruefung laeuft vor Speicherung, vor Owner-Freigabe und vor jeder Lease.
@@ -12,17 +12,17 @@ Es werden keine Modelle, Cloud-Dienste oder externen APIs aufgerufen.
 | Trefferkategorie | `local_only` | `cloud_redacted` | `cloud_ok` |
 |-----------------|--------------|------------------|------------|
 | `secret` | Eingang abweisen | Eingang abweisen | Eingang abweisen |
-| `redactable_pii` | Lokal zulaessig | `blocked` bis zum Redaction-Pfad | `blocked` |
-| `protected_identifier` | Lokal zulaessig | `blocked` | `blocked` |
+| `redactable_pii` | Lokal zulaessig | Lokal pseudonymisieren | `blocked` |
+| `protected_identifier` | Lokal zulaessig | Interne Adressen und Blocklisten ersetzen; Home-Pfade/Hostnamen blockieren | `blocked` |
 | Keine Treffer | Owner-Freigabe erforderlich | Owner-Freigabe erforderlich | Owner-Freigabe erforderlich |
 
-Diese Tabelle beschreibt die bestehenden HTTP-/Queue-Grenzen. Der lokale Payload-Builder
-aus Etappe 6 kann unterstuetzte Treffer fuer `cloud_redacted` pseudonymisieren; seine sichere
-Anbindung an einen laufenden Worker-Versuch folgt in Etappe 8. Bis dahin lockert die API keine
-Sperre. Die unterschiedliche Behandlung im Builder ist in [REDAKTION.md](REDAKTION.md) beschrieben.
+Diese Tabelle beschreibt die bestehenden HTTP-/Queue-Grenzen mit sicherer Runner-Anbindung.
+`cloud_redacted` erlaubt nur die explizit unterstuetzten Trefferregeln. Der finale
+Versandtext wird erneut geprueft; keine Datenklasse umgeht die Schranke.
+Details: [REDAKTION.md](REDAKTION.md), [RUNNER.md](RUNNER.md).
 
 Ein Geheimnis am Eingang ergibt **422**, bevor Task oder Event geschrieben werden.
-Nicht geheime Cloud-Treffer ergeben **201** mit Status `blocked`: Nach `task.submit` wird
+Nicht unterstuetzte Cloud-Treffer und alle Treffer in `cloud_ok` ergeben **201** mit Status `blocked`: Nach `task.submit` wird
 in derselben Transaktion `task.block` gespeichert. Der Rohauftrag bleibt lokal in der
 Datenbank und in der geschuetzten Owner-Ansicht vorhanden.
 
@@ -169,23 +169,19 @@ Pruefung. Kein Inhalt wird still gekuerzt.
 Bei erfolgreicher Freigabe enthaelt `task.approve.detail.file_hashes` fuer jede gelesene Datei
 `input_index` und `sha256`. Der Hash stammt aus denselben vollstaendigen Bytes, die in diesem
 Freigabelauf geprueft wurden; UTF-8-BOM und Zeilenenden bleiben erhalten. Es gibt keinen zweiten
-Dateizugriff fuer den Hash und keine Dateipfade oder Rohinhalte im Hash-Eintrag. Diese Nachweise
-erlauben der spaeteren Worker-Etappe einen Inhaltsvergleich, ersetzen ihn aber noch nicht.
+Dateizugriff fuer den Hash und keine Dateipfade oder Rohinhalte im Hash-Eintrag. Etappe 8 vergleicht diese Nachweise mit genau den final gelesenen Versanddateien. Ein
+abweichender oder fehlender Freigabenachweis verhindert die Auslieferung.
 
-## Anschluss an die folgenden Etappen
+## Anschluss an Runner und weitere Etappen
 
-- Etappe 6 verwendet die Trefferregeln fuer lokale Pseudonymisierung und `redaction_maps`.
-  Der Payload-Builder ersetzt E-Mail, Telefon, IBAN, AHV, interne Adressen und Blocklist-Literale;
-  Geheimnisse, Benutzerverzeichnisse und interne Hostnamen bleiben gesperrt. Die bestehenden
-  HTTP-/Queue-Grenzen bleiben bis zur sicheren Runner-Anbindung konservativ.
-- Etappe 7 berechnet die erlaubten Lanes und den Ollama-Override fuer `local_only`.
-- Etappe 8 bindet Claims und Ergebnisse an eine Worker-Identitaet. Die vorhandene Worker-API
-  garantiert diese Zuordnung noch nicht; die Datenschranke ersetzt sie nicht. Zwei strikte
-  `xfail`-Integrationstests halten die offene Dispatch-Luecke fuer Cloud-Worker sichtbar.
-- Der Payload-Builder prueft bereits den vollstaendig gerenderten Text nach Redaction erneut;
-  der Artefakt-Writer legt exakt diese Bytes unveraenderlich ab. Etappe 8 muss diesen Pfad an
-  Claim und Versuch binden und die tatsaechlich gelesenen Dateien gegen die Freigabe-Hashes
-  pruefen oder einen freigegebenen unveraenderlichen Snapshot verwenden.
+- Etappe 6 ersetzt E-Mail, Telefon, IBAN, AHV, interne Adressen und Blocklist-Literale.
+  Geheimnisse, Benutzerverzeichnisse und interne Hostnamen bleiben gesperrt.
+- Etappe 7 berechnet erlaubte Lanes und den Ollama-Override fuer `local_only`.
+- Etappe 8 bindet Claims und Ergebnisse an Lane, Versuch, Lease und Versandhash.
+  Der Worker erhaelt ausschliesslich vorbereiteten Text; Maps bleiben auf dem Host.
+- Der Payload-Builder prueft den vollstaendig gerenderten Text nach Redaction erneut;
+  der Artefakt-Writer legt exakt diese Bytes unveraenderlich ab. Dieselben final gelesenen
+  Dateien werden gegen die Owner-Freigabe-Hashes geprueft.
 - Homoglyphen und zusaetzliche Dekodierungen erfordern gesonderte Regeln und bleiben offen.
 
 Unit-Tests pruefen Muster, harmlose Texte, Limits und sichere Dateioperationen. Integrationstests

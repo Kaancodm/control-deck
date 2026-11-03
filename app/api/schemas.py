@@ -8,8 +8,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from app.core.schemas import Worker
+from app.core.schemas import TaskKind, Worker
 from app.routing.router import RoutingPlan
+from app.workers.contracts import ControlAction
 
 
 class EventOut(BaseModel):
@@ -72,19 +73,46 @@ class LeaseOut(BaseModel):
     holder: str | None
 
 
+class WorkerTaskOut(BaseModel):
+    """Execution metadata only; original tasks and prior results stay on the host."""
+
+    id: UUID
+    status: Literal["leased"] = "leased"
+    attempt: int
+    kind: TaskKind
+    worker: Worker
+    model: str | None
+    timeout_s: int
+    deadline_at: datetime | None
+
+
 class WorkerLeaseResponse(BaseModel):
-    task: TaskDetailOut
+    task: WorkerTaskOut
     lease: LeaseOut
+    payload_text: str
+    payload_sha256: str
+    redaction_applied: bool
+    redaction_placeholders: int
+    artifact_path: str
 
 
-class WorkerHeartbeatRequest(BaseModel):
+class WorkerStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     lease_id: UUID
     task_id: UUID
+    attempt: int = Field(ge=1)
+    worker: Worker
+
+
+class WorkerHeartbeatRequest(WorkerStartRequest):
     extend_seconds: int | None = Field(default=None, ge=30, le=7200)
 
 
 class WorkerHeartbeatResponse(BaseModel):
-    lease: LeaseOut
+    action: ControlAction
+    expires_at: datetime | None = None
+    heartbeat_at: datetime | None = None
 
 
 class WorkerResultRequest(BaseModel):

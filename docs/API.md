@@ -11,7 +11,9 @@ Basis-Pfad fuer versionierte Endpunkte: **`/api/v1`**. OpenAPI: `/api/v1/docs`, 
 | Variable | Zweck |
 |----------|--------|
 | `DECK_DATABASE_URL` | SQLAlchemy-URL fuer Laufzeit (Pflicht fuer `/readyz` und Task-Endpunkte) |
-| `DECK_WORKER_TOKEN` | Gemeinsames Geheimnis fuer Worker (`Authorization: Bearer …` oder Header `X-Deck-Worker-Token`) |
+| `DECK_WORKER_TOKEN_OLLAMA` | Eigenes Token fuer die Ollama-Lane (`Authorization: Bearer …` oder Header `X-Deck-Worker-Token`) |
+| `DECK_WORKER_TOKEN_CLAUDE` | Eigenes Token fuer die Claude-Lane |
+| `DECK_WORKER_TOKEN_CODEX` | Eigenes Token fuer die Codex-Lane |
 | `DECK_OWNER_TOKEN` | Gemeinsames Geheimnis fuer Owner-Endpunkte (`Authorization: Bearer …`); Login folgt in Etappe 15 |
 | `DECK_LEASE_TTL_SECONDS` | Default-Lease-Dauer beim Pull (Default `900`) |
 | `DECK_HEARTBEAT_EXTEND_SECONDS` | Verlaengerung bei Heartbeat (Default `300`) |
@@ -35,7 +37,7 @@ Fehlerantworten verwenden **RFC 7807** (`Content-Type: application/problem+json`
 | `GET` | `/tasks/{id}` | Detail inkl. `events` und `results`. |
 | `POST` | `/tasks/{id}/approve` | Datenschranke erneut pruefen; bei Erfolg `awaiting_approval` → `queued`, setzt `approved_at`. Neue Sperrtreffer fuehren zu `blocked`. |
 | `POST` | `/tasks/{id}/review` | Owner-Entscheid fuer einen Task in `review`: Zustimmung → `done`, Ablehnung → `failed`. |
-| `POST` | `/tasks/{id}/cancel` | Abbruch (Owner-Override ohne Lease). Laufende Tasks (`running`): `cancel_requested` gesetzt; Worker bemerkt Abbruch erst beim naechsten Heartbeat/Lease-Check (404). |
+| `POST` | `/tasks/{id}/cancel` | Abbruch (Owner-Override ohne Lease). Laufende Tasks (`running`): `cancel_requested` gesetzt; Worker erhaelt beim naechsten Heartbeat den Entscheid `cancel`. |
 
 Interne Persistenz (`create_task_from_v1`, `POST /tasks`) verwendet dieselbe Datenschranke.
 Gespeicherte Tasks erhalten zuerst **`awaiting_approval`** und `task.submit`; bei einer
@@ -56,7 +58,8 @@ Regeln, Antwortbedeutung und Grenzen: [ROUTING.md](ROUTING.md).
 |----------------------------|-------------------|
 | Erkannte Schluessel oder Zugangsdaten, jede Datenklasse | **422**, kein Task und kein Audit-Event gespeichert |
 | Personendaten oder geschuetzte Kennungen in `local_only` | **201**, `awaiting_approval` |
-| Nicht geheime Treffer in `cloud_ok` oder `cloud_redacted` | **201**, `blocked`, keine Lease moeglich |
+| Nicht geheime Treffer in `cloud_ok` oder nicht unterstuetzte Treffer in `cloud_redacted` | **201**, `blocked`, keine Lease moeglich |
+| Unterstuetzte Treffer in `cloud_redacted` | **201**, `awaiting_approval`; vor Auslieferung lokal pseudonymisiert |
 | Unsichere, unlesbare oder nicht unterstuetzte Datei; Groessenlimit; `context_refs` | **422**, keine Speicherung |
 | Fehlende Blocklist-Konfiguration fuer Cloud oder fehlerhafte konfigurierte Liste | **503**, keine Speicherung |
 
@@ -79,12 +82,12 @@ Identische Lease-Poll-Fehler werden pro Task, Fehlercode und Quelle hoechstens e
 60 Sekunden protokolliert. Die Drosselung verwendet DB-Zeit und Task-Lock; Owner-Freigabeversuche
 bleiben einzeln auditiert.
 
-Etappe 6 bietet einen lokalen Payload-Builder mit Pseudonymisierung und Rueckabbildung.
-Die bestehende Worker-API liefert weiterhin den unveraenderlichen Auftrag und ist noch nicht
-an diesen Versandpfad angeschlossen. Deshalb bleiben nicht geheime Cloud-Treffer hier
-gesperrt. Es gibt keinen Override durch `cloud_ok` oder Owner-Freigabe. Die Maps erscheinen
-nicht in Task-, Ergebnis- oder Event-Antworten. Anbindung und Grenzen:
-[REDAKTION.md](REDAKTION.md).
+Etappe 8 verbindet den lokalen Payload-Builder mit der Worker-API. Diese liefert nur
+vorbereiteten Versandtext und sichere Versuchsdaten. Unterstuetzte Treffer bei
+`cloud_redacted` sind zulaessig; Secrets, Benutzerverzeichnisse und interne Hostnamen bleiben
+gesperrt. Maps erscheinen nicht in Task-, Ergebnis- oder Event-Antworten. Der Host vergleicht
+die final gelesenen Anhaenge gegen Freigabe-Hashes und committed Maps vor der Auslieferung.
+Details: [RUNNER.md](RUNNER.md), [REDAKTION.md](REDAKTION.md).
 Erkennungskatalog, Datei-Limits und Konfiguration: [DATENSCHRANKE.md](DATENSCHRANKE.md).
 
 ### Owner-Deadline
@@ -111,20 +114,40 @@ Ohne explizite Owner-Deadline laeuft ein Task **nicht** ab. Weder `policy.timeou
 
 ## Worker-Endpunkte (`/api/v1/worker`)
 
-Authentifizierung ueber `DECK_WORKER_TOKEN` (Pflicht).
+Die Identitaet folgt ausschliesslich aus dem Token der Lane. Nur konfigurierte Lanes
+koennen sich authentifizieren; das fruehere gemeinsame `DECK_WORKER_TOKEN` wird nicht
+mehr akzeptiert. Alle konfigurierten Lane-Tokens muessen verschieden sein und duerfen
+nicht dem Owner-Token entsprechen. Eine mehrdeutige Konfiguration sperrt Worker- und
+Owner-Authentifizierung mit **503**. Eine reine Owner-Konfiguration bleibt zulaessig.
+Ungueltige oder widerspruechliche Header ergeben **401**. Die Pflichtangabe `worker`
+beziehungsweise `result.worker` muss zur authentifizierten Lane passen, sonst **403**
+vor jedem Task-Zugriff. Anbieter erhalten keine dieser Host-Zugangsdaten.
 
 | Methode | Pfad | Beschreibung |
 |---------|------|--------------|
-| `POST` | `/worker/lease` | Datenschranke fuer freigegebene `queued`-Tasks erneut pruefen; aeltesten zulaessigen Task ziehen (`FOR UPDATE SKIP LOCKED`), Transition `acquire`, Lease-Zeile. |
-| `POST` | `/worker/heartbeat` | Lease verlaengern (`lease_id`, `task_id`, optional `extend_seconds`). |
-| `POST` | `/worker/result` | `result.v1` validieren, Acceptance im Core pruefen, Ergebnis speichern und fenced per `lease_id` wechseln (auto-`start` aus `leased`). |
+| `POST` | `/worker/lease` | Pflichtfeld `worker`; nur zugeordnete Lane, Budget und Runner-Steuerung pruefen; Payload vorbereiten und vor Antwort committen. |
+| `POST` | `/worker/start` | `task_id`, `attempt`, `lease_id`, `worker`; vorbereitetes `leased` explizit nach `running`, kein automatischer Start bei Ergebnisannahme. |
+| `POST` | `/worker/heartbeat` | Dieselbe Identitaet, optional `extend_seconds`; committed Entscheid `continue`, `cancel`, `expired` oder `lost_lease`. |
+| `POST` | `/worker/result` | `result.v1` und `lease_id`; Lane, Versuch, Versandhash und Redaction-Metadaten pruefen, lokal rueckabbilden und fenced annehmen. |
 
-Dequeue verlangt ein gesetztes **`approved_at`** (Owner-Freigabe); Tasks in `queued` ohne Freigabe werden nicht gezogen.
+Dequeue verlangt ein gesetztes **`approved_at`** und ein auditierbares Owner-Freigabe-Event.
+Auch direkte Queue-Aufrufe muessen die Lane ausdruecklich angeben; es gibt keinen Default.
+Die Lease-Antwort enthaelt weder Originalauftrag noch fruehere Ergebnisse oder Maps.
+`local_only` wird ausschliesslich an Ollama geclaimt; die beiden frueheren `xfail`-Tests
+zur Worker-Zuordnung bestehen jetzt ohne Ausnahme.
 
-Die aktuelle Worker-API besitzt noch keine Lane-Identitaet. Die verbindliche Zuordnung von
-`local_only` zu Ollama und die Pruefung der gemeldeten Worker-Identitaet folgen mit Router und
-Runner; die Datenschranke ersetzt diese Kontrollen nicht.
-Zwei strikte `xfail`-Integrationstests dokumentieren diese weiterhin offene Dispatch-Luecke.
+Jeder authentifizierte Lease-Pull bereinigt abgelaufene Leases in einer eigenen committed
+Transaktion vor dem Claim. Dadurch wird nach einem Worker-Absturz belegte Parallelitaet
+wieder frei. Ein noch aktiver, unbestaetigter Abbruch behaelt seine Kapazitaet bis zur
+Bestaetigung oder zum Lease-Ablauf. Ein Konflikt mit einem vorhandenen Payload-Artefakt
+blockiert den betroffenen Task mit auditiertem Grund `artifact_conflict`; derselbe Pull
+prueft anschliessend den naechsten Task, begrenzt auf 32 Vorbereitungsversuche.
+
+Owner-Steuerung: `GET /api/v1/control/settings` und `PATCH /api/v1/control/settings` mit
+`{"changes": {"paused": true}}`. Bekannte Schluessel: `paused`, `stop_requested`,
+`max_parallel` (1 bis 16), `lanes.ollama.paused`, `lanes.claude.paused`, `lanes.codex.paused`.
+Pause betrifft neue Claims; Not-Aus setzt zusaetzlich Abbruchanforderungen fuer aktive
+Versuche. Standardparallelitaet ist 1. Details und Inbetriebnahmegrenzen: [RUNNER.md](RUNNER.md).
 
 Bei `result.v1.status = succeeded` berechnet `app/core/acceptance.py` die Checks aus `task.acceptance` und `result.output.text` selbst; vom Worker gemeldete Checks ersetzen diese Pruefung nicht. Ein automatischer Fehlschlag wird als Ergebnis mit `status = failed` und `error.code = acceptance_failed` gespeichert. Der Task geht bei verbleibenden Versuchen zurueck in die Queue, sonst nach `failed`.
 
@@ -165,7 +188,9 @@ Doppelte `task_id` bei `POST /tasks` → **409** (`application/problem+json`).
 
 ```bash
 export DECK_TEST_DATABASE_URL='postgresql+psycopg://…/controldeck_test'
-export DECK_WORKER_TOKEN='dev-worker-token'
+export DECK_WORKER_TOKEN_OLLAMA='dev-ollama-token'
+export DECK_WORKER_TOKEN_CLAUDE='dev-claude-token'
+export DECK_WORKER_TOKEN_CODEX='dev-codex-token'
 export DECK_OWNER_TOKEN='dev-owner-token'
 uv run pytest tests/integration/test_api.py -v
 ```

@@ -58,7 +58,9 @@ def gate_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[TestClient, None, None]:
     monkeypatch.setenv("DECK_OWNER_TOKEN", "test-gate-owner")
-    monkeypatch.setenv("DECK_WORKER_TOKEN", "test-gate-worker")
+    monkeypatch.setenv("DECK_WORKER_TOKEN_OLLAMA", "test-gate-worker")
+    monkeypatch.setenv("DECK_WORKER_TOKEN_CLAUDE", "test-gate-claude")
+    monkeypatch.setenv("DECK_WORKER_TOKEN_CODEX", "test-gate-codex")
     app = create_app()
 
     def override_db() -> Generator[Session, None, None]:
@@ -157,7 +159,7 @@ def test_invalid_request_does_not_echo_secret_before_gate(
 
 @pytest.mark.parametrize("data_class", ["cloud_ok", "cloud_redacted"])
 @pytest.mark.parametrize("finding", ["email", "blocklist"])
-def test_cloud_findings_block_with_safe_audit_metadata(
+def test_cloud_findings_follow_redaction_eligibility_with_safe_audit_metadata(
     gate_client: TestClient,
     db_session: Session,
     privacy_paths: tuple[Path, Path],
@@ -172,15 +174,19 @@ def test_cloud_findings_block_with_safe_audit_metadata(
 
     created = _create(gate_client, payload)
 
-    assert created["status"] == "blocked"
+    blocked = data_class == "cloud_ok"
+    assert created["status"] == ("blocked" if blocked else "awaiting_approval")
     assert created["approved_at"] is None
     events = created["events"]
-    assert events[-1]["event_type"] == "task.block"
+    assert events[-1]["event_type"] == ("task.block" if blocked else "task.submit")
     assert marker not in json.dumps(events)
-    assert events[-1]["detail"]["findings"]
+    if blocked:
+        assert events[-1]["detail"]["findings"]
     assert db_session.scalar(select(func.count()).select_from(Lease)) == 0
     approval = gate_client.post(f"/api/v1/tasks/{payload['task_id']}/approve", headers=_OWNER)
-    assert approval.status_code == 409
+    assert approval.status_code == (409 if blocked else 200)
+    if not blocked:
+        assert approval.json()["status"] == "queued"
 
 
 def test_local_personal_data_is_allowed_without_cloud_configuration(
@@ -351,7 +357,7 @@ def test_lease_rechecks_changes_and_continues_to_clean_task(
     else:
         blocklist.write_text(marker + "\n", encoding="utf-8")
 
-    response = gate_client.post("/api/v1/worker/lease", json={}, headers=_WORKER)
+    response = gate_client.post("/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER)
 
     assert response.status_code == 200, response.text
     assert response.json()["task"]["id"] == clean["task_id"]
@@ -381,7 +387,9 @@ def test_missing_configuration_does_not_approve_or_lease_cloud_task(
     if action == "approve":
         response = gate_client.post(f"/api/v1/tasks/{payload['task_id']}/approve", headers=_OWNER)
     else:
-        response = gate_client.post("/api/v1/worker/lease", json={}, headers=_WORKER)
+        response = gate_client.post(
+            "/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER
+        )
 
     assert response.status_code == 503, response.text
     db_session.expire_all()
@@ -415,7 +423,7 @@ def test_malformed_legacy_task_is_blocked_without_stalling_queue(
     approved = gate_client.post(f"/api/v1/tasks/{clean['task_id']}/approve", headers=_OWNER)
     assert approved.status_code == 200, approved.text
 
-    response = gate_client.post("/api/v1/worker/lease", json={}, headers=_WORKER)
+    response = gate_client.post("/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER)
 
     assert response.status_code == 200, response.text
     assert response.json()["task"]["id"] == clean["task_id"]
@@ -498,15 +506,14 @@ def approved_local_task(gate_client: TestClient) -> str:
     return task_id
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Stage 8 must bind worker identity and exclude local_only tasks from cloud dispatch.",
-)
 @pytest.mark.parametrize("worker", ["claude", "codex"])
 def test_cloud_worker_cannot_lease_local_only_task(
     gate_client: TestClient, approved_local_task: str, worker: str
 ) -> None:
-    response = gate_client.post("/api/v1/worker/lease", json={"worker": worker}, headers=_WORKER)
+    response = gate_client.post(
+        "/api/v1/worker/lease",
+        json={"worker": worker},
+        headers={"Authorization": f"Bearer test-gate-{worker}"},
+    )
     assert response.status_code == 404
     assert approved_local_task not in response.text

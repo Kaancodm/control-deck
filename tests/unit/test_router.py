@@ -110,13 +110,68 @@ def test_rule_cannot_override_local_only() -> None:
     assert plan.exclusions[Worker.OLLAMA] == "rule_not_allowed"
 
 
-def test_disabled_lanes_are_structurally_blocked() -> None:
+def test_disabled_lanes_are_temporarily_deferred() -> None:
     config = RouterConfig.model_validate(
         {"lanes": {worker.value: {"enabled": False} for worker in Worker}}
     )
     plan = _route(_task(), config)
-    assert plan.status == "blocked" and plan.reason == "no_allowed_lane"
+    assert plan.status == "deferred" and plan.reason == "lane_disabled"
+    assert plan.chain == []
     assert set(plan.exclusions.values()) == {"lane_disabled"}
+
+
+def test_disabled_and_budget_exhausted_lanes_are_jointly_deferred() -> None:
+    config = RouterConfig.model_validate(
+        {
+            "lanes": {
+                "codex": {"enabled": False},
+                "claude": {"daily_attempt_limit": 0},
+            }
+        }
+    )
+    plan = _route(_task(fallback_chain=["codex", "claude"]), config)
+    assert plan.status == "deferred" and plan.reason == "lane_unavailable"
+    assert plan.chain == []
+    assert plan.exclusions == {
+        Worker.CODEX: "lane_disabled",
+        Worker.CLAUDE: "budget_exhausted",
+    }
+
+
+def test_disabled_lane_does_not_reorder_available_fallbacks() -> None:
+    config = RouterConfig.model_validate({"lanes": {"codex": {"enabled": False}}})
+    plan = _route(_task(), config)
+    assert plan.status == "ready" and plan.reason is None
+    assert plan.chain == [Worker.CLAUDE, Worker.OLLAMA]
+    assert plan.exclusions == {Worker.CODEX: "lane_disabled"}
+
+
+@pytest.mark.parametrize("constraint", ["policy", "rule"])
+def test_disabled_unauthorized_lanes_do_not_turn_policy_blocks_into_deferrals(
+    constraint: str,
+) -> None:
+    config = RouterConfig.model_validate(
+        {
+            "lanes": {worker.value: {"enabled": False} for worker in Worker},
+            "rules": [{"id": "none", "allowed_workers": []}] if constraint == "rule" else [],
+        }
+    )
+    task = _task(policy={"allowed_workers": []}) if constraint == "policy" else _task()
+    plan = _route(task, config)
+    assert plan.status == "blocked" and plan.reason == "no_allowed_lane"
+    assert plan.chain == []
+    assert "lane_disabled" not in plan.exclusions.values()
+
+
+def test_only_policy_authorized_disabled_lane_is_deferred() -> None:
+    config = RouterConfig.model_validate({"lanes": {"ollama": {"enabled": False}}})
+    plan = _route(_task(policy={"allowed_workers": ["ollama"]}), config)
+    assert plan.status == "deferred" and plan.reason == "lane_disabled"
+    assert plan.exclusions == {
+        Worker.CODEX: "policy_not_allowed",
+        Worker.CLAUDE: "policy_not_allowed",
+        Worker.OLLAMA: "lane_disabled",
+    }
 
 
 @pytest.mark.parametrize(

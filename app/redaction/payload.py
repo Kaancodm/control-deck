@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.schemas import DataClass, InputType, TaskV1, Worker
 from app.db.models import Task
 from app.privacy.config import PrivacySettings, get_privacy_settings
-from app.privacy.gate import PrivacyInputError, inspect_task
+from app.privacy.gate import FileHash, PrivacyInputError, inspect_task
 from app.privacy.scanner import FindingKind, scan_text
 from app.redaction.engine import redact
 from app.redaction.repository import redact_for_task
@@ -29,12 +29,21 @@ class PayloadBuild:
     sha256: str
     applied: bool
     placeholders: int
+    file_hashes: tuple[FileHash, ...] = field(default=(), repr=False)
 
 
-def render_payload(task: TaskV1, *, settings: PrivacySettings) -> str:
+def render_payload(
+    task: TaskV1,
+    *,
+    settings: PrivacySettings,
+    file_hashes: list[FileHash] | None = None,
+) -> str:
     """Read each attachment once, then render every supplied text field."""
     files: dict[int, str] = {}
     report = inspect_task(task, settings=settings, file_texts=files)
+    if file_hashes is not None:
+        file_hashes.clear()
+        file_hashes.extend(report.file_hashes)
     if report.has_secrets:
         raise PrivacyInputError("secret_detected")
     if task.data_class == DataClass.CLOUD_OK and report.blocked:
@@ -76,11 +85,13 @@ def _check_lane(task: TaskV1, lane: Worker) -> None:
         raise LaneNotAllowedError("The task policy does not permit this worker.")
 
 
-def _result(text: str, *, applied: bool, placeholders: int) -> PayloadBuild:
+def _result(
+    text: str, *, applied: bool, placeholders: int, file_hashes: tuple[FileHash, ...] = ()
+) -> PayloadBuild:
     data = text.encode("utf-8")
     if len(data) > 5 * 1024 * 1024:
         raise PrivacyInputError("payload_too_large")
-    return PayloadBuild(text, sha256(data).hexdigest(), applied, placeholders)
+    return PayloadBuild(text, sha256(data).hexdigest(), applied, placeholders, file_hashes)
 
 
 def build_payload(
@@ -99,12 +110,18 @@ def build_payload(
     """
     _check_lane(task, lane)
     settings = settings or get_privacy_settings()
-    text = render_payload(task, settings=settings)
+    file_hashes: list[FileHash] = []
+    text = render_payload(task, settings=settings, file_hashes=file_hashes)
     if task.data_class == DataClass.CLOUD_REDACTED:
         outcome = redact(
             text, task_id=task.task_id, existing=existing, blocklist=settings.blocklist
         )
-        result = _result(outcome.text, applied=outcome.applied, placeholders=outcome.placeholders)
+        result = _result(
+            outcome.text,
+            applied=outcome.applied,
+            placeholders=outcome.placeholders,
+            file_hashes=tuple(file_hashes),
+        )
         if mapping_sink is not None:
             mapping_sink.clear()
             mapping_sink.update(outcome.mapping)
@@ -114,7 +131,7 @@ def build_payload(
         findings and task.data_class == DataClass.CLOUD_OK
     ):
         raise PrivacyInputError("privacy_gate")
-    return _result(text, applied=False, placeholders=0)
+    return _result(text, applied=False, placeholders=0, file_hashes=tuple(file_hashes))
 
 
 def prepare_task_payload(
@@ -124,6 +141,7 @@ def prepare_task_payload(
     lane: Worker,
     attempt: int,
     settings: PrivacySettings | None = None,
+    expected_file_hashes: tuple[FileHash, ...] | None = None,
 ) -> PayloadBuild:
     """Build a persisted task's payload; the caller controls commit and delivery."""
     _check_lane(task, lane)
@@ -134,8 +152,14 @@ def prepare_task_payload(
         raise PrivacyInputError("invalid_attempt")
     settings = settings or get_privacy_settings()
     if task.data_class != DataClass.CLOUD_REDACTED:
-        return build_payload(task, lane=lane, settings=settings)
-    text = render_payload(task, settings=settings)
+        result = build_payload(task, lane=lane, settings=settings)
+        if expected_file_hashes is not None and result.file_hashes != expected_file_hashes:
+            raise PrivacyInputError("approval_hash_mismatch")
+        return result
+    file_hashes: list[FileHash] = []
+    text = render_payload(task, settings=settings, file_hashes=file_hashes)
+    if expected_file_hashes is not None and tuple(file_hashes) != expected_file_hashes:
+        raise PrivacyInputError("approval_hash_mismatch")
     with session.begin_nested():
         outcome = redact_for_task(
             session,
@@ -144,4 +168,9 @@ def prepare_task_payload(
             attempt=attempt,
             blocklist=settings.blocklist,
         )
-        return _result(outcome.text, applied=outcome.applied, placeholders=outcome.placeholders)
+        return _result(
+            outcome.text,
+            applied=outcome.applied,
+            placeholders=outcome.placeholders,
+            file_hashes=tuple(file_hashes),
+        )

@@ -123,7 +123,7 @@ def release_lease_for_task(session: Session, task_id: uuid.UUID) -> None:
 def _requires_active_lease(from_state: TaskState, trigger: TaskTransition) -> bool:
     if trigger == TaskTransition.ACQUIRE:
         return False
-    if trigger == TaskTransition.CANCEL:
+    if trigger in (TaskTransition.CANCEL, TaskTransition.BLOCK):
         return from_state in (TaskState.LEASED, TaskState.RUNNING)
     return trigger in RUNNER_FENCED_TRIGGERS
 
@@ -156,6 +156,7 @@ def _atomic_acquire(session: Session, *, task_id: uuid.UUID, now: datetime) -> T
               AND t.status = 'queued'
               AND t.cancel_requested = false
               AND t.approved_at IS NOT NULL
+              AND t.attempt < COALESCE((t.payload->'policy'->>'max_attempts')::int, 3)
               AND (t.deadline_at IS NULL OR t.deadline_at > clock_timestamp())
             RETURNING t.id
             """
@@ -183,7 +184,11 @@ def _atomic_runner_transition(
     allow_cancel_requested: bool = False,
 ) -> Task | None:
     """Fenced status change: task row and lease_id must match (lease expiry optional)."""
-    expiry_clause = "l.expires_at <= :now" if allow_expired_lease else "l.expires_at > :now"
+    expiry_clause = (
+        "l.expires_at <= clock_timestamp()"
+        if allow_expired_lease
+        else "l.expires_at > clock_timestamp()"
+    )
     cancel_clause = "true" if allow_cancel_requested else "t.cancel_requested = false"
     row = session.execute(
         text(

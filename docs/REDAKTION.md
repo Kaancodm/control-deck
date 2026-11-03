@@ -4,11 +4,10 @@
 Angaben durch taskgebundene Platzhalter und prueft den fertigen Text erneut. Die Zuordnung
 zu den Originalwerten bleibt in der lokalen Tabelle `redaction_maps`.
 
-Etappe 6 stellt diese Bausteine bereit. Die bestehende HTTP-Worker-API liefert weiterhin den
-unveraenderlichen Auftrag und verwendet deshalb unveraendert die konservative Datenschranke:
-Cloud-Auftraege mit Treffern bleiben dort `blocked`. Die Anbindung an einen laufenden Versuch,
-den tatsaechlichen Versand und die Ergebnisannahme folgt im Host-Runner in Etappe 8. Es gibt
-hier keine echten Anbieteraufrufe und keinen neuen HTTP-Endpunkt fuer Maps.
+Etappe 6 stellt diese Bausteine bereit. Etappe 8 verbindet sie mit einem laufenden Versuch:
+Worker erhalten vorbereiteten Text und sichere Metadaten. Maps werden vor Auslieferung
+committed und Ergebnisse lokal rueckabgebildet. Es gibt keine echten Anbieteraufrufe und
+keinen HTTP-Endpunkt fuer Maps. Details: [RUNNER.md](RUNNER.md).
 
 ## Datenklassen und unterstuetzte Angaben
 
@@ -120,22 +119,20 @@ tatsaechlich geschriebenen Bytes. Die Map bleibt ausserhalb dieser Datei.
 
 ## Anschluss an Etappe 8
 
-Der Host-Runner muss die Vorbereitung an Claim, Versuch, Lease und Lane binden und die
-Map-Transaktion vor dem Versand committen. Er muss die gelesenen Dateien gegen die Hashes
-aus `task.approve` pruefen oder einen freigegebenen unveraenderlichen Snapshot verwenden.
-Der Versand verwendet genau die vorbereiteten und archivierten Bytes.
+Der Host-Runner bindet Vorbereitung an Claim, Versuch, Lease und Lane und committed die
+Map-Transaktion vor der Auslieferung. Er prueft die exakt fuer den Versand gelesenen Dateien
+gegen `task.approve.detail.file_hashes`. Versandhash und archivierte Bytes sind identisch.
 
-Die Ausgabe wird lokal rueckabgebildet, bevor sie in die automatische Abnahme und
-Ergebnisannahme gelangt. Unbekannte oder fremde Platzhalter duerfen keinen Rohwert aufloesen.
-Die konkrete Ergebnis-/Retry-Integration ist noch nicht Bestandteil der bestehenden
-Worker-Endpunkte. Auch die zwei strikten `xfail`-Tests zur offenen Worker-Identitaet bleiben
-bis zur Durchsetzung in Etappe 8 bestehen.
+Die Ausgabe wird vor der automatischen Abnahme lokal rueckabgebildet. Unbekannte oder
+fremde Platzhalter loesen keine Rohwerte auf. Worker-Identitaet, Versuch, Lease, Versandhash
+und Redaction-Metadaten werden vor der Ergebnisannahme geprueft; ein expliziter Start ist
+Pflicht. Die frueheren Worker-Identitaets-`xfail`-Tests bestehen jetzt ohne Ausnahme.
 
 ## Pruefung und Grenzen
 
 Technische Tests decken Unicode-Roundtrips, wiederholte Werte, stabile Maps, Platzhalter-
 Kollisionen, Resttreffer, Parallelitaet, Rollback, Migration und sichere Artefakte ab. Die vier
-vorhandenen fachlichen Referenzfaelle bleiben unveraendert; weitere Inhalte liefert der Owner.
+vorhandenen fachlichen Referenzfaelle bleiben erhalten (004 seit Etappe 7 mit Ollama-Override); weitere Inhalte liefert der Owner.
 
 NFKC gleicht keine beliebigen Homoglyphen an. Base64-, Hex- oder URL-kodierte Geheimnisse
 werden nicht generell dekodiert. Verschluesselung der Maps, Aufbewahrung und spaetere Loeschung

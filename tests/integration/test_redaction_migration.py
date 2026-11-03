@@ -94,4 +94,4 @@ def test_0008_downgrade_refuses_to_lose_maps(revision_0007: tuple[Config, Engine
         command.downgrade(cfg, "20251103_0007")
     with engine.begin() as connection:
         assert connection.scalar(text("SELECT count(*) FROM redaction_maps")) == 1
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20251103_0008"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20251103_0009"

@@ -10,11 +10,12 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.config import (
+    ApiConfigurationError,
     get_owner_token,
-    get_worker_token,
+    get_worker_tokens,
     owner_token_configured,
-    worker_token_configured,
 )
+from app.core.schemas import Worker
 from app.db.session import get_session_factory
 
 
@@ -48,6 +49,15 @@ def require_owner(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Owner authentication is not configured (DECK_OWNER_TOKEN)",
         )
+    # Owner-only setup is valid, but ambiguous lane tokens must not turn a
+    # worker credential into owner access through a configuration collision.
+    try:
+        get_worker_tokens(require_configured=False)
+    except ApiConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication configuration is unavailable or ambiguous",
+        ) from exc
     expected = get_owner_token()
     provided = _extract_bearer(authorization)
     if not provided or not hmac.compare_digest(provided, expected):
@@ -72,20 +82,38 @@ def _extract_bearer(authorization: str | None) -> str | None:
 def require_worker_token(
     authorization: Annotated[str | None, Header()] = None,
     x_deck_worker_token: Annotated[str | None, Header(alias="X-Deck-Worker-Token")] = None,
-) -> None:
-    """Validate worker access via ``Authorization: Bearer`` or ``X-Deck-Worker-Token``."""
-    if not worker_token_configured():
+) -> Worker:
+    """Derive one authenticated lane from its dedicated configured credential."""
+    try:
+        tokens = get_worker_tokens()
+    except ApiConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Worker authentication is not configured (DECK_WORKER_TOKEN)",
-        )
-    expected = get_worker_token()
-    provided = _extract_bearer(authorization) or (x_deck_worker_token or "").strip() or None
-    if not provided or not hmac.compare_digest(provided, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing worker token",
-        )
+            detail="Worker lane authentication is unavailable or ambiguous",
+        ) from exc
+    bearer = _extract_bearer(authorization)
+    header_token = (x_deck_worker_token or "").strip() or None
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing worker token",
+    )
+    # Neither a malformed bearer nor conflicting credentials may fall back to
+    # another header: the request must identify exactly one authenticated lane.
+    if authorization is not None and bearer is None:
+        raise invalid
+    if bearer is not None and x_deck_worker_token is not None:
+        if header_token is None or not hmac.compare_digest(bearer.encode(), header_token.encode()):
+            raise invalid
+    provided = bearer or header_token
+    if not provided:
+        raise invalid
+    matched = None
+    for worker, expected in tokens.items():
+        if hmac.compare_digest(provided.encode(), expected.encode()):
+            matched = worker
+    if matched is None:
+        raise invalid
+    return matched
 
 
-WorkerAuth = Annotated[None, Depends(require_worker_token)]
+WorkerAuth = Annotated[Worker, Depends(require_worker_token)]

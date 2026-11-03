@@ -20,6 +20,7 @@ _MAX_INPUTS = 64
 _MAX_FILES = 16
 _MAX_TEXT_PARTS = 1024
 _MAX_FINDINGS = 128
+_REDACTABLE_RULES = frozenset({"email", "phone", "iban", "ahv", "internal_address", "blocklist"})
 
 
 class PrivacyInputError(ValueError):
@@ -113,9 +114,9 @@ def inspect_task(
 ) -> GateReport:
     """Scan all supplied text; raw findings never leave this local boundary.
 
-    Personal data is permitted locally. Cloud classes remain blocked on findings
-    until the later redaction stage provides an explicit transformation path.
-    This does not resolve routing, worker identity, or knowledge-DB contents.
+    Personal data is permitted locally. Supported cloud-redacted findings must
+    pass through the host preparation boundary before any transport is exposed.
+    Secrets and unsupported findings stay blocked; cloud_ok bypasses no finding.
     """
     settings = settings or get_privacy_settings()
     if file_texts is not None:
@@ -133,9 +134,10 @@ def inspect_task(
     findings: list[Finding] = []
     file_hashes: list[FileHash] = []
     total_bytes = 0
+    unsupported_redaction = False
 
     def scan_part(source: str, content: str, *, count_bytes: bool = True) -> None:
-        nonlocal total_bytes
+        nonlocal total_bytes, unsupported_redaction
         try:
             size = len(content.encode("utf-8"))
         except UnicodeError:
@@ -145,11 +147,23 @@ def inspect_task(
         if total_bytes > _MAX_TASK_BYTES:
             raise PrivacyInputError("task_too_large")
         try:
-            findings.extend(scan_text(content, source=source, blocklist=settings.blocklist))
+            part_findings = scan_text(content, source=source, blocklist=settings.blocklist)
+            unsupported_redaction = unsupported_redaction or any(
+                finding.kind == FindingKind.SECRET or finding.rule not in _REDACTABLE_RULES
+                for finding in part_findings
+            )
+            findings.extend(part_findings)
         except NormalizationError:
             raise PrivacyInputError("unicode_too_complex", source=source) from None
         # Preserve secret findings even when earlier fields filled the metadata cap.
-        findings.sort(key=lambda item: (item.kind != FindingKind.SECRET, item.source, item.start))
+        findings.sort(
+            key=lambda item: (
+                item.kind != FindingKind.SECRET,
+                item.rule in _REDACTABLE_RULES,
+                item.source,
+                item.start,
+            )
+        )
         del findings[_MAX_FINDINGS:]
 
     for count, (source, content) in enumerate(_task_text_parts(task), start=1):
@@ -176,7 +190,11 @@ def inspect_task(
     has_secrets = any(item.kind == FindingKind.SECRET for item in findings)
     return GateReport(
         findings=tuple(findings),
-        blocked=has_secrets or (task.data_class != DataClass.LOCAL_ONLY and bool(findings)),
+        blocked=(
+            has_secrets
+            or (task.data_class == DataClass.CLOUD_OK and bool(findings))
+            or (task.data_class == DataClass.CLOUD_REDACTED and unsupported_redaction)
+        ),
         file_hashes=tuple(file_hashes),
     )
 

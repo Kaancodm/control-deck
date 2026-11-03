@@ -73,6 +73,8 @@ _TRANSITION_TABLE: dict[TaskState | None, dict[TaskTransition, TaskState]] = {
     },
     # A leased task may fail before it starts, but cannot report success before START.
     TaskState.LEASED: {
+        TaskTransition.BLOCK: TaskState.BLOCKED,
+        TaskTransition.RETRY: TaskState.QUEUED,
         TaskTransition.START: TaskState.RUNNING,
         TaskTransition.EXPIRE: TaskState.EXPIRED,
         TaskTransition.LEASE_EXPIRED: TaskState.QUEUED,

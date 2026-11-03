@@ -1,5 +1,15 @@
 # Stand des Repositorys
 
+## Etappe 9 in Arbeit
+
+Branch: `stage/09-ollama`, gestapelt auf `stage/08-runner` / PR #23 (`5fd9704`).
+Der Owner hat die Ollama-CLI mit Fake-CLI-Tests anstelle des HTTP-Adapters gewaehlt.
+Gebaut werden ein begrenzter Prozessadapter, Lane-Gesundheit und simulierte E2E-Laeufe.
+Das Live-Profil bleibt gesperrt: Die offizielle CLI bietet keinen sicheren No-Pull-Schalter
+und kann bei multimodalen Modellen Dateien aus dem Prompt nachladen.
+Die konkreten Voraussetzungen bleiben unter **Inbetriebnahme** offen.
+
+
 ## Etappe 8 bereit fuer externes Review
 
 Draft-PR: [#23](https://github.com/Kaancodm/control-deck/pull/23).

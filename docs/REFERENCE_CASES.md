@@ -48,12 +48,19 @@ Fuer eine vollstaendige Referenz-Suite sind mindestens vorgesehen:
 | `trap` | 4 | Datenschutz, Policy, verbotene Inhalte |
 | `edge` | 2 | Grenzfaelle (leer, gross, Timeout, …) |
 
-Aktuell sind **zwoelf ausfuehrbare Faelle** vorhanden: sechs normale Faelle, vier Fallen und
-zwei Grenzfaelle. Die Faelle `005` bis `012` hat der Owner am 2026-11-03 bestaetigt. Fuer den
-Zielbestand von 14 fehlen noch zwei normale Faelle (`013`, `014`). Die inhaltlichen Faelle
-schreibt der Owner selbst. [OWNER_TODO.md](../tests/reference/cases/OWNER_TODO.md) reserviert
-die offenen Kennungen ohne Auftragsinhalt oder erwartetes Verhalten; diese Platzhalter werden
-nicht als Tests geladen und nicht als bestandene Faelle gezaehlt.
+Aktuell sind **vierzehn ausfuehrbare Faelle** vorhanden: acht normale Faelle, vier Fallen und
+zwei Grenzfaelle. Die Faelle `005` bis `014` hat der Owner am 2026-11-03 bestaetigt.
+Damit ist der Zielbestand von 14 erreicht. Die inhaltlichen Faelle schreibt oder bestaetigt
+der Owner selbst. [OWNER_TODO.md](../tests/reference/cases/OWNER_TODO.md) dokumentiert die
+urspruenglichen Kennungsreservierungen; Markdown-Platzhalter werden nicht als Tests geladen
+und nicht als bestandene Faelle gezaehlt.
+
+Die beiden zuletzt bestaetigten normalen Faelle sind:
+
+| Kennung | Datei | Verhalten |
+|---------|-------|-----------|
+| `013` | `013-normal-draft-redacted-phone.yaml` | `cloud_redacted`: synthetische Telefonnummer vor dem Cloud-Lauf ersetzen; keine Nummer im Fake-Ergebnis |
+| `014` | `014-normal-review-cloud-ok-codex.yaml` | `cloud_ok`: harmlosen Text ueber die Codex-Kette pruefen |
 
 Die Scanner-Unit-Tests mit synthetischen Treffern und harmlosen Texten sind technische
 Regressionstests. Sie ersetzen die vom Owner verfassten Referenzfaelle nicht.

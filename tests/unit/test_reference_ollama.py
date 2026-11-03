@@ -36,10 +36,10 @@ def _task(**updates):
 @pytest.mark.parametrize(
     ("arguments", "summary"),
     [
-        ([], "Summary: 12/12 passed, 0 failed, 0 skipped"),
+        ([], "Summary: 14/14 passed, 0 failed, 0 skipped"),
         (
             ["--executor", "ollama-fake-cli", "--model", MODEL],
-            "Summary: 10/12 passed, 0 failed, 2 skipped",
+            "Summary: 10/14 passed, 0 failed, 2 skipped",
         ),
     ],
 )
@@ -88,7 +88,7 @@ def test_reference_run_cases_skips_cloud_routed_cases_only(monkeypatch):
     text = format_summary(summary)
     assert "[SKIP] 007-normal-summarize-redacted-pii (normal)" in text
     assert "  - skipped: " in text
-    assert text.endswith("Summary: 10/12 passed, 0 failed, 2 skipped")
+    assert text.endswith("Summary: 10/14 passed, 0 failed, 2 skipped")
 
 
 @pytest.mark.parametrize(

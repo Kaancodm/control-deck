@@ -1,23 +1,59 @@
 # Stand des Repositorys
 
-## Etappe 8 in Arbeit, gestapelt auf Etappe 7
+## Etappe 8 bereit fuer externes Review
 
-Branch: `stage/08-runner`, Basis: `stage/07-router` (`924d3d4`, Draft-PR #22).
-Der Owner hat die gestapelte Umsetzung von Etappe 7 bis 17 ohne Warten auf Review oder
-Merge freigegeben. Etappe 18 wird ausschliesslich als Abnahme-Checkliste vorbereitet.
+Draft-PR: [#23](https://github.com/Kaancodm/control-deck/pull/23).
+Branch: `stage/08-runner`, nach Squash-Merge von PR #22 auf `main a092942` rebased.
+Der Owner hat die gestapelte Fortsetzung bis Etappe 17 freigegeben. Etappe 18 wird nur als
+Abnahme-Checkliste vorbereitet; kein Merge oder Release durch den Agenten.
 
-Geplant: lanegebundene Claims, expliziter Start, sichere Payload-Uebergabe, Heartbeat und
-Steuerentscheide, Pause/Not-Aus, Parallelitaetsgrenze und Host-Runner mit Fake-Executor.
-Inhaltliche Referenzfaelle bleiben Owner-Aufgabe. Kein Merge durch den Agenten.
+Umgesetzt:
+
+- Lanegebundene Claims mit Owner-Freigabe, Policy, Versuchs-/Tagesbudget und globaler
+  Parallelitaet (Standard 1). `local_only` bleibt Ollama; nur die geclaimte Lane wird belastet.
+- Migration `0009` und typisierte `settings` fuer Pause, Not-Aus und Lane-Pause. Claims und
+  Steuerung sind atomar serialisiert; bestehende Abbruchanforderungen bleiben gesetzt.
+- Finale Datei-Hashes aus genau dem gelesenen Versandtext muessen zur Owner-Freigabe passen.
+  Maps und Vorbereitung werden vor Payload-Auslieferung committed. Worker sehen keine
+  Originalauftraege, Map oder frueheren Ergebnisse.
+- Expliziter Start, Heartbeat und Steuerentscheide `continue`, `cancel`, `expired`,
+  `lost_lease`. Expiry wird vor dem Stop committed; Lease-Timeout ist nie `expired`.
+- Direkter Host-Runner ohne offene Ausfuehrungs-Transaktion beim Executor-Aufruf; lokale
+  Rueckabbildung und Acceptance vor erneuter Ergebnis-Fencing-Pruefung.
+- Private unveraenderliche Payload-/Ergebnisartefakte und sichere Laufmetadaten-Logs.
+- Review-Nacharbeit `636d724`: deaktivierte erlaubte Lanes fuehren zu `deferred`, nicht
+  terminal zu `blocked`. Nach Reaktivierung wird derselbe wartende Task korrekt geclaimt.
+
+Pflichtchecks vom 2026-11-03: `make lint` gruen (Ruff ohne Cache, Format, Mypy),
+`uv run alembic -x target=test check` ohne Schemaabweichung, `make test` mit
+**1038 bestandenen Tests** (**346 Integration**, **692 Unit**), **keine xfail oder Skips**.
+Eine bestehende Starlette/httpx-Deprecation-Warnung. `make reference`: **4/4**.
+Isolierte PostgreSQL-17-Testdatenbank. Die CI des finalen Heads wird im PR ausgewiesen.
+
+Details: [RUNNER.md](RUNNER.md), [API.md](API.md), [ROUTING.md](ROUTING.md).
+Adapter muessen kooperativen Abbruch und ihren Transport-Timeout einhalten; beliebiger
+Python-Code kann vom Rahmen nicht zwangsweise beendet werden. Nichtleere Executor-Datei-
+Ausgaben bleiben bis zur verifizierten Adapter-Anbindung gesperrt. Zentrale Fehler-/Fallback-
+Regeln folgen in Etappe 10.
 
 ### Inbetriebnahme
 
-Echte Logins, Anbieteraufrufe, Modelllaeufe, Serveraenderungen und Deployment sind nicht
-Teil dieser Umsetzung. Alle neuen Laufzeittests verwenden Simulationen oder Fake-CLIs.
+Nicht ausgefuehrt: echte Logins, Anbieter-/Modellaufrufe, API-Keys, produktive DB-Verbindungen,
+Serverinstallation, Deployment oder Release. Neue Laufzeittests verwenden Fake-Executors;
+CLI-Adapter folgen ausschliesslich mit Simulationen fuer `ollama run`, `claude -p`, `codex exec`.
+Inhaltliche Referenzfaelle bleiben Owner-Aufgabe.
 
-## Etappe 7 bereit fuer externes Review
+### Folgepunkte
 
-Draft-PR: [#22](https://github.com/Kaancodm/control-deck/pull/22).
+- Aufwaendige erneute Datei-/Datenschutzpruefungen bei ausgeschoepftem Budget reduzieren;
+  Index auf `events(event_type, created_at)` fuer die Budgetabfrage ergaenzen.
+- Hangul Filler als moegliche Worttrenner gesondert behandeln; derzeit werden sie entfernt.
+- Veraenderte Platzhalter, zwischen Versuchen entfernte Blocklisten-Begriffe und eine
+  begrenzte Eskalation wiederholter `task.gate_error`-Events bleiben nachvollziehbar offen.
+
+## Etappe 7 gemergt
+
+PR: [#22](https://github.com/Kaancodm/control-deck/pull/22), vom Owner als `a092942` squash-gemergt.
 Branch: `stage/07-router`, nach Squash-Merge von PR #21 auf `main 323d727` rebased.
 
 Umgesetzt: reine Routing-Funktion, lokale Regeln und Modellwahl, Tagesbudgets je Lane,
@@ -48,7 +84,7 @@ Etappe 18 wird ausschliesslich als Abnahme-Checkliste vorbereitet und nicht ausg
 
 Folgepunkte aus PR #21: veraenderte Platzhalter, ein zwischen Versuchen aus der Blockliste
 entfernter Begriff und eine begrenzte Eskalation wiederholter `task.gate_error`-Events.
-Die Worker-Identitaet und sichere Runner-Anbindung werden in Etappe 8 geschlossen.
+Die Worker-Identitaet und sichere Runner-Anbindung sind in Etappe 8 geschlossen.
 
 ## Etappe 6 gemergt
 
@@ -93,17 +129,12 @@ Lokale Pflichtchecks vom 2026-11-03:
 Die GitHub-CI des Etappe-6-Heads war gruen. Das externe Review und der Owner-Merge sind
 abgeschlossen; die beiden P2-Nacharbeiten sind in Etappe 7 separat behoben.
 
-## Grenze zum Host-Runner
+## Historische Grenze nach Etappe 6
 
-Die lokalen Redaction-Bausteine sind implementiert. Die bestehende HTTP-Worker-API liefert
-weiterhin `task.v1`; deshalb bleibt ihre bisherige Schranke fuer Cloud-Auftraege mit Treffern
-aktiv. Etappe 8 muss Vorbereitung und Rueckabbildung mit Claim, Lane, Lease, Versuch und
-Ergebnisannahme verbinden, Freigabe-Hashes erzwingen und ausschliesslich archivierte Bytes
-versenden. Dieser PR aktiviert keinen ungeschuetzten Cloud-Versand.
-
-Die zwei strikten `xfail`-Tests zur Worker-Identitaet bleiben ein Pflichtpunkt fuer Etappe 8.
-Inhaltliche Referenzfaelle schreibt der Owner; die vier vorhandenen YAML-Faelle bleiben erhalten.
-Es gibt keine Server-Eingriffe, produktiven DB-Verbindungen oder echten Anbieteraufrufe.
+Die damals noch konservative Worker-API wurde in Etappe 8 durch vorbereiteten Versandtext
+und sichere Versuchsdaten ersetzt. Die beiden Worker-Identitaets-Regressionen bestehen jetzt
+als normale Tests. Inhaltliche Referenzfaelle bleiben Owner-Aufgabe; die vier vorhandenen
+Faelle bleiben erhalten. Es gibt keine echten Anbieteraufrufe oder Server-Eingriffe.
 
 ## Inbetriebnahme
 

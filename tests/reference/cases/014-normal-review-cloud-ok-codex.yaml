@@ -1,0 +1,35 @@
+# Vom Owner bestaetigt 2026-11-03
+id: "014-normal-review-cloud-ok-codex"
+category: normal
+description: "cloud_ok: Review eines harmlosen Textes laeuft ueber die Codex-Kette."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: api
+  kind: review
+  title: "Referenz Review Codex"
+  instructions: "Pruefe die Funktionsbeschreibung auf Unklarheiten und nenne hoechstens zwei."
+  inputs:
+    - name: source
+      type: text
+      value: "Die Funktion addiert zwei Zahlen und gibt das Ergebnis zurueck."
+  context_refs: []
+  data_class: cloud_ok
+  policy:
+    forbidden_workers: []
+    require_review: false
+  acceptance: []
+  fallback_chain:
+    - codex
+    - ollama
+  labels:
+    suite: reference
+expect:
+  status: succeeded
+  must_contain:
+    - reference-ok
+  must_not_contain: []
+  regex: null
+  max_chars: 500
+  max_seconds: 30
+  allowed_workers: []

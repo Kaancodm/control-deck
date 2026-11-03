@@ -36,10 +36,10 @@ def _task(**updates):
 @pytest.mark.parametrize(
     ("arguments", "summary"),
     [
-        ([], "Summary: 12/12 passed, 0 failed, 0 skipped"),
+        ([], "Summary: 14/14 passed, 0 failed, 0 skipped"),
         (
             ["--executor", "ollama-fake-cli", "--model", MODEL],
-            "Summary: 10/12 passed, 0 failed, 2 skipped",
+            "Summary: 10/14 passed, 0 failed, 4 skipped",
         ),
     ],
 )
@@ -76,19 +76,24 @@ def test_reference_run_cases_skips_cloud_routed_cases_only(monkeypatch):
     skipped = sorted(
         case_id for case_id, outcome in outcomes.items() if outcome == CaseOutcome.SKIP
     )
-    assert skipped == ["007-normal-summarize-redacted-pii", "008-normal-research-cloud-ok"]
+    assert skipped == [
+        "007-normal-summarize-redacted-pii",
+        "008-normal-research-cloud-ok",
+        "013-normal-draft-redacted-phone",
+        "014-normal-review-cloud-ok-codex",
+    ]
     assert outcomes["002-trap-fake-api-key"] == CaseOutcome.PASS
     assert outcomes["010-trap-private-key-cloud-redacted"] == CaseOutcome.PASS
     assert outcomes["011-trap-token-in-local-only"] == CaseOutcome.PASS
     assert summary.failed == 0
-    assert summary.skipped == 2
-    assert summary.passed == summary.total - 2
+    assert summary.skipped == 4
+    assert summary.passed == summary.total - 4
     # Only locally routed, gate-approved cases reach the fake CLI: 001, 004, 005, 006, 009.
     assert len(executed_models) == 5
     text = format_summary(summary)
     assert "[SKIP] 007-normal-summarize-redacted-pii (normal)" in text
     assert "  - skipped: " in text
-    assert text.endswith("Summary: 10/12 passed, 0 failed, 2 skipped")
+    assert text.endswith("Summary: 10/14 passed, 0 failed, 4 skipped")
 
 
 @pytest.mark.parametrize(

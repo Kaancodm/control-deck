@@ -66,6 +66,8 @@
     },
     "payload_hash": {
       "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
       "pattern": "^[a-f0-9]{64}$"
     },
     "log_ref": {
@@ -129,6 +131,8 @@
         },
         "sha256": {
           "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
           "pattern": "^[a-f0-9]{64}$"
         }
       }

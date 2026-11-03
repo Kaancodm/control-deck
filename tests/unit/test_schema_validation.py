@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import zipfile
 from pathlib import Path
 from typing import Any
 
 import pytest
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import ValidationError
 
+from app.core.schema_loader import load_schema
 from app.core.schemas import ResultV1, TaskV1
 from app.core.validate import validate_result, validate_task
 
 EXAMPLES = Path(__file__).parent / "examples"
-SCHEMAS = Path(__file__).resolve().parents[2] / "schemas"
+_FORMAT_CHECKER = FormatChecker()
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -25,9 +28,10 @@ def _load(path: Path) -> dict[str, Any]:
 
 
 def _jsonschema_valid(schema_name: str, data: dict[str, Any]) -> bool:
-    with (SCHEMAS / schema_name).open(encoding="utf-8") as handle:
-        schema = json.load(handle)
-    validator = Draft202012Validator(schema)
+    validator = Draft202012Validator(
+        load_schema(schema_name),
+        format_checker=_FORMAT_CHECKER,
+    )
     return not list(validator.iter_errors(data))
 
 
@@ -97,3 +101,99 @@ def test_validate_result_failed_requires_error_message() -> None:
     assert issues
     joined = " ".join(f"{i.path}: {i.message}" for i in issues)
     assert "error" in joined.lower() or "failed" in joined.lower()
+
+
+def test_load_schema_without_source_checkout_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Schemas load from the installed package, not a repo-relative checkout path."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    schema = load_schema("task.v1.json")
+    assert schema["properties"]["schema_version"]["const"] == "task.v1"
+
+
+def test_wheel_packages_json_schemas(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    wheel_dir = tmp_path / "dist"
+    build = subprocess.run(
+        ["uv", "build", "--wheel", "-o", str(wheel_dir)],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if build.returncode != 0:
+        pytest.skip(f"wheel build unavailable: {build.stderr.strip()}")
+    wheels = list(wheel_dir.glob("control_deck-*.whl"))
+    assert wheels, "expected a built wheel"
+    with zipfile.ZipFile(wheels[0]) as archive:
+        names = archive.namelist()
+    assert any(name.endswith("app/schemas/task.v1.json") for name in names)
+    assert any(name.endswith("app/schemas/result.v1.json") for name in names)
+
+
+@pytest.mark.parametrize(
+    ("payload", "field_path"),
+    [
+        ({"created_at": "2026-01-15T08:00:00"}, "$/created_at"),
+        (
+            {
+                "timing": {
+                    "started_at": "2026-01-15T08:00:00",
+                    "finished_at": "2026-01-15T08:01:00",
+                }
+            },
+            "$/timing/started_at",
+        ),
+    ],
+)
+def test_naive_datetimes_rejected(payload: dict[str, Any], field_path: str) -> None:
+    if "created_at" in payload:
+        task = _load(TASK_VALID[0])
+        task["created_at"] = payload["created_at"]
+        issues = validate_task(task)
+    else:
+        result = _load(RESULT_VALID[0])
+        result["timing"] = payload["timing"]
+        issues = validate_result(result)
+
+    assert issues
+    assert any(issue.path == field_path for issue in issues)
+
+
+def test_payload_hash_trailing_newline_rejected() -> None:
+    result = _load(RESULT_VALID[0])
+    result["payload_hash"] = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n"
+    issues = validate_result(result)
+    assert issues
+    sources = {issue.source for issue in issues}
+    assert "jsonschema" in sources
+    assert "pydantic" in sources
+
+
+def test_usage_null_tokens_rejected() -> None:
+    result = _load(RESULT_VALID[0])
+    result["usage"]["input_tokens"] = None
+    issues = validate_result(result)
+    assert issues
+    assert any("input_tokens" in issue.path for issue in issues)
+
+
+def _result_json_roundtrip(model: ResultV1) -> dict[str, Any]:
+    """Serialize like production: omit unset usage token fields, keep required nulls."""
+    payload = model.model_dump(mode="json")
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        for key in ("input_tokens", "output_tokens"):
+            if usage.get(key) is None:
+                usage.pop(key, None)
+    return payload
+
+
+@pytest.mark.parametrize("path", RESULT_VALID, ids=lambda p: p.name)
+def test_result_roundtrip_validate_dump_validate(path: Path) -> None:
+    data = _load(path)
+    assert validate_result(data) == []
+    model = ResultV1.model_validate(data)
+    roundtrip = _result_json_roundtrip(model)
+    assert validate_result(roundtrip) == []

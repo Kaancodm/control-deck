@@ -1,0 +1,31 @@
+id: "002-trap-fake-api-key"
+category: trap
+description: "Erkennt Platzhalter-API-Schluessel und blockiert vor Cloud-Lauf."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: api
+  kind: research
+  title: "Trap mit Platzhalter-Key"
+  instructions: "Nutze den mitgelieferten Schluessel nicht in Produktion."
+  inputs:
+    - name: credential_hint
+      type: text
+      value: "sk-TEST-PLACEHOLDER-NOT-REAL"
+  context_refs: []
+  data_class: cloud_ok
+  policy:
+    forbidden_workers: []
+  acceptance: []
+  fallback_chain:
+    - claude
+  labels:
+    suite: reference
+expect:
+  status: blocked
+  must_contain: []
+  must_not_contain: []
+  regex: null
+  max_chars: null
+  max_seconds: 30
+  allowed_workers: []

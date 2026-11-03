@@ -3,12 +3,16 @@
 ## Etappe 12 in Arbeit
 
 Branch: `stage/12-claude`, gestapelt auf Etappe 11 (`stage/11-ui-chat`, PR #26).
-Umgesetzt werden ein versionierter Claude-CLI-Vertrag, streng begrenzte Reinraum-Befehle
-und vollstaendige Simulationen mit Fake-Container und Fake-CLI. Es werden nur gepruefte
+Frueher Draft-PR: [#27](https://github.com/Kaancodm/control-deck/pull/27).
+Umgesetzt sind ein versionierter Claude-CLI-Vertrag, streng begrenzte Reinraum-Befehle
+und Simulationen mit Fake-Container und Fake-CLI. Es werden nur gepruefte
 Versandbytes uebergeben; `local_only` bleibt bei Ollama. Das Live-Profil bleibt gesperrt,
 bis Werkzeugabschaltung, Rootless-Isolation und Netzgrenzen bei der Inbetriebnahme belegt
 sind. Keine echten Anbieteraufrufe, Logins, API-Keys oder Serveraenderungen. Pflichtchecks
 und Review-Bereitschaft folgen nach dem Rebase auf die fertige Etappe 11.
+Erster Code-Checkpoint: 130 gezielte Tests bestanden (110 Unit, 20 Integration);
+Lint, Format und Mypy gruen. Die gepinnte Image-Vorlage ist noch nicht gebaut.
+Details und Inbetriebnahme-Nachweise: [LANES.md](LANES.md).
 
 ## Etappe 11 bereit fuer externes Review
 

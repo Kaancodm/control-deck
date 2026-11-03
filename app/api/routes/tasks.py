@@ -55,7 +55,6 @@ def create_task(
                 else [{"message": str(exc)}]
             ),
         )
-    expire_task_if_due(session, task=task)
     session.refresh(task, attribute_names=["events", "results"])
     return TaskCreateOut(task=task_detail(task))
 

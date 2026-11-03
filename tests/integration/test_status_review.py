@@ -17,6 +17,7 @@ from app.api.deps import get_db
 from app.core.schemas import TaskV1
 from app.db.models import Lease, Result, Task
 from app.db.queue import dequeue_next_queued_task, reap_expired_leases
+from app.db.session import get_engine
 from app.db.state_machine import TaskTransition
 from app.db.transitions import TransitionActor, transition_task
 from tests.integration.test_database import _minimal_task_payload
@@ -300,6 +301,10 @@ def test_core_acceptance_overrides_worker_claims_and_retries_to_limit(
         assert stored["error"]["code"] == "acceptance_failed"
         assert stored["checks"][0]["passed"] is False
         assert len(detail["results"]) == attempt
+        event = detail["events"][-1]
+        assert event["event_type"] == ("task.retry" if attempt == 1 else "task.fail")
+        assert event["detail"]["result_status"] == "failed"
+        assert event["detail"]["reason"] == "acceptance_failed"
         if attempt == 1:
             lease_id = _next_lease(review_client, task_id)
 
@@ -512,3 +517,81 @@ def test_completed_task_does_not_expire_after_its_deadline(
     assert _submit(review_client, task_id, _claim(review_client, task_id))["status"] == "done"
     _make_deadline_due(db_session, task_id)
     assert _detail(review_client, task_id)["status"] == "done"
+
+
+@pytest.mark.parametrize("control", ["heartbeat", "cancel", "expire", "reassign"])
+def test_acceptance_allows_concurrent_control_and_rechecks_fencing(
+    review_client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    control: str,
+) -> None:
+    from app.db import worker_ops
+    from app.db.queue import expire_task_if_due
+    from app.db.transitions import request_operator_cancel
+
+    task_id = _create(
+        review_client,
+        acceptance=[{"type": "must_contain", "value": "accepted"}],
+        deadline_at=datetime.now(tz=UTC) + timedelta(hours=1),
+    )
+    lease_id = _claim(review_client, task_id)
+    original_acceptance = worker_ops.evaluate_acceptance
+
+    def control_during_acceptance(*args: Any, **kwargs: Any) -> Any:
+        with Session(get_engine(for_tests=True), autoflush=False) as other:
+            # NOWAIT proves the result path holds no row lock during evaluation.
+            task = other.scalar(select(Task).where(Task.id == task_id).with_for_update(nowait=True))
+            assert task is not None
+            if control == "heartbeat":
+                worker_ops.refresh_lease_heartbeat(
+                    other,
+                    lease_id=lease_id,
+                    task_id=task_id,
+                    extend_by=timedelta(minutes=5),
+                )
+            elif control == "cancel":
+                request_operator_cancel(other, task=task, reason="Concurrent owner request")
+            elif control == "expire":
+                task.deadline_at = datetime.now(tz=UTC) - timedelta(seconds=1)
+                other.flush()
+                assert expire_task_if_due(other, task=task)
+            else:
+                assert task.lease is not None
+                task.lease.expires_at = datetime.now(tz=UTC) - timedelta(seconds=1)
+                other.flush()
+                transition_task(
+                    other,
+                    task=task,
+                    trigger=TaskTransition.LEASE_EXPIRED,
+                    lease_id=lease_id,
+                )
+                claimed = dequeue_next_queued_task(other, lease_ttl=timedelta(minutes=5))
+                assert claimed is not None and claimed.id == task_id
+                assert claimed.attempt == 2
+            other.commit()
+        return original_acceptance(*args, **kwargs)
+
+    monkeypatch.setattr(worker_ops, "evaluate_acceptance", control_during_acceptance)
+    response = review_client.post(
+        "/api/v1/worker/result",
+        json={"lease_id": str(lease_id), "result": _result(task_id)},
+        headers=_WORKER_HEADERS,
+    )
+    expected_status = {"heartbeat": 200, "cancel": 403, "expire": 409, "reassign": 422}
+    assert response.status_code == expected_status[control], response.text
+    db_session.expire_all()
+    task = db_session.get(Task, task_id)
+    assert task is not None
+    if control == "heartbeat":
+        assert task.status.value == "review"
+        assert len(task.results) == 1
+    else:
+        assert task.results == []
+        if control == "cancel":
+            assert task.cancel_requested is True
+        elif control == "expire":
+            assert task.status.value == "expired"
+        else:
+            assert task.attempt == 2
+            assert task.lease is not None and task.lease.lease_id != lease_id

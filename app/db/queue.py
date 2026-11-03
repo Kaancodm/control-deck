@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Lease, Task
 from app.db.state_machine import TERMINAL_STATES, TaskState, TaskTransition
 from app.db.transitions import (
+    LeaseOwnershipError,
     TransitionActor,
     TransitionFencingError,
     transition_task,
@@ -95,23 +96,29 @@ def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
     leases = list(session.scalars(stmt).all())
     for lease in leases:
         task = lease.task
-        if task.cancel_requested:
+        try:
+            if task.cancel_requested:
+                transition_task(
+                    session,
+                    task=task,
+                    trigger=TaskTransition.CANCEL,
+                    lease_id=lease.lease_id,
+                    actor=TransitionActor.SYSTEM,
+                    detail={"reaper": True, "reason": "cancel_requested"},
+                )
+                continue
             transition_task(
                 session,
                 task=task,
-                trigger=TaskTransition.CANCEL,
+                trigger=TaskTransition.LEASE_EXPIRED,
                 lease_id=lease.lease_id,
-                actor=TransitionActor.SYSTEM,
-                detail={"reaper": True, "reason": "cancel_requested"},
+                detail={"reaper": True, "expired_at": lease.expires_at.isoformat()},
             )
-            continue
-        transition_task(
-            session,
-            task=task,
-            trigger=TaskTransition.LEASE_EXPIRED,
-            lease_id=lease.lease_id,
-            detail={"reaper": True, "expired_at": lease.expires_at.isoformat()},
-        )
+        except (LeaseOwnershipError, TransitionFencingError):
+            # The bounded sweep may omit this task, or its deadline may cross
+            # after selection. Expire it without discarding the rest of the batch.
+            if not expire_task_if_due(session, task=task):
+                raise
     session.flush()
     return len(leases)
 

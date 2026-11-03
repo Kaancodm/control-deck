@@ -41,6 +41,8 @@ Interne Persistenz (`create_task_from_v1`, `POST /tasks`) legt Tasks immer in **
 
 Das Beispiel ergaenzt einen vollstaendigen `task.v1`-Body; `data_class` bleibt Pflicht. Die API entfernt `deadline_at` vor der Schema-Validierung und speichert den Wert als separate Task-Spalte. Der unveraenderliche `task.v1`-Payload enthaelt ihn nicht. Task-Listen und Task-Details geben `deadline_at` separat zurueck. Es gibt in dieser Etappe keinen Endpunkt zum nachtraeglichen Aendern der Deadline.
 
+Eine beim Anlegen bereits erreichte oder vergangene Deadline wird anhand der DB-Zeit mit **422** abgewiesen, bevor ein Task oder Audit-Event gespeichert wird. `null` oder ein fehlendes Feld bleiben erlaubt.
+
 Ohne explizite Owner-Deadline laeuft ein Task **nicht** ab. Weder `policy.timeout_s` noch Lease-TTL oder Heartbeats erzeugen eine Deadline. Erst wenn das gesetzte `deadline_at` erreicht ist, kann ein nichtterminaler Task nach `expired` wechseln. Die Ablaufpruefung erfolgt bei API-/Queue-Zugriffen; SQL-Fencing verhindert auch vor dem naechsten Sweep, dass ueberfaellige Arbeit neu geleast oder mit einem spaeten Ergebnis abgeschlossen wird. Ein Ablauf entfernt die Lease und erzeugt `task.expire`.
 
 ### Ergebnis-Review
@@ -64,6 +66,8 @@ Authentifizierung ueber `DECK_WORKER_TOKEN` (Pflicht).
 Dequeue verlangt ein gesetztes **`approved_at`** (Owner-Freigabe); Tasks in `queued` ohne Freigabe werden nicht gezogen.
 
 Bei `result.v1.status = succeeded` berechnet `app/core/acceptance.py` die Checks aus `task.acceptance` und `result.output.text` selbst; vom Worker gemeldete Checks ersetzen diese Pruefung nicht. Ein automatischer Fehlschlag wird als Ergebnis mit `status = failed` und `error.code = acceptance_failed` gespeichert. Der Task geht bei verbleibenden Versuchen zurueck in die Queue, sonst nach `failed`.
+
+Die Acceptance laeuft vor dem Task-Row-Lock auf dem unveraenderlichen Auftrag. Danach werden Status, Versuch, Lease und Deadline erneut geprueft; zwischenzeitliche Heartbeats, Abbrueche oder Neuzuweisungen bleiben wirksam. Das Retry-/Fail-Event verwendet den normalisierten `result_status = failed` und den Grund `acceptance_failed`.
 
 Sind alle automatischen Regeln erfuellt, folgt standardmaessig `review`. Nur `policy.require_review = false` **ohne** `human`-Regel erlaubt direkt `done`. Eine `human`-Regel verlangt immer den Owner-Entscheid. `result.v1.status` bleibt dabei unveraendert das Worker-Ergebnisformat (`succeeded`, `failed`, `blocked`, `cancelled`); `review`, `done` und `expired` sind Task-Status.
 

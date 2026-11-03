@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import subprocess
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -144,3 +147,124 @@ def test_check_details_do_not_echo_output_data() -> None:
     output = "private-result-marker"
     report = evaluate_acceptance([_rule("json_schema", '{"type":"integer"}')], json.dumps(output))
     assert output not in report.checks[0].detail
+
+
+def test_slow_startup_does_not_consume_evaluation_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core import acceptance
+
+    monkeypatch.setattr(acceptance, "_EVALUATION_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr(
+        acceptance,
+        "_WORKER_PROGRAM",
+        "import time; time.sleep(0.75); "
+        "from app.core.acceptance import _worker_main; _worker_main()",
+    )
+
+    report = evaluate_acceptance([_rule("regex", "^ready$")], "ready")
+
+    assert report.passed is True
+    assert report.checks[0].detail == "Acceptance rule passed."
+
+
+@pytest.fixture
+def evaluator_children(monkeypatch: pytest.MonkeyPatch) -> list[subprocess.Popen[bytes]]:
+    from app.core import acceptance
+
+    children: list[subprocess.Popen[bytes]] = []
+    original_popen = acceptance.subprocess.Popen
+
+    def tracked_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        child = original_popen(*args, **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(acceptance.subprocess, "Popen", tracked_popen)
+    return children
+
+
+def _assert_children_reaped(children: list[subprocess.Popen[bytes]]) -> None:
+    assert len(children) == 1
+    child = children[0]
+    assert child.poll() is not None
+    assert child.stdin is not None and child.stdin.closed
+    assert child.stdout is not None and child.stdout.closed
+
+
+@pytest.mark.parametrize(
+    "program",
+    [
+        "import time; time.sleep(60)",
+        "import sys, time; sys.stdout.write('R'); sys.stdout.flush(); time.sleep(60)",
+    ],
+)
+def test_startup_timeout_is_bounded_logged_and_reaped(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    evaluator_children: list[subprocess.Popen[bytes]],
+    program: str,
+) -> None:
+    from app.core import acceptance
+
+    monkeypatch.setattr(acceptance, "_STARTUP_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(acceptance, "_WORKER_PROGRAM", program)
+    with caplog.at_level(logging.WARNING, logger="app.core.acceptance"):
+        report = evaluate_acceptance([_rule("regex", "private-rule-marker")], "private-output")
+
+    assert report.passed is False
+    assert report.checks[0].detail == "Acceptance evaluator startup timed out."
+    assert "Acceptance startup timed out" in caplog.text
+    assert "private-rule-marker" not in caplog.text
+    assert "private-output" not in caplog.text
+    _assert_children_reaped(evaluator_children)
+
+
+def test_evaluation_timeout_with_full_pipes_is_logged_and_reaped(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    evaluator_children: list[subprocess.Popen[bytes]],
+) -> None:
+    from app.core import acceptance
+
+    monkeypatch.setattr(acceptance, "_EVALUATION_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(
+        acceptance,
+        "_WORKER_PROGRAM",
+        "import sys, time; "
+        "sys.stderr.write('private-stderr' * 100000); sys.stderr.flush(); "
+        "print('READY', flush=True); time.sleep(60)",
+    )
+    with caplog.at_level(logging.WARNING, logger="app.core.acceptance"):
+        report = evaluate_acceptance(
+            [_rule("regex", "private-rule-marker"), _rule("human")], "private-output" * 100000
+        )
+
+    assert report.passed is False
+    assert report.requires_review is True
+    assert report.checks[0].detail == "Acceptance evaluation timed out."
+    assert "Acceptance evaluation timed out" in caplog.text
+    for marker in ("private-rule-marker", "private-output", "private-stderr"):
+        assert marker not in caplog.text
+    _assert_children_reaped(evaluator_children)
+
+
+@pytest.mark.parametrize(
+    "program",
+    [
+        "print('INVALID', flush=True)",
+        "print('READY', flush=True); print('invalid-json', flush=True)",
+    ],
+)
+def test_invalid_worker_protocol_fails_closed_and_reaps_child(
+    monkeypatch: pytest.MonkeyPatch,
+    evaluator_children: list[subprocess.Popen[bytes]],
+    program: str,
+) -> None:
+    from app.core import acceptance
+
+    monkeypatch.setattr(acceptance, "_WORKER_PROGRAM", program)
+
+    report = evaluate_acceptance([_rule("regex", "ready")], "ready")
+
+    assert report.passed is False
+    assert report.checks[0].detail == "Acceptance evaluator unavailable."
+    _assert_children_reaped(evaluator_children)

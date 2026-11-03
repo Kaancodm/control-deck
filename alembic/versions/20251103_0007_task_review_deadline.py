@@ -30,6 +30,15 @@ def upgrade() -> None:
         for state in ("review", "done", "expired"):
             op.execute(sa.text(f"ALTER TYPE task_state ADD VALUE IF NOT EXISTS '{state}'"))
     op.add_column("tasks", sa.Column("deadline_at", sa.DateTime(timezone=True), nullable=True))
+    op.create_index(
+        "ix_tasks_active_deadline",
+        "tasks",
+        ["deadline_at", "id"],
+        postgresql_where=sa.text(
+            "deadline_at IS NOT NULL AND status NOT IN "
+            "('succeeded', 'done', 'expired', 'failed', 'blocked', 'cancelled')"
+        ),
+    )
 
 
 def downgrade() -> None:
@@ -55,6 +64,7 @@ def downgrade() -> None:
     ).scalar_one():
         raise RuntimeError("Downgrade blocked: owner deadlines would be lost")
 
+    op.drop_index("ix_tasks_active_deadline", table_name="tasks")
     op.execute(sa.text(f"CREATE TYPE task_state_pre_0007 AS ENUM ({_PRE_0007_STATES})"))
     op.execute(sa.text("ALTER TABLE tasks ALTER COLUMN status DROP DEFAULT"))
     for table, column in (("tasks", "status"), ("events", "from_status"), ("events", "to_status")):

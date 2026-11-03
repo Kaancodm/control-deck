@@ -45,6 +45,8 @@ Wichtige Pfade:
 
 Runner ziehen Arbeit mit `SELECT … FOR UPDATE SKIP LOCKED` auf dem aeltesten `queued`-Task (Index `status`, `created_at`). Die Funktion `dequeue_next_queued_task` nutzt zentral `transition_task` (Audit-Event, `attempt += 1`, `updated_at`) und ersetzt die Lease-Zeile re-acquire-sicher (ADR 0001, 0004). Abgelaufene Leases holt `reap_expired_leases` per `SKIP LOCKED` zurueck in die Queue.
 
+Erreicht eine Owner-Deadline erst nach dem begrenzten Sweep das Zeitlimit, behandelt der Reaper die Fencing-Ablehnung pro Lease und materialisiert `expired`. So bleiben die anderen Ergebnisse des Batches erhalten; sonstige Fencing-Fehler werden weiterhin gemeldet.
+
 Persistenz neuer Auftraege: `create_task_from_v1` validiert `TaskV1`, leitet `id` / `data_class` aus dem Payload ab und startet in `awaiting_approval` (Owner-Freigabe via `approve_task` / HTTP-Approve).
 
 Worker-Uebergaenge aus `leased`/`running` erfordern die passende `lease_id` (Fencing). Retry respektiert `policy.max_attempts`; danach Dead-Letter via `failed`.
@@ -77,6 +79,8 @@ Revision `20251103_0006` setzt bei nicht-terminalen Tasks mit `requires_approval
 ### Review und Deadline (Revision 0007)
 
 Revision `20251103_0007` ergaenzt die Enum-Werte `review`, `done`, `expired` und `tasks.deadline_at`. Es gibt keinen Deadline-Backfill und keine automatische Umdeutung alter `succeeded`-Tasks.
+
+Der partielle Index `ix_tasks_active_deadline` auf `(deadline_at, id)` enthaelt nur nichtterminale Tasks mit gesetzter Deadline. Die aktuelle Zeit wird beim Sweep geprueft und ist kein Bestandteil des Index-Praedikats. Der Downgrade entfernt den Index vor der Rueckumwandlung des Status-Enums.
 
 Ein Downgrade wird verweigert, solange Tasks oder Audit-Events einen der drei neuen Status verwenden oder eine Owner-Deadline gespeichert ist. Die betreffenden Daten muessen vorher explizit migriert werden; Audit-Events werden nicht automatisch umgeschrieben oder geloescht. Nach erfolgreicher Pruefung werden die neuen Enum-Werte und die Deadline-Spalte entfernt.
 

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import AwareDatetime, TypeAdapter
+from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session
 
 from app.core.schemas import ResultV1, TaskV1
@@ -58,6 +59,10 @@ def create_task_from_api_payload(
         raise ValueError(issues)
 
     task_v1 = TaskV1.model_validate(data)
+    if deadline_at is not None and session.scalar(
+        select(literal(deadline_at) <= func.clock_timestamp())
+    ):
+        raise ValueError("deadline_at must be in the future")
     row = Task(
         id=task_v1.task_id,
         status=TaskState.AWAITING_APPROVAL,

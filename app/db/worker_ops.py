@@ -121,7 +121,36 @@ def submit_worker_result(
     result_v1 = ResultV1.model_validate(result_payload)
     task_id = result_v1.task_id
 
-    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
+    trigger = _RESULT_STATUS_TO_TRIGGER[result_v1.status]
+    stored_payload = result_payload_for_storage(result_v1)
+    event_detail: dict[str, Any] = {"worker": result_v1.worker.value}
+    if result_v1.status == ResultStatus.SUCCEEDED:
+        # The payload is immutable. Evaluate it before acquiring task/lease locks
+        # so heartbeats and owner control can proceed while checks are running.
+        task_payload = session.scalar(select(Task.payload).where(Task.id == task_id))
+        if task_payload is None:
+            raise WorkerOperationError(f"task {task_id} not found")
+        rules = [AcceptanceRule.model_validate(rule) for rule in task_payload["acceptance"]]
+        acceptance = evaluate_acceptance(rules, result_v1.output.text)
+        stored_payload["checks"] = [check.model_dump() for check in acceptance.checks]
+        if not acceptance.passed:
+            stored_payload["status"] = ResultStatus.FAILED.value
+            stored_payload["error"] = {
+                "code": "acceptance_failed",
+                "message": "Core acceptance checks failed",
+            }
+            event_detail["reason"] = "acceptance_failed"
+            trigger = TaskTransition.RETRY
+    event_detail["result_status"] = stored_payload["status"]
+
+    # Reload runtime state after evaluation: another transaction may have
+    # cancelled, expired, or reassigned this task in the meantime.
+    task = session.scalar(
+        select(Task)
+        .where(Task.id == task_id)
+        .with_for_update(of=Task)
+        .execution_options(populate_existing=True)
+    )
     if task is None:
         raise WorkerOperationError(f"task {task_id} not found")
 
@@ -152,30 +181,13 @@ def submit_worker_result(
             f"task {task_id} must be running to accept a result (status={task.status.value})"
         )
 
-    trigger = _RESULT_STATUS_TO_TRIGGER.get(result_v1.status)
-    if trigger is None:
-        raise WorkerOperationError(f"unsupported result status {result_v1.status.value}")
-
-    stored_payload = result_payload_for_storage(result_v1)
-    if result_v1.status == ResultStatus.SUCCEEDED:
-        rules = [AcceptanceRule.model_validate(rule) for rule in task.payload["acceptance"]]
-        acceptance = evaluate_acceptance(rules, result_v1.output.text)
-        stored_payload["checks"] = [check.model_dump() for check in acceptance.checks]
-        if not acceptance.passed:
-            stored_payload["status"] = ResultStatus.FAILED.value
-            stored_payload["error"] = {
-                "code": "acceptance_failed",
-                "message": "Core acceptance checks failed",
-            }
-            trigger = TaskTransition.RETRY
-
     updated = fenced_transition_task(
         session,
         task_id=task_id,
         from_state=TaskState.RUNNING,
         lease_id=lease_id,
         trigger=trigger,
-        detail={"worker": result_v1.worker.value, "result_status": result_v1.status.value},
+        detail=event_detail,
     )
     if updated is None:
         if expire_task_if_due(session, task=task):

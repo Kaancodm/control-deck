@@ -83,7 +83,7 @@ Die verbindliche Ergebnispruefung liegt in `app/core/acceptance.py`. Sie prueft 
 | `max_chars` | Nichtnegative maximale Zeichenzahl als String |
 | `human` | Optionaler Hinweis fuer die menschliche Abnahme; erzwingt `review` |
 
-Fehlende oder ungueltige Werte automatischer Regeln schlagen fehl. Regex- und JSON-Schema-Pruefungen laufen isoliert mit einem Zeitlimit von zwei Sekunden; ein Abbruch gilt als Fehlschlag. JSON-Schemas duerfen lokale Referenzen verwenden; externe Referenzen werden nicht nachgeladen. Es gibt dabei weder Dateizugriffe auf Ergebnis-Artefakte noch Netzwerkzugriffe.
+Fehlende oder ungueltige Werte automatischer Regeln schlagen fehl. Regex- und JSON-Schema-Pruefungen laufen isoliert: Prozessstart und Imports haben ein eigenes Limit von zehn Sekunden. Nach der Bereitschaftsmeldung stehen fuer Payload-Uebertragung und Auswertung weitere zwei Sekunden zur Verfuegung. Ein Timeout gilt als Fehlschlag und wird mit der betroffenen Phase, aber ohne Auftragsinhalt protokolliert. Die Auswertung erfolgt vor dem Task-Row-Lock; der Abschluss prueft anschliessend den aktuellen Laufzeitstand erneut. JSON-Schemas duerfen lokale Referenzen verwenden; externe Referenzen werden nicht nachgeladen. Es gibt dabei weder Dateizugriffe auf Ergebnis-Artefakte noch Netzwerkzugriffe.
 
 Eine `human`-Regel bleibt bis zum Owner-Entscheid als ausstehende Abnahme sichtbar. Sie ist kein automatischer Fehlschlag, verhindert aber direktes `done` auch bei `policy.require_review = false`. Ein automatischer Fehlschlag erzeugt `acceptance_failed` und einen begrenzten Retry; erst bestandene automatische Regeln erlauben `review` beziehungsweise `done`.
 

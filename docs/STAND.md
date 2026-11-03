@@ -355,3 +355,10 @@ Produktive Schema-Kompatibilitaet, Schreibrechte, echtes lokales Embedding-Model
 Dimension sowie semantische Suchqualitaet bleiben offen. Das Live-Profil ist gesperrt.
 Keine echten Logins, API-Keys, Anbieteraufrufe, Serveraenderungen oder neuen inhaltlichen
 Referenzfaelle. Details: [WISSENS_DB.md](WISSENS_DB.md).
+
+## Etappe 15: Haertung in Arbeit
+
+Gestapelt auf Etappe 14. Die Passwort-/Session-Grundlage aus Etappe 11 wird um
+verbindliche Request-Grenzen, sichere Bindung und Konfigurationspruefungen gehaertet.
+Noch nicht reviewbereit. Echte Tailnet-/TLS-Pruefungen bleiben Inbetriebnahme;
+keine Netzwerk-Scans, Logins oder Serveraenderungen.

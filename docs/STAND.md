@@ -2,12 +2,14 @@
 
 ## Etappe 10 in Arbeit
 
+Draft-PR: [#25](https://github.com/Kaancodm/control-deck/pull/25).
 Branch: `stage/10-error-paths`, gestapelt auf Etappe 9 (`stage/09-ollama`, PR #24).
-Geplant sind dauerhafte Retry-/Fallback-Entscheide mit Backoff, begrenzte Fehlerpfade
+Umgesetzt sind dauerhafte Retry-/Fallback-Entscheide mit Backoff, begrenzte Fehlerpfade
 und eine schreibgeschuetzte Liste fehlgeschlagener Tasks. `local_only` bleibt Ollama;
 Datenschutzsperren und Owner-Abbrueche loesen keinen Fallback aus. Die eingefrorenen
-Schemas bleiben unveraendert. Pflichtchecks und externe Review-Bereitschaft folgen
-nach der Umsetzung. Inbetriebnahme bleibt offen; alle Laeufe sind simuliert.
+Schemas bleiben unveraendert. Gezielte Fehlerpfad-, Runner- und API-Tests sind gruen;
+die vollstaendigen Pflichtchecks und externe Review-Bereitschaft folgen. Inbetriebnahme
+bleibt offen; alle Laeufe sind simuliert.
 
 ## Etappe 9 bereit fuer externes Review
 

@@ -69,6 +69,11 @@ def try_lock_admission(session: Session) -> bool:
     return bool(session.scalar(select(func.pg_try_advisory_xact_lock(ADMISSION_LOCK))))
 
 
+def lock_admission(session: Session) -> None:
+    """Serialize a result-driven lane pause before acquiring task or lease locks."""
+    session.execute(select(func.pg_advisory_xact_lock(ADMISSION_LOCK)))
+
+
 def update_settings(session: Session, changes: Mapping[str, object]) -> RunnerSettings:
     """Apply validated owner changes atomically; caller commits the stop decision.
 
@@ -77,7 +82,7 @@ def update_settings(session: Session, changes: Mapping[str, object]) -> RunnerSe
     """
     for key, value in changes.items():
         _validate_value(key, value)
-    session.execute(select(func.pg_advisory_xact_lock(ADMISSION_LOCK)))
+    lock_admission(session)
     for key, value in changes.items():
         statement = insert(Setting).values(key=key, value=value, updated_at=func.clock_timestamp())
         session.execute(

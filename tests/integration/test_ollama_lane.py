@@ -570,7 +570,7 @@ def test_simulated_failures_persist_safe_errors_without_hidden_retries(
     outcome = _runner(db_session, tmp_path, executor).run_once()
 
     assert outcome.action == "completed"
-    assert outcome.status == "failed"
+    assert outcome.status == ("failed" if code == "worker_unavailable" else "queued")
     assert executor.run_calls == [("run", "fixture-model")]
     stored = _stored(db_session, task_id)
     assert stored["status"] == "failed"

@@ -151,12 +151,14 @@ def _atomic_acquire(session: Session, *, task_id: uuid.UUID, now: datetime) -> T
             UPDATE tasks AS t
             SET status = 'leased',
                 attempt = t.attempt + 1,
+                next_attempt_at = NULL,
                 updated_at = :now
             WHERE t.id = :task_id
               AND t.status = 'queued'
               AND t.cancel_requested = false
               AND t.approved_at IS NOT NULL
               AND t.attempt < COALESCE((t.payload->'policy'->>'max_attempts')::int, 3)
+              AND (t.next_attempt_at IS NULL OR t.next_attempt_at <= clock_timestamp())
               AND (t.deadline_at IS NULL OR t.deadline_at > clock_timestamp())
             RETURNING t.id
             """

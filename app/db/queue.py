@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.schemas import DataClass, Worker
 from app.db.models import Lease, Task
 from app.db.repository import record_gate_error
-from app.db.routing import persist_task_route, routing_snapshot
+from app.db.routing import persist_task_route, pin_claim_worker, routing_snapshot
 from app.db.settings import read_settings, try_lock_admission
 from app.db.state_machine import (
     TERMINAL_STATES,
@@ -76,6 +76,7 @@ def dequeue_next_queued_task(
         .where(
             Task.status == TaskState.QUEUED,
             Task.approved_at.is_not(None),
+            or_(Task.next_attempt_at.is_(None), Task.next_attempt_at <= func.clock_timestamp()),
             or_(Task.deadline_at.is_(None), Task.deadline_at > func.clock_timestamp()),
         )
         .order_by(Task.created_at.asc())
@@ -113,7 +114,13 @@ def dequeue_next_queued_task(
                     raise
             continue
         snapshot = routing_snapshot(session)
-        plan = persist_task_route(session, task, config=config, snapshot=snapshot)
+        plan = persist_task_route(
+            session,
+            task,
+            config=config,
+            snapshot=snapshot,
+            paused_lanes=frozenset(lane for lane, paused in controls.lane_paused.items() if paused),
+        )
         if plan.status == "blocked":
             try:
                 transition_task(
@@ -177,6 +184,7 @@ def dequeue_next_queued_task(
                 trigger=TaskTransition.ACQUIRE,
                 detail=detail,
             )
+            pin_claim_worker(task, worker)
             break
         except TransitionFencingError:
             # The deadline may pass after selection but before the atomic acquire.

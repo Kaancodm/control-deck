@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.errors import register_exception_handlers
-from app.api.routes import control, health, tasks, worker
+from app.api.routes import control, health, knowledge, tasks, worker
 from app.db.ui_auth import SessionCapacityError
 from app.services.tasks import OwnerTaskError
 from app.ui.auth import AuthConfigurationError
@@ -51,6 +51,7 @@ def create_app() -> FastAPI:
         StaticFiles(directory=Path(__file__).parents[1] / "ui" / "static"),
         name="ui-static",
     )
+    app.include_router(knowledge.router, prefix="/api/v1")
     return app
 
 

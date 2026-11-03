@@ -35,6 +35,8 @@ def check_knowledge_text(title: str, content: str, data_class: DataClass) -> Non
         title.encode("utf-8")
     except UnicodeError:
         raise KnowledgeError("invalid_utf8") from None
+    if "\x00" in title or "\x00" in content:
+        raise KnowledgeError("knowledge_text_invalid")
     if not 1 <= len(title) <= 120 or not 1 <= size <= MAX_DOCUMENT_BYTES:
         raise KnowledgeError("knowledge_text_too_large")
     settings = get_privacy_settings()
@@ -238,7 +240,7 @@ class KnowledgeStore:
     def search(
         self, query: str, *, task_class: DataClass, limit: int = 5
     ) -> tuple[ContextBlock, ...]:
-        if isinstance(limit, bool) or not 1 <= limit <= 20:
+        if isinstance(limit, bool) or not 1 <= limit <= 16:
             raise KnowledgeError("invalid_search_limit")
         check_knowledge_text("Search", query, DataClass.LOCAL_ONLY)
         self.check_contract()

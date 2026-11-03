@@ -6,10 +6,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from hashlib import sha256
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.schemas import DataClass, InputType, TaskV1, Worker
-from app.db.models import Task
+from app.db.models import Event, Task
+from app.kb.contracts import ContextBlock
+from app.kb.snapshots import load_snapshots, snapshot_digests
 from app.privacy.config import PrivacySettings, get_privacy_settings
 from app.privacy.gate import FileHash, PrivacyInputError, inspect_task
 from app.privacy.scanner import FindingKind, scan_text
@@ -37,10 +40,11 @@ def render_payload(
     *,
     settings: PrivacySettings,
     file_hashes: list[FileHash] | None = None,
+    contexts: tuple[ContextBlock, ...] | None = None,
 ) -> str:
     """Read each attachment once, then render every supplied text field."""
     files: dict[int, str] = {}
-    report = inspect_task(task, settings=settings, file_texts=files)
+    report = inspect_task(task, settings=settings, file_texts=files, contexts=contexts)
     if file_hashes is not None:
         file_hashes.clear()
         file_hashes.extend(report.file_hashes)
@@ -61,6 +65,8 @@ def render_payload(
             parts.append(item.name + " = " + item.value)
         if item.type == InputType.FILE:
             parts.append(files[index])
+    for context in contexts or ():
+        parts.extend(["## Context", context.text])
     for rule in task.acceptance:
         parts.append("## Acceptance: " + rule.type.value)
         if rule.value is not None:
@@ -101,6 +107,7 @@ def build_payload(
     settings: PrivacySettings | None = None,
     existing: Mapping[str, str] | None = None,
     mapping_sink: dict[str, str] | None = None,
+    contexts: tuple[ContextBlock, ...] | None = None,
 ) -> PayloadBuild:
     """Prepare a payload in memory, including the reference executor's fake path.
 
@@ -111,7 +118,7 @@ def build_payload(
     _check_lane(task, lane)
     settings = settings or get_privacy_settings()
     file_hashes: list[FileHash] = []
-    text = render_payload(task, settings=settings, file_hashes=file_hashes)
+    text = render_payload(task, settings=settings, file_hashes=file_hashes, contexts=contexts)
     if task.data_class == DataClass.CLOUD_REDACTED:
         outcome = redact(
             text, task_id=task.task_id, existing=existing, blocklist=settings.blocklist
@@ -151,13 +158,31 @@ def prepare_task_payload(
     if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
         raise PrivacyInputError("invalid_attempt")
     settings = settings or get_privacy_settings()
+    contexts = load_snapshots(session, task)
+    if contexts:
+        approval = session.scalar(
+            select(Event)
+            .where(
+                Event.task_id == task.task_id,
+                Event.event_type == "task.approve",
+                Event.actor == "operator",
+            )
+            .order_by(Event.created_at.desc(), Event.id.desc())
+            .limit(1)
+        )
+        if (
+            approval is None
+            or not isinstance(approval.detail, dict)
+            or approval.detail.get("context_hashes") != snapshot_digests(contexts)
+        ):
+            raise PrivacyInputError("context_approval_hash_mismatch", source="context_refs")
     if task.data_class != DataClass.CLOUD_REDACTED:
-        result = build_payload(task, lane=lane, settings=settings)
+        result = build_payload(task, lane=lane, settings=settings, contexts=contexts)
         if expected_file_hashes is not None and result.file_hashes != expected_file_hashes:
             raise PrivacyInputError("approval_hash_mismatch")
         return result
     file_hashes: list[FileHash] = []
-    text = render_payload(task, settings=settings, file_hashes=file_hashes)
+    text = render_payload(task, settings=settings, file_hashes=file_hashes, contexts=contexts)
     if expected_file_hashes is not None and tuple(file_hashes) != expected_file_hashes:
         raise PrivacyInputError("approval_hash_mismatch")
     with session.begin_nested():

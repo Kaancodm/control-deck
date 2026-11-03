@@ -320,6 +320,8 @@ und isolierte Testdatenbanken.
 
 ## Etappe 14: Wissens-DB in Arbeit
 
-Gestapelt auf Etappe 13. Versionierter Testvertrag, lokale Fake-Embeddings, expliziter
-Owner-Export und freigabegebundene Kontext-Snapshots werden umgesetzt. Noch nicht reviewbereit.
+Gestapelt auf Etappe 13. Versionierter Testvertrag, lokale Fake-Embeddings und 48 gezielte Tests sind umgesetzt
+(28 Unit, 20 echte pgvector-Integrationstests). Expliziter Owner-Export und freigabegebundene
+Kontext-Snapshots sind im Code; ihre zentrale DB-/UI-Integration wird nach dem Eltern-Rebase
+geprueft. Noch nicht reviewbereit.
 Echte Schema-Kompatibilitaet und Schreibrechte bleiben Inbetriebnahme; keine Live-Zugriffe.

@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.core.schemas import DataClass, InputType, TaskV1
+from app.kb.contracts import ContextBlock, KnowledgeError, validate_contexts
 from app.privacy.config import PrivacyConfigurationError, PrivacySettings, get_privacy_settings
 from app.privacy.files import FileInputError, read_text_input
 from app.privacy.normalization import NormalizationError
@@ -111,6 +112,7 @@ def inspect_task(
     *,
     settings: PrivacySettings | None = None,
     file_texts: dict[int, str] | None = None,
+    contexts: tuple[ContextBlock, ...] | None = None,
 ) -> GateReport:
     """Scan all supplied text; raw findings never leave this local boundary.
 
@@ -185,8 +187,19 @@ def inspect_task(
             # The strict UTF-8 reader preserves BOM and line endings. Re-encoding
             # therefore hashes the same bytes that were read and scanned.
             file_hashes.append(FileHash(index, sha256(content.encode("utf-8")).hexdigest()))
-    if task.context_refs:
+    if task.context_refs and contexts is None:
         raise PrivacyInputError("context_unavailable", source="context_refs")
+    if contexts is not None:
+        try:
+            validate_contexts(
+                contexts,
+                references=tuple(item.ref for item in task.context_refs),
+                task_class=task.data_class,
+            )
+        except KnowledgeError as exc:
+            raise PrivacyInputError(exc.code, source="context_refs") from None
+        for index, context in enumerate(contexts):
+            scan_part(f"context_refs[{index}].content", context.text)
     has_secrets = any(item.kind == FindingKind.SECRET for item in findings)
     return GateReport(
         findings=tuple(findings),
@@ -199,19 +212,23 @@ def inspect_task(
     )
 
 
-def validate_submission(task: TaskV1) -> GateReport:
+def validate_submission(
+    task: TaskV1, *, contexts: tuple[ContextBlock, ...] | None = None
+) -> GateReport:
     """Reject secrets before any task or event is inserted."""
-    report = inspect_task(task)
+    report = inspect_task(task, contexts=contexts)
     if report.has_secrets:
         raise PrivacyViolation(report)
     return report
 
 
-def inspect_stored_task(payload: dict[str, Any]) -> StoredTaskInspection:
+def inspect_stored_task(
+    payload: dict[str, Any], *, contexts: tuple[ContextBlock, ...] | None = None
+) -> StoredTaskInspection:
     """Recheck inputs, distinguishing terminal rejection from unavailable files."""
     try:
         task = TaskV1.model_validate(payload)
-        report = inspect_task(task)
+        report = inspect_task(task, contexts=contexts)
         return StoredTaskInspection(
             blocking_detail=report.safe_detail() if report.blocked else None,
             file_hashes=report.file_hashes,

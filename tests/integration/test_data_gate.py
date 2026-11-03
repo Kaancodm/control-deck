@@ -297,7 +297,7 @@ def test_unresolved_context_is_not_silently_accepted(
     payload["context_refs"] = [{"source": "knowledge_db", "ref": "fixture-document"}]
     response = gate_client.post("/api/v1/tasks", json=payload, headers=_OWNER)
     assert response.status_code == 422, response.text
-    assert "context_unavailable" in response.text
+    assert "knowledge_live_profile_unavailable" in response.text
     _assert_nothing_persisted(db_session)
 
 

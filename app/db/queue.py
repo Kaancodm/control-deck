@@ -27,7 +27,8 @@ from app.db.transitions import (
     transition_task,
     upsert_lease,
 )
-from app.privacy.gate import PrivacyInputUnavailable, inspect_stored_task
+from app.kb.snapshots import inspect_with_snapshots
+from app.privacy.gate import PrivacyInputUnavailable
 from app.routing.config import get_router_config
 from app.workers.lane_status import LaneHealthState, update_lane_status
 
@@ -96,7 +97,7 @@ def dequeue_next_queued_task(
             unavailable_ids.add(task.id)
             continue
         try:
-            inspection = inspect_stored_task(task.payload)
+            inspection = inspect_with_snapshots(session, task.payload)
         except PrivacyInputUnavailable as exc:
             record_gate_error(session, task=task, error=exc)
             unavailable_ids.add(task.id)

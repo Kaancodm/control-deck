@@ -119,10 +119,12 @@ def _stored(session: Session, task_id: UUID):
     return session.scalar(select(Result.payload).where(Result.task_id == task_id))
 
 
-def _assert_unclaimed(session: Session, task_id: UUID) -> None:
+def _assert_unclaimed(
+    session: Session, task_id: UUID, *, status: TaskState = TaskState.QUEUED
+) -> None:
     session.expire_all()
     task = session.get(Task, task_id)
-    assert task.status == TaskState.QUEUED
+    assert task.status == status
     assert task.attempt == 0
     assert session.scalar(select(func.count()).select_from(Lease)) == 0
     assert session.scalar(select(func.count()).select_from(Result)) == 0
@@ -263,7 +265,21 @@ def test_missing_task_model_never_reaches_codex(
 
     assert outcome.action == ("unavailable" if not models else "idle")
     assert process_calls == []
-    _assert_unclaimed(db_session, task_id)
+    _assert_unclaimed(db_session, task_id, status=TaskState.BLOCKED if models else TaskState.QUEUED)
+    if models:
+        detail = db_session.scalar(
+            select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.block")
+        )
+        assert detail == {
+            "reason": "routing",
+            "code": "model_not_configured",
+            "lane": "codex",
+            "kind": "custom",
+            "actor": "system",
+            "attempt": 0,
+        }
+        health = get_lane_status(db_session, lane=Worker.CODEX)
+        assert health.status == "unavailable" and health.reason == "model_not_configured"
 
 
 @pytest.mark.parametrize("setting", ["paused", "stop_requested", "lanes.codex.paused"])

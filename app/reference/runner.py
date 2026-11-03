@@ -132,13 +132,23 @@ def evaluate_expect(
             )
 
     if expect.regex is not None:
-        if not re.search(expect.regex, result.output_text):
+        try:
+            matched = re.search(expect.regex, result.output_text) is not None
+        except re.error as exc:
             failures.append(
                 ExpectCheckFailure(
                     rule="regex",
-                    detail=f"output does not match pattern: {expect.regex!r}",
+                    detail=f"invalid pattern at runtime: {exc}",
                 )
             )
+        else:
+            if not matched:
+                failures.append(
+                    ExpectCheckFailure(
+                        rule="regex",
+                        detail=f"output does not match pattern: {expect.regex!r}",
+                    )
+                )
 
     if expect.max_chars is not None and len(result.output_text) > expect.max_chars:
         failures.append(
@@ -202,11 +212,15 @@ def run_cases(
 ) -> RunSummary:
     results: list[CaseRunResult] = []
     for loaded in cases:
-        task = TaskV1.model_validate(loaded.task_payload)
         started = time.perf_counter()
-        execution = executor.execute(task)
+        failures: list[ExpectCheckFailure] = []
+        try:
+            task = TaskV1.model_validate(loaded.task_payload)
+            execution = executor.execute(task)
+            failures = evaluate_expect(loaded.case.expect, execution)
+        except Exception as exc:  # noqa: BLE001 — per-case isolation for reference runs
+            failures = [ExpectCheckFailure(rule="execution", detail=f"{type(exc).__name__}: {exc}")]
         duration = time.perf_counter() - started
-        failures = evaluate_expect(loaded.case.expect, execution)
         outcome = CaseOutcome.PASS if not failures else CaseOutcome.FAIL
         results.append(
             CaseRunResult(

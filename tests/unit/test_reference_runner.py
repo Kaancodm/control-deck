@@ -124,6 +124,18 @@ def test_evaluate_expect_empty_failures_means_pass() -> None:
     assert evaluate_expect(expect, result) == []
 
 
+def test_run_cases_catches_executor_exception() -> None:
+    cases = load_all_cases(CASES_DIR)
+
+    class BrokenExecutor:
+        def execute(self, task: TaskV1) -> ExecutionResult:
+            raise RuntimeError("simulated worker failure")
+
+    summary = run_cases(cases, BrokenExecutor())  # type: ignore[arg-type]
+    assert summary.failed == summary.total
+    assert all(r.failures[0].rule == "execution" for r in summary.results)
+
+
 def test_failure_detail_shape() -> None:
     failures = evaluate_expect(
         _expect(status=ExpectStatus.FAILED),

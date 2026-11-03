@@ -66,3 +66,17 @@ def test_load_case_file_roundtrip() -> None:
 def test_load_reference_case_dict_raises_on_invalid() -> None:
     with pytest.raises(ValueError, match="invalid reference case"):
         load_reference_case_dict({"id": "bad", "category": "normal"})
+
+
+def test_invalid_expect_regex_rejected() -> None:
+    path = CASES_DIR / "001-normal-summarize-local.yaml"
+    with path.open(encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle)
+    assert isinstance(raw, dict)
+    expect = raw["expect"]
+    assert isinstance(expect, dict)
+    expect["regex"] = "["
+    issues = validate_loaded_case(raw)
+    assert issues
+    joined = " ".join(f"{i.path} {i.message}" for i in issues).lower()
+    assert "regex" in joined or "regular expression" in joined

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from uuid import UUID, uuid4
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import ValidationError
 
+from app.core.schema_loader import load_schema
 from app.core.validate import (
     ValidationIssue,
     _dedupe_issues,
@@ -20,16 +19,11 @@ from app.core.validate import (
 from app.core.validate import _format_jsonschema_errors as format_jsonschema_errors
 from app.reference.schemas import ReferenceCaseV1, ReferenceTaskBody
 
-_SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "schemas"
-
-
-def _load_schema(name: str) -> dict[str, Any]:
-    path = _SCHEMAS_DIR / name
-    with path.open(encoding="utf-8") as handle:
-        return cast(dict[str, Any], json.load(handle))
-
-
-_REFERENCE_VALIDATOR = Draft202012Validator(_load_schema("reference_case.v1.json"))
+_FORMAT_CHECKER = FormatChecker()
+_REFERENCE_VALIDATOR = Draft202012Validator(
+    load_schema("reference_case.v1.json"),
+    format_checker=_FORMAT_CHECKER,
+)
 
 
 def validate_reference_case(data: dict[str, Any]) -> list[ValidationIssue]:

@@ -8,8 +8,12 @@ bzw. `scripts/run_reference.py` ausgefuehrt.
 
 Dateiname: `NNN-slug.yaml` ( drei Ziffern, Bindestrich, slug in Kleinbuchstaben).
 
-Normatives JSON Schema: `schemas/reference_case.v1.json` (Draft 2020-12,
-`additionalProperties: false` auf allen Objektebenen).
+Normatives JSON Schema: `schemas/reference_case.v1.json` (Entwickler-Referenz),
+`app/schemas/reference_case.v1.json` (gebundelt; Laufzeit via `importlib.resources`).
+Draft 2020-12, `additionalProperties: false` auf allen Objektebenen.
+
+`expect.regex` wird beim Laden kompiliert; ungueltige Syntax fuehrt zu einem Validierungsfehler
+(nicht zum Abbruch der gesamten Suite beim Einzelfall-Laden).
 
 | Feld | Beschreibung |
 |------|--------------|

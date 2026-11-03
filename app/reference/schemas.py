@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.core.schemas import (
     AcceptanceRule,
@@ -68,6 +69,15 @@ class ReferenceExpect(StrictModel):
     max_chars: int | None = Field(default=None, ge=1)
     max_seconds: float | None = Field(default=None, ge=0)
     allowed_workers: list[Worker]
+
+    @model_validator(mode="after")
+    def regex_must_compile(self) -> ReferenceExpect:
+        if self.regex is not None:
+            try:
+                re.compile(self.regex)
+            except re.error as exc:
+                raise ValueError(f"invalid regular expression: {exc}") from exc
+        return self
 
 
 class ReferenceCaseV1(StrictModel):

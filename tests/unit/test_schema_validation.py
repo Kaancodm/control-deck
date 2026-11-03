@@ -130,6 +130,7 @@ def test_wheel_packages_json_schemas(tmp_path: Path) -> None:
         names = archive.namelist()
     assert any(name.endswith("app/schemas/task.v1.json") for name in names)
     assert any(name.endswith("app/schemas/result.v1.json") for name in names)
+    assert any(name.endswith("app/schemas/reference_case.v1.json") for name in names)
 
 
 @pytest.mark.parametrize(

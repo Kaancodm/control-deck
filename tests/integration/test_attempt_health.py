@@ -50,6 +50,33 @@ def submit(client, envelope, *, error=None, output="Completed"):
     )
 
 
+def attempt_evidence(session):
+    row = session.get(LaneStatus, "ollama", populate_existing=True)
+    assert row is not None
+    return {
+        name: getattr(row, name)
+        for name in (
+            "completed_attempts",
+            "consecutive_failures",
+            "last_error_code",
+            "last_error_at",
+            "last_attempt_at",
+            "last_attempt_success_at",
+        )
+    }
+
+
+def test_single_accepted_success_counts_exactly_once(api_client, db_session):
+    envelope = running(api_client)
+    assert submit(api_client, envelope).status_code == 200
+    evidence = attempt_evidence(db_session)
+    assert evidence["completed_attempts"] == 1
+    assert evidence["consecutive_failures"] == 0
+    assert evidence["last_error_code"] is evidence["last_error_at"] is None
+    assert evidence["last_attempt_at"] is not None
+    assert evidence["last_attempt_at"] == evidence["last_attempt_success_at"]
+
+
 def test_three_failures_then_success_count_only_completed_results(api_client, db_session):
     for count in range(1, 4):
         envelope = running(api_client)
@@ -59,6 +86,9 @@ def test_three_failures_then_success_count_only_completed_results(api_client, db
         assert row.last_error_code == "timeout"
         assert row.last_attempt_success_at is None
         db_session.commit()
+    failed = attempt_evidence(db_session)
+    assert failed["completed_attempts"] == failed["consecutive_failures"] == 3
+    assert failed["last_error_at"] == failed["last_attempt_at"]
     envelope = running(api_client)
     assert submit(api_client, envelope).status_code == 200
     row = db_session.get(LaneStatus, "ollama", populate_existing=True)
@@ -66,19 +96,51 @@ def test_three_failures_then_success_count_only_completed_results(api_client, db
     assert row.last_attempt_success_at is not None
     assert row.last_success_at is None
     assert row.last_error_code == "timeout"
-    assert row.last_attempt_at >= row.last_error_at
+    assert row.last_error_at == failed["last_error_at"]
+    assert row.last_attempt_at == row.last_attempt_success_at > row.last_error_at
 
 
-def test_duplicate_result_and_positive_preflight_do_not_recount(api_client, db_session):
+@pytest.mark.parametrize("error", [None, "timeout"], ids=["success", "failure"])
+def test_duplicate_and_preflight_leave_all_attempt_evidence_unchanged(
+    api_client, db_session, error
+):
     envelope = running(api_client)
-    assert submit(api_client, envelope).status_code == 200
-    assert submit(api_client, envelope).status_code != 200
+    assert submit(api_client, envelope, error=error).status_code == 200
+    before = attempt_evidence(db_session)
+    assert before["completed_attempts"] == 1
+    assert before["consecutive_failures"] == (1 if error else 0)
+    assert submit(api_client, envelope, error=error).status_code != 200
+    assert attempt_evidence(db_session) == before
     row = update_lane_status(
         db_session, lane=Worker.OLLAMA, status=LaneHealthState.OK, reason="simulation_ready"
     )
-    assert row.completed_attempts == 1
+    assert attempt_evidence(db_session) == before
     assert row.last_success_at is not None
-    assert row.last_attempt_success_at < row.last_success_at
+    assert row.last_attempt_at < row.last_success_at
+
+
+@pytest.mark.parametrize("expired", ["lease", "deadline"])
+def test_late_success_preserves_all_existing_attempt_evidence(api_client, db_session, expired):
+    assert submit(api_client, running(api_client)).status_code == 200
+    assert submit(api_client, running(api_client), error="timeout").status_code == 200
+    before = attempt_evidence(db_session)
+    assert before["completed_attempts"] == 2 and before["consecutive_failures"] == 1
+    assert before["last_error_code"] == "timeout"
+    assert all(before[name] is not None for name in before if name.endswith("_at"))
+    envelope = running(api_client)
+    if expired == "lease":
+        db_session.execute(
+            text("UPDATE leases SET expires_at=clock_timestamp()-interval '1s' WHERE task_id=:id"),
+            {"id": envelope["task"]["id"]},
+        )
+    else:
+        db_session.execute(
+            text("UPDATE tasks SET deadline_at=clock_timestamp()-interval '1s' WHERE id=:id"),
+            {"id": envelope["task"]["id"]},
+        )
+    db_session.commit()
+    assert submit(api_client, envelope).status_code != 200
+    assert attempt_evidence(db_session) == before
 
 
 @pytest.mark.parametrize("boundary", ["lease", "cancel", "deadline", "fence"])

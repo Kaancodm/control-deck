@@ -5,7 +5,7 @@
 Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.
 Migration `0016` zaehlt ausschliesslich endgueltig angenommene Ergebnisse, atomar mit
 Ergebnis und Statuswechsel. Zaehler beginnen bei dieser Migration; positive Vorpruefungen
-bleiben getrennt. Elf neue SQL-Integrationstests pruefen Konkurrenz, verworfene Ergebnisse,
+bleiben getrennt. 15 SQL-Integrationstests pruefen Konkurrenz, verworfene Ergebnisse,
 Rollback, Acceptance und Migrationsschutz.
 
 Audit zeigt begrenzte sichere Metadaten aus Auftrags-, Betriebs- und Auth-Ereignissen;
@@ -15,7 +15,15 @@ gueltige Session erlauben Gesundheitsdetails; anonym bleibt nur der Minimalstatu
 Die Session gilt nun fuer den Root-Pfad, CSRF bleibt auf `/ui`; alte Session-Cookies
 werden beim Setzen und Abmelden entfernt. Schreib-APIs erhalten keine Session-Rechte.
 
-Pflichtchecks auf isolierten PostgreSQL-17-Testdatenbanken: **2292 Tests bestanden**,
+Nachbesserung der Zaehlernachweise: Die unveraenderte Basis `1f2995f` besteht bereits
+34 gezielte Tests. Mit vier zusaetzlichen Testfaellen bestehen **38 gezielte Tests**:
+Einmalzaehlung; drei angenommene Fehler und danach Erfolg mit Gesamtzaehler 4 und
+Fehlerserie 0; unveraenderte Zaehler, Fehler- und Erfolgszeitpunkte bei Doppelabgabe,
+abgelaufener Lease oder Deadline. Rollback- und Konkurrenznachweise bleiben erhalten.
+Der Produktionscode benoetigt keine Korrektur; `make lint` ist gruen. Die Vollsuite
+auf der nachgebesserten Etappe-16-Basis folgt nach deren Fertigstellung.
+
+Bisherige Pflichtchecks auf isolierten PostgreSQL-17-Testdatenbanken: **2292 Tests bestanden**,
 keine xfail oder Skips. Darin enthalten sind **118 neue Etappe-17-Tests** (52 Integration,
 66 Unit), einschliesslich echter Chromium-Smokes bei 390 Pixeln mit JavaScript und
 1024 Pixeln ohne JavaScript. Geprueft sind Audit-Filter, Seitenwechsel, CSV, Warnband,

@@ -514,7 +514,9 @@ def test_optional_restic_hook_uses_fake_cli_and_private_credential_descriptor(
         "import os,sys;"
         "assert open(os.environ['RESTIC_PASSWORD_FILE']).read()=='fake-restic-password';"
         "assert 'DECK_DATABASE_URL' not in os.environ;"
-        "assert sys.argv[1:3]==['backup','--']"
+        "assert sys.argv[1:3]==['backup','--'];"
+        "from pathlib import Path;"
+        "assert len(list(Path(sys.argv[3]).glob('backup-*/knowledge.dump')))==1"
     )
     copy_with_restic(
         get_test_database_url(),
@@ -700,7 +702,9 @@ def test_second_dump_failure_never_publishes_a_central_only_set(db_session, tmp_
     ).all() == ["started", "failed"]
 
 
-@pytest.mark.parametrize("failure", ["second_process", "row_evidence", "knowledge_check"])
+@pytest.mark.parametrize(
+    "failure", ["second_process", "row_evidence", "knowledge_check", "knowledge_contract"]
+)
 def test_partial_restore_never_reports_success(
     db_session,
     tmp_path,
@@ -708,10 +712,14 @@ def test_partial_restore_never_reports_success(
     knowledge_restore_target,
     monkeypatch,
     failure,
+    knowledge_store,
 ):
     from app.operations import restore
 
     task_id = _task(db_session).id
+    if failure == "knowledge_contract":
+        with knowledge_store.engine.begin() as connection:
+            connection.execute(text("UPDATE deck_kb.contract SET version='unknown'"))
     result = _complete_backup(tmp_path)
     if failure == "row_evidence":
         path = tmp_path / "backups" / result.name / "manifest.json"
@@ -758,3 +766,87 @@ def test_partial_restore_never_reports_success(
             assert session.get(Task, task_id) is not None
     finally:
         central.dispose()
+
+
+@pytest.mark.parametrize("incomplete", ["empty", "missing_knowledge", "corrupt_knowledge"])
+def test_restic_never_copies_an_incomplete_set(db_session, tmp_path, monkeypatch, incomplete):
+    from app.operations import restic
+
+    root, runs, credentials = (tmp_path / value for value in ("backups", "runs", "credentials"))
+    for directory in (root, runs, credentials):
+        directory.mkdir(mode=0o700)
+    if incomplete != "empty":
+        result = _complete_backup(tmp_path)
+        artifact = root / result.name / "knowledge.dump"
+        if incomplete == "missing_knowledge":
+            artifact.unlink()
+        else:
+            with artifact.open("ab") as stream:
+                stream.write(b"corrupt")
+    password = credentials / "password"
+    password.write_text("synthetic-restic-value")
+    password.chmod(0o600)
+    monkeypatch.setattr(restic, "run_command", lambda *a, **k: pytest.fail("No copy"))
+    with pytest.raises(OperationError):
+        copy_with_restic(
+            get_test_database_url(),
+            backup_root=root,
+            runs_root=runs,
+            configuration={"RESTIC_REPOSITORY": "fake-only", "RESTIC_PASSWORD_FILE": str(password)},
+        )
+    phases = db_session.scalars(
+        select(OperationEvent.phase)
+        .where(OperationEvent.detail["reason"].astext.in_(["restic_copy", "restic_failed"]))
+        .order_by(OperationEvent.id)
+    ).all()
+    assert phases == ["started", "failed"]
+
+
+@pytest.mark.parametrize("scope", ["central", "knowledge"])
+def test_backup_never_ignores_user_schemas_beginning_with_pg(db_session, tmp_path, scope):
+    url = get_test_database_url() if scope == "central" else get_kb_test_database_url()
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE SCHEMA pgdata"))
+            connection.execute(text("CREATE TABLE pgdata.kept (id integer)"))
+            connection.execute(text("INSERT INTO pgdata.kept VALUES (42)"))
+        with pytest.raises(OperationError) as error:
+            _complete_backup(tmp_path)
+        assert error.value.code == "unsupported_database_schema"
+        assert not list((tmp_path / "backups").glob("backup-*"))
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT id FROM pgdata.kept")) == 42
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE pgdata.kept"))
+            connection.execute(text("DROP SCHEMA pgdata"))
+        engine.dispose()
+
+
+@pytest.mark.parametrize("scope", ["central", "knowledge"])
+def test_restore_never_treats_user_pg_schema_as_empty(
+    db_session, tmp_path, restore_target, knowledge_restore_target, monkeypatch, scope
+):
+    from app.operations import restore
+
+    engine = create_engine(restore_target if scope == "central" else knowledge_restore_target)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE SCHEMA pgdata"))
+            connection.execute(text("CREATE TABLE pgdata.kept (id integer)"))
+            connection.execute(text("INSERT INTO pgdata.kept VALUES (42)"))
+        monkeypatch.setattr(restore, "run_command", lambda *a, **k: pytest.fail("No process"))
+        with pytest.raises(OperationError) as error:
+            _restore_complete(
+                tmp_path, "backup-" + uuid4().hex, restore_target, knowledge_restore_target
+            )
+        assert error.value.code == "restore_target_not_empty"
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT id FROM pgdata.kept")) == 42
+            assert (
+                connection.scalar(text("SELECT count(*) FROM pg_namespace WHERE nspname='public'"))
+                == 1
+            )
+    finally:
+        engine.dispose()

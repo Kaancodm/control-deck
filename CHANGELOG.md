@@ -5,6 +5,17 @@
 Die Eintraege beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unveraendert.
 
+### Etappe 16 – Betrieb und vollstaendige Wiederherstellung (#31)
+
+- Atomarer Backup-Satz mit separaten Dumps fuer zentrale DB und Wissens-DB samt pgvector;
+  Manifestversion 2 verlangt beide Archive mit Pruefsummen, Revisionen und Zeilennachweisen.
+- Zwei leere Restore-Ziele und beide Archive werden vor dem ersten Eingriff validiert.
+  Teilfehler bleiben fehlgeschlagen; Erfolg verlangt beide Schema- und Alembic-Pruefungen.
+- CLI, Update, Restic und Aufbewahrung akzeptieren keinen zentralen Ersatz fuer eine fehlende
+  Wissenssicherung. Snapshot-Konsistenz gilt je Datenbank; kein verteilter Gesamt-Snapshot.
+- Append-only Betriebsnachweise, 14-/90-Tage-Retention, systemd-Vorlagen und kontrollierte
+  Prozessgruppenbeendigung mit Lease-Recovery. Der Restore-Timer ist nur eine Erinnerung.
+
 ### Etappe 15 – Anmeldung und HTTP-Haertung (#30)
 
 - Passwortgebundene Sessions mit Inaktivitaets- und absoluter Ablaufgrenze.

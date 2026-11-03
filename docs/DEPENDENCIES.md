@@ -44,6 +44,10 @@ Chromium mit dem gelockten Playwright-Paket; die Tests erlauben nur die isoliert
   passen; die Test-Wrapper verwenden die Clients im isolierten Testcontainer.
 - pgvector ist eine PostgreSQL-Erweiterung des `deck_kb.v1`-Testvertrags. Die Wissens-DB
   ist eine eigene Datenbank mit eigener Alembic-Kette und Fake-Embeddings.
+  Backup und Restore verlangen beide Datenbanken. Der Wissens-Dump enthaelt `deck_kb`,
+  seine Migrationstabelle und pgvector; die passende Erweiterung muss im Restore-Server
+  verfuegbar sein. Die echten Proben verwenden PostgreSQL 17 mit pgvector und passende
+  `pg_dump`-/`pg_restore`-Clients einschliesslich `pg_dump --extension=vector`.
 - HTMX 2.0.8 liegt lokal unter `app/ui/static/vendor/`. Herkunft, SHA-256 und BSD-2-Clause-
   Lizenz stehen in der benachbarten `VENDOR.md` und `LICENSE`; es gibt keinen CDN-Aufruf.
 - systemd und Restic gehoeren zu den Betriebswerkzeugen ab Etappe 16. Repo-Tests pruefen

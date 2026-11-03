@@ -67,7 +67,7 @@ def _require_empty_target(connection: Connection) -> None:
         or connection.scalar(
             text(
                 "SELECT count(*) FROM pg_namespace WHERE nspname NOT IN "
-                "('public', 'information_schema') AND nspname NOT LIKE 'pg_%'"
+                "('public', 'information_schema') AND left(nspname, 3) <> 'pg_'"
             )
         )
         or connection.scalar(

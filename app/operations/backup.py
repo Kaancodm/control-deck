@@ -153,7 +153,7 @@ def table_counts(connection: Connection, scope: str = "central") -> dict[str, in
         connection.scalars(
             text(
                 "SELECT nspname FROM pg_namespace WHERE nspname <> 'information_schema' "
-                "AND nspname NOT LIKE 'pg_%'"
+                "AND left(nspname, 3) <> 'pg_'"
             )
         )
     )

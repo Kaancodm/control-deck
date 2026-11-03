@@ -437,7 +437,10 @@ Die aktuelle Erweiterung verlangt ein Manifest in Version 2 mit zentralem und Wi
 Beide Archive und beide leeren Testziele werden vor dem ersten Restore validiert; Erfolg
 verlangt beide Schema-/Zeilennachweise und Alembic-Checks. Teilfehler bleiben fehlgeschlagen
 und hinterlassen Diagnoseziele ohne automatische Bereinigung. Der finale neue Gesamtlauf
-folgt nach Integration des Elternstands. Externes Review bleibt offen; der PR bleibt Draft.
+folgt nach Integration des Elternstands. Die gezielte Erweiterungspruefung besteht mit
+**92 Tests**; Lint ist gruen. Vier vorher rote Regressionen sichern, dass normale Schemas
+wie `pgdata` nicht als Systemschemas uebergangen werden. Externes Review bleibt offen;
+der PR bleibt Draft.
 
 ### Inbetriebnahme
 

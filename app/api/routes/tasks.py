@@ -21,12 +21,14 @@ from app.api.schemas import (
     TaskCreateOut,
     TaskDetailOut,
     TaskDryRunOut,
+    TaskFailureListOut,
     TaskListOut,
     TaskReviewRequest,
 )
-from app.api.serializers import task_detail, task_summary
+from app.api.serializers import failed_task_summary, task_detail, task_summary
 from app.core.schemas import DataClass, TaskV1, Worker
 from app.core.validate import validate_task
+from app.db.failures import list_failed_tasks
 from app.db.models import Task
 from app.db.queue import expire_overdue_tasks, expire_task_if_due
 from app.db.repository import approve_task, create_task_from_api_payload
@@ -225,6 +227,24 @@ def list_tasks(
     rows = session.scalars(stmt.limit(limit).offset(offset)).all()
     return TaskListOut(
         items=[task_summary(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/failed", response_model=TaskFailureListOut)
+def list_task_failures(
+    session: DbSession,
+    _owner: OwnerAuth,
+    data_class: DataClass | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> TaskFailureListOut:
+    """Read terminal failures without reviving tasks or sweeping deadlines."""
+    rows, total = list_failed_tasks(session, data_class=data_class, limit=limit, offset=offset)
+    return TaskFailureListOut(
+        items=[failed_task_summary(row) for row in rows],
         total=total,
         limit=limit,
         offset=offset,

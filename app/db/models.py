@@ -79,6 +79,8 @@ class Task(Base):
     )
     cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    retry_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lane: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -100,6 +102,12 @@ class Task(Base):
     __table_args__ = (
         Index("ix_tasks_status_created_at", "status", "created_at"),
         Index("ix_tasks_data_class", "data_class"),
+        Index(
+            "ix_tasks_queued_next_attempt",
+            "next_attempt_at",
+            "created_at",
+            postgresql_where=text("status = 'queued'"),
+        ),
         Index(
             "ix_tasks_active_deadline",
             "deadline_at",

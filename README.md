@@ -4,8 +4,9 @@ Lokale Steuerzentrale fuer KI-gestuetzte Aufgaben — ohne bezahlte APIs zur Lau
 Dieses Repository enthaelt API, PostgreSQL-Queue, Uebergabe-Schemas (`task.v1`, `result.v1`),
 Abnahme, Datenschranke und lokale Pseudonymisierung.
 
-**Status:** Etappe 08 verbindet den Router mit lanegebundenem Host-Runner, sicherer
-Payload-Uebergabe, explizitem Start sowie Pause/Not-Aus. Die Ausfuehrung ist lokal simuliert. Aktueller Arbeitsstand: [docs/STAND.md](docs/STAND.md).
+**Status:** Etappe 10 ergaenzt dauerhafte begrenzte Retries, Backoff, Fallback und eine
+Owner-Fehlerliste. Host-Runner und Ollama-CLI sind simuliert; echte Anbieteraufrufe bleiben
+aus. Aktueller Arbeitsstand: [docs/STAND.md](docs/STAND.md).
 
 ## Zweck
 
@@ -53,6 +54,8 @@ bei `cloud_redacted` lokal ersetzt. Details: [docs/RUNNER.md](docs/RUNNER.md).
 Routing und Tagesbudgets: [docs/ROUTING.md](docs/ROUTING.md).
 Ollama-Fake-CLI, Lane-Gesundheit und die gesperrte Live-Anbindung:
 [docs/LANES.md](docs/LANES.md).
+Fehlervertrag, Wartezeiten und Owner-Fehlerliste:
+[docs/ETAPPEN/10-fehlerpfade.md](docs/ETAPPEN/10-fehlerpfade.md).
 
 Weitere Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/SCHEMA.md](docs/SCHEMA.md),
 [docs/API.md](docs/API.md). Inhaltliche Referenzfaelle schreibt der Owner; der aktuelle Bestand

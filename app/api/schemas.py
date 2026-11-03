@@ -8,7 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from app.core.schemas import TaskKind, Worker
+from app.core.retries import RetryState
+from app.core.schemas import ErrorCode, TaskKind, Worker
 from app.routing.router import RoutingPlan
 from app.workers.contracts import ControlAction
 
@@ -37,6 +38,9 @@ class TaskSummaryOut(BaseModel):
     requires_approval: bool
     approved_at: datetime | None
     deadline_at: datetime | None
+    lane: Worker | None = None
+    next_attempt_at: datetime | None = None
+    retry_state: RetryState | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -49,6 +53,17 @@ class TaskDetailOut(TaskSummaryOut):
 
 class TaskListOut(BaseModel):
     items: list[TaskSummaryOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class TaskFailureOut(TaskSummaryOut):
+    last_error_code: ErrorCode | None
+
+
+class TaskFailureListOut(BaseModel):
+    items: list[TaskFailureOut]
     total: int
     limit: int
     offset: int

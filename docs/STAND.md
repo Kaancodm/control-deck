@@ -1,5 +1,42 @@
 # Stand des Repositorys
 
+## Etappe 10 bereit fuer externes Review
+
+Draft-PR: [#25](https://github.com/Kaancodm/control-deck/pull/25).
+Branch: `stage/10-error-paths`, gestapelt auf Etappe 9 (`stage/09-ollama`, PR #24).
+
+Umgesetzt:
+
+- Migration `0011`: dauerhafter Retry-Cursor, festgehaltene Lane, Fehlerzaehler und
+  naechster Ausfuehrungszeitpunkt ausserhalb der eingefrorenen Schemas.
+- Acceptance auf derselben Lane bis zum globalen Limit; Rate-Limits mit 60/240 Sekunden
+  Backoff, danach Fallback; Timeout und Nichtverfuegbarkeit zur naechsten erlaubten Lane;
+  ein taskweiter interner Retry. Keine versteckten Adapter-Wiederholungen.
+- Anbieterbedingte Auth-/Policy-Fehler pausieren die Lane atomar mit Ergebnis und Event.
+  Erneutes Fencing verhindert Wirkungen falscher, doppelter oder verspaeteter Ergebnisse.
+- Queue-Polls und Neustarts erhalten den Fortschritt. Backoff wird auch im atomaren
+  Claim geprueft. Strukturell erschoepfte Ketten enden als `failed`; voruebergehend
+  nicht verfuegbare erlaubte Lanes bleiben wartend.
+- `local_only` bleibt Ollama; Datenschranke und Owner-Abbruch loesen keinen Fallback aus.
+  Nur eine abgelaufene ausdrueckliche Owner-Deadline erzeugt `expired`.
+- Owner-Fehlerliste `GET /api/v1/tasks/failed` ohne Schreibeffekt oder Task-Lock, mit
+  sicherem effektivem Fehlercode. Keine Wiederbelebung oder Entsperrung terminaler Tasks.
+
+Pflichtchecks vom 2026-11-03: `make lint` gruen (Ruff ohne Cache, Format, Mypy),
+`uv run alembic -x target=test check` ohne Schemaabweichung, `make test` mit
+**1455 bestandenen Tests** (**499 Integration**, **956 Unit**), **keine xfail oder Skips**.
+Eine bestehende Starlette/httpx-Deprecation-Warnung. `make reference`: **4/4**;
+Ollama-Fake-CLI-Referenzlauf ebenfalls **4/4**. Isolierte PostgreSQL-17-Testdatenbanken.
+Die CI des finalen Heads wird im PR ausgewiesen. Externes Review und Merge bleiben
+beim Owner; es wurde kein eigenes formales Review und kein Merge ausgefuehrt.
+Details: [ETAPPEN/10-fehlerpfade.md](ETAPPEN/10-fehlerpfade.md).
+
+### Inbetriebnahme
+
+Alle Laeufe verwenden Simulationen und Fake-CLIs. Echte Anmeldungen, Anbieter-Kontingente,
+Modellaufrufe und Live-Fehler bleiben ungeprueft. Keine API-Keys oder Serveraenderungen.
+Das Ollama-Live-Profil bleibt gesperrt; neue inhaltliche Referenzfaelle bleiben Owner-Aufgabe.
+
 ## Etappe 9 bereit fuer externes Review
 
 Draft-PR: [#24](https://github.com/Kaancodm/control-deck/pull/24).

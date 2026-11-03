@@ -384,8 +384,9 @@ def test_forged_worker_result_is_normalized_to_host_failure(
 
     outcome = runner.run_once(Worker.OLLAMA, Forged(Worker.OLLAMA))
     assert outcome.action == "completed"
-    assert outcome.status == "failed"
+    assert outcome.status == "queued"
     db_session.expire_all()
+    assert db_session.get(Task, task_id).retry_state["internal_retries"] == 1
     result = db_session.scalar(select(Result.payload).where(Result.task_id == task_id))
     assert result["worker"] == "ollama"
     assert result["error"]["code"] == "internal"

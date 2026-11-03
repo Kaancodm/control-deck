@@ -21,7 +21,7 @@ Builder ist immer Cursor. Merge nur nach GO des Owners.
 | 7 | Router, Regeln, Tagesbudget, Dry-run | offen | Codex | Vertrag unten |
 | 8 | Runner-Rahmen: Lease, Heartbeat, Sweep, Not-Aus, runs/-Ablage | offen | Claude | Vertrag unten |
 | 9 | Lane Ollama und erster E2E | offen | Codex | [09](09-ollama-lane-e2e.md) |
-| 10 | Fehlerpfad: Retry, Backoff, Fallback, Dead-Letter, Abbruch | offen | Claude | Vertrag unten |
+| 10 | Fehlerpfad: Retry, Backoff, Fallback, Dead-Letter, Abbruch | umgesetzt, externes Review offen | extern, Owner bestimmt | [10-fehlerpfade.md](10-fehlerpfade.md) |
 | 11 | Oberflaeche v1 | offen | Codex | [11](11-ui.md) |
 | 12 | Reinraum-Image und Lane Claude | offen | Claude | [12](12-reinraum-lane-claude.md) |
 | 13 | Lane Codex | offen | Codex | [13](13-lane-codex.md) |
@@ -34,8 +34,9 @@ Builder ist immer Cursor. Merge nur nach GO des Owners.
 
 Die Specs 06, 09 und 11 sind detailliert. Die Specs 12 bis 18 sind kompakter und aus Plan v1.1
 abgeleitet; sie werden vor dem jeweiligen Start gegen den dann gemergten Stand nachgeschaerft.
-Die Etappen 5, 7, 8 und 10 sind nicht Teil dieses Auftrags, ihre Schnittstellen sind unten als
-Vertraege festgehalten, weil 6, 9 und 11 davon abhaengen.
+Die Etappen 5, 7 und 8 sind hier als Schnittstellen-Vertraege festgehalten, weil 6, 9 und 11
+davon abhaengen. Fuer Etappe 10 gilt die nachgetragene [Spec zu PR #25](10-fehlerpfade.md);
+ihr implementierter Fehlervertrag ersetzt abweichende historische Entwurfsangaben unten.
 
 ## Verbindliche Begriffe
 
@@ -81,7 +82,7 @@ Die Etappe links liefert, die Etappe rechts verlaesst sich darauf. Abweichungen 
 | `settings` | 8 → 9, 11 | Tabelle `settings(key text primary key, value jsonb, updated_at)`; Schluessel `paused` (globaler Not-Aus) und `lanes.<lane>.paused`. Pull liest beide; `true` stoppt den Pull. |
 | `lane_status` | 9 → 12, 13, 17 | Tabelle `lane_status(lane text primary key, status text, reason text, updated_at, last_success_at)`; `status` in `ok`, `unavailable`, `auth_required`, `paused`. |
 | Service-Schicht | 4 → 11 | UI ruft dieselben Funktionen wie `app/api/routes/*` (Anlegen, Freigeben, Abbrechen, Lesen), nie HTTP gegen sich selbst, keine Geschaeftslogik in Templates. |
-| Fehlerreaktion | 10 → 9, 12, 13 | Lanes liefern nur den `error.code`; die Reaktion ist Etappe 10: `rate_limited` gleiche Lane, Backoff 1/4/16 min, max 2; `timeout`, `worker_unavailable` naechstes Glied, `attempt+1`; `auth_required` Lane markiert sich, naechstes Glied; `policy_blocked` Lane pausiert, naechstes Glied, Owner informiert; `acceptance_failed` → `review`, kein Retry; `internal` 1 Retry, dann `failed`. Kette erschoepft → `failed` (Dead-Letter). |
+| Fehlerreaktion | 10 → 9, 12, 13 | Lanes melden einen Versuch; zentrale Reaktion gemaess freigegebenem Plan: `rate_limited` gleiche Lane nach 1/4 min, dann Fallback; `timeout`/`worker_unavailable` naechste Lane; `auth_required`/Anbieter-`policy_blocked` Lane pausieren und Fallback; `acceptance_failed` nach `review`, kein Retry (Owner-Entscheid); `internal` ein taskweiter Retry, dann `failed`. Lokale Datenschranke bleibt `blocked`. [Verbindlicher Vertrag](10-fehlerpfade.md). |
 
 ## Vorbedingungen (VB)
 

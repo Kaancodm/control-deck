@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.retries import RetryState, canonical_chain, validate_retry_state
 from app.core.schemas import TaskV1, Worker
 from app.db.models import Event, Task
 from app.routing.config import RouterConfig, get_router_config
@@ -72,12 +73,57 @@ def try_lock_budget_admission(session: Session, config: RouterConfig) -> bool:
     return bool(session.scalar(select(func.pg_try_advisory_xact_lock(ADMISSION_LOCK))))
 
 
+class RetryMetadataError(ValueError):
+    """Reject inconsistent runtime metadata without exposing stored values."""
+
+    def __init__(self) -> None:
+        super().__init__("Retry metadata is unavailable or invalid.")
+
+
+def retry_state_for_task(task: Task) -> RetryState:
+    """Read durable progress, including a conservative seed for pre-migration claims."""
+    try:
+        chain = canonical_chain(TaskV1.model_validate(task.payload))
+        if task.retry_state is None:
+            if task.attempt > 0:
+                if task.lane is None:
+                    raise ValueError
+                worker = Worker(task.lane)
+                state = RetryState(cursor=chain.index(worker), pinned_worker=worker)
+            else:
+                state = RetryState()
+        else:
+            state = RetryState.model_validate(task.retry_state)
+        validate_retry_state(state, chain)
+        if sum(state.rate_limits.values()) + state.internal_retries > task.attempt:
+            raise ValueError
+        return state
+    except (TypeError, ValueError):
+        raise RetryMetadataError() from None
+
+
+def pin_claim_worker(task: Task, worker: Worker) -> None:
+    """Remember the actual admitted lane before publishing the committed claim."""
+    state = retry_state_for_task(task)
+    chain = canonical_chain(TaskV1.model_validate(task.payload))
+    if (
+        not isinstance(worker, Worker)
+        or worker not in chain[state.cursor :]
+        or (state.pinned_worker is not None and state.pinned_worker != worker)
+    ):
+        raise RetryMetadataError()
+    task.retry_state = state.model_copy(
+        update={"cursor": chain.index(worker), "pinned_worker": worker}
+    ).model_dump(mode="json")
+
+
 def persist_task_route(
     session: Session,
     task: Task,
     *,
     config: RouterConfig | None = None,
     snapshot: RoutingSnapshot | None = None,
+    paused_lanes: frozenset[Worker] = frozenset(),
 ) -> RoutingPlan:
     """Refresh runtime metadata without mutating the validated task payload.
 
@@ -86,12 +132,62 @@ def persist_task_route(
     """
     config = config if config is not None else get_router_config()
     snapshot = snapshot if snapshot is not None else routing_snapshot(session)
+    task_v1 = TaskV1.model_validate(task.payload)
     plan = route_task(
-        TaskV1.model_validate(task.payload),
+        task_v1,
         config=config,
         usage=snapshot.usage,
         budget_date=snapshot.budget_date,
     )
+    try:
+        state = retry_state_for_task(task)
+    except RetryMetadataError:
+        plan = plan.model_copy(
+            update={
+                "chain": [],
+                "models": {},
+                "status": "deferred",
+                "reason": "retry_metadata_invalid",
+            }
+        )
+    else:
+        if task.attempt > 0 and task.retry_state is None:
+            # Preserve the legacy lane before a temporary deferral clears task.lane.
+            task.retry_state = state.model_dump(mode="json")
+        remaining = canonical_chain(task_v1)[state.cursor :]
+        if state.pinned_worker is not None:
+            remaining = (state.pinned_worker,)
+        exclusions = dict(plan.exclusions)
+        selected = []
+        for worker in plan.chain:
+            if worker not in remaining:
+                exclusions[worker] = "retry_progress"
+            elif worker in paused_lanes:
+                exclusions[worker] = "lane_paused"
+            else:
+                selected.append(worker)
+        if selected:
+            plan = plan.model_copy(
+                update={
+                    "chain": selected,
+                    "models": {worker: plan.models[worker] for worker in selected},
+                    "status": "ready",
+                    "reason": None,
+                    "exclusions": exclusions,
+                }
+            )
+        elif plan.status != "blocked" or task.attempt > 0 or task.retry_state is not None:
+            reasons = {exclusions.get(worker, "retry_no_allowed_lane") for worker in remaining}
+            reason = next(iter(reasons)) if len(reasons) == 1 else "lane_unavailable"
+            plan = plan.model_copy(
+                update={
+                    "chain": [],
+                    "models": {},
+                    "status": "deferred",
+                    "reason": reason if remaining else "retry_exhausted",
+                    "exclusions": exclusions,
+                }
+            )
     task.plan = plan.model_dump(mode="json")
     task.lane = plan.chain[plan.cursor].value if plan.status == "ready" else None
     session.flush()

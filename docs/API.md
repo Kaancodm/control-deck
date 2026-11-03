@@ -34,6 +34,7 @@ Fehlerantworten verwenden **RFC 7807** (`Content-Type: application/problem+json`
 | `POST` | `/tasks` | `task.v1` und Datenschranke pruefen; fehlende `data_class` → **422** (Pflichtfeld gemaess ADR 0005). Zulaessige Tasks starten in **`awaiting_approval`**, Cloud-Tasks mit nicht geheimen Datenschutztreffern in **`blocked`**. |
 | `POST` | `/tasks/dry-run` | Owner-Vorschau fuer Routing, Datenschranke und lokale Tagesbudgets; keine Speicherung, Reservierung oder Ausfuehrung. |
 | `GET` | `/tasks` | Liste mit Query `status`, `data_class`, Pagination `limit` (1–200, Default 50), `offset`. |
+| `GET` | `/tasks/failed` | Schreibgeschuetzte Fehlerliste mit `data_class`, `limit` und `offset`; keine Wiederbelebung und kein Deadline-Sweep. |
 | `GET` | `/tasks/{id}` | Detail inkl. `events` und `results`. |
 | `POST` | `/tasks/{id}/approve` | Datenschranke erneut pruefen; bei Erfolg `awaiting_approval` → `queued`, setzt `approved_at`. Neue Sperrtreffer fuehren zu `blocked`. |
 | `POST` | `/tasks/{id}/review` | Owner-Entscheid fuer einen Task in `review`: Zustimmung → `done`, Ablehnung → `failed`. |
@@ -43,6 +44,22 @@ Interne Persistenz (`create_task_from_v1`, `POST /tasks`) verwendet dieselbe Dat
 Gespeicherte Tasks erhalten zuerst **`awaiting_approval`** und `task.submit`; bei einer
 Datenschutzsperre folgt noch in derselben Transaktion **`blocked`** mit `task.block`.
 **`queued`** ist nur nach Owner-Freigabe (`POST /tasks/{id}/approve` mit Bearer-Token) erreichbar.
+
+### Retry-Metadaten und Fehlerliste
+
+Task-Zusammenfassungen enthalten ausserhalb des eingefrorenen Auftrags die aktuelle
+`lane`, `next_attempt_at` und `retry_state` (jeweils optional). `retry_state` hat Version 1
+und enthaelt `cursor`, `pinned_worker`, `rate_limits` je Lane und `internal_retries`.
+Die Werte sind Beobachtungsdaten und koennen nicht ueber den Task-Body gesetzt werden.
+
+`GET /tasks/failed` antwortet mit `{items, total, limit, offset}`. Ein Element enthaelt die
+Task-Zusammenfassung und `last_error_code`; dieser ist ein validierter Fehlercode des
+letzten lokal gespeicherten Ergebnisses oder `null`. Lokale Acceptance-Fehler erscheinen
+nach der Owner-Ablehnung aus `review` als `acceptance_failed`, auch wenn der Worker Erfolg
+gemeldet hatte. Die Liste liefert
+keine Provider-Rohmeldungen, Outputs oder Auftragsinhalte und erfordert Owner-Auth.
+Es gibt keinen Retry-/Unblock-Endpunkt fuer terminale Tasks. Fehlervertrag und Grenzen:
+[ETAPPEN/10-fehlerpfade.md](ETAPPEN/10-fehlerpfade.md).
 
 ### Routing-Vorschau
 
@@ -149,9 +166,9 @@ Owner-Steuerung: `GET /api/v1/control/settings` und `PATCH /api/v1/control/setti
 Pause betrifft neue Claims; Not-Aus setzt zusaetzlich Abbruchanforderungen fuer aktive
 Versuche. Standardparallelitaet ist 1. Details und Inbetriebnahmegrenzen: [RUNNER.md](RUNNER.md).
 
-Bei `result.v1.status = succeeded` berechnet `app/core/acceptance.py` die Checks aus `task.acceptance` und `result.output.text` selbst; vom Worker gemeldete Checks ersetzen diese Pruefung nicht. Ein automatischer Fehlschlag wird als Ergebnis mit `status = failed` und `error.code = acceptance_failed` gespeichert. Der Task geht bei verbleibenden Versuchen zurueck in die Queue, sonst nach `failed`.
+Bei `result.v1.status = succeeded` berechnet `app/core/acceptance.py` die Checks aus `task.acceptance` und `result.output.text` selbst; vom Worker gemeldete Checks ersetzen diese Pruefung nicht. Ein automatischer Fehlschlag wird als Ergebnis mit `status = failed` und `error.code = acceptance_failed` gespeichert. Der Task wechselt nach `review`; es gibt keinen Retry, keinen Fallback und keine Lane-Pause, unabhaengig vom verbleibenden Versuchsbudget. Der Owner entscheidet ueber `POST /tasks/{id}/review` nach `done` oder `failed`.
 
-Die Acceptance laeuft vor dem Task-Row-Lock auf dem unveraenderlichen Auftrag. Danach werden Status, Versuch, Lease und Deadline erneut geprueft; zwischenzeitliche Heartbeats, Abbrueche oder Neuzuweisungen bleiben wirksam. Das Retry-/Fail-Event verwendet den normalisierten `result_status = failed` und den Grund `acceptance_failed`.
+Die Acceptance laeuft vor dem Task-Row-Lock auf dem unveraenderlichen Auftrag. Danach werden Status, Versuch, Lease und Deadline erneut geprueft; zwischenzeitliche Heartbeats, Abbrueche oder Neuzuweisungen bleiben wirksam. Das Event `task.review` verwendet den normalisierten `result_status = failed`, den Grund `acceptance_failed` und `retry_action = fail`; `attempt` bleibt unveraendert.
 
 Sind alle automatischen Regeln erfuellt, folgt standardmaessig `review`. Nur `policy.require_review = false` **ohne** `human`-Regel erlaubt direkt `done`. Eine `human`-Regel verlangt immer den Owner-Entscheid. `result.v1.status` bleibt dabei unveraendert das Worker-Ergebnisformat (`succeeded`, `failed`, `blocked`, `cancelled`); `review`, `done` und `expired` sind Task-Status.
 
@@ -170,7 +187,7 @@ Ein reiner Lease-Ablauf fuehrt weiterhin zu Retry, gegebenenfalls `awaiting_appr
 |--------|-----------|
 | `awaiting_approval` | Validiert, wartet auf Owner-Freigabe |
 | `blocked` | Datenschutz- oder Policy-Sperre; terminal, kein Freigabe-Override |
-| `review` | Automatische Abnahme bestanden, wartet auf Owner-Entscheid |
+| `review` | Automatische Abnahme bestanden oder mit `acceptance_failed` abgelehnt; wartet auf Owner-Entscheid |
 | `done` | Abgeschlossen nach Review oder explizit ohne Review-Pflicht |
 | `expired` | Explizite Owner-Deadline erreicht; terminal |
 | `succeeded` | Historischer terminaler Task-Status; neue Erfolge verwenden `review` oder `done` |

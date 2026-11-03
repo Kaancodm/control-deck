@@ -26,7 +26,7 @@ Pflichtfeld gemaess ADR 0005, ohne Default in Schema oder Datenbank. Revision `2
 | `queued` | Freigegeben, wartet auf Lease |
 | `leased` | Runner haelt Lease, Start steht aus |
 | `running` | Ausfuehrung aktiv |
-| `review` | Automatische Abnahme bestanden, wartet auf Owner-Entscheid |
+| `review` | Automatische Abnahme bestanden oder mit `acceptance_failed` abgelehnt, wartet auf Owner-Entscheid |
 | `done` | Erfolgreich abgeschlossen und gegebenenfalls vom Owner geprueft |
 | `expired` | Explizite Owner-Deadline erreicht |
 | `succeeded` | Historischer terminaler Status; bleibt fuer bestehende Zeilen erhalten |
@@ -52,6 +52,17 @@ dieses append-only Protokoll zaehlt auch Versuche ohne Ergebnis. Konfigurierte T
 werden mit einem transaktionsgebundenen Advisory-Lock vor den Task-Locks geprueft.
 Rollback verwirft Claim und Verbrauch gemeinsam. Es gibt fuer Etappe 7 keine neue Tabelle
 oder Migration. Details: [ROUTING.md](ROUTING.md).
+
+## Retry-Laufzeitdaten (Revision 0011)
+
+`tasks.retry_state` ist optionales versioniertes JSONB mit stabilem Policy-Cursor,
+festgehaltener Lane, Rate-Limit-Zaehlern und taskweitem internem Retry-Zaehler.
+`tasks.next_attempt_at` ist der optionale naechste Ausfuehrungszeitpunkt mit Zeitzone.
+Beide Felder liegen ausserhalb des unveraenderlichen `task.v1`. Die Queue und der atomare
+Claim vergleichen den Zeitpunkt mit `clock_timestamp()`; der Claim entfernt ihn.
+Der partielle Index `ix_tasks_queued_next_attempt` auf Zeitpunkt und Erstellungszeit
+gilt nur fuer `queued`. Der Downgrade verweigert vorhandene Werte in beiden Spalten.
+Verhalten und Fehlerliste: [ETAPPEN/10-fehlerpfade.md](ETAPPEN/10-fehlerpfade.md).
 
 ## Queue (SKIP LOCKED)
 

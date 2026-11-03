@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import ValidationError
@@ -11,10 +11,12 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.acceptance import evaluate_acceptance
+from app.core.retries import RetryDecision, canonical_chain, decide_failure
 from app.core.schemas import (
     SHA256_HEX,
     AcceptanceRule,
     DataClass,
+    ErrorCode,
     ResultStatus,
     ResultV1,
     TaskV1,
@@ -24,12 +26,14 @@ from app.core.validate import validate_result
 from app.db.models import Event, Lease, Task
 from app.db.queue import expire_task_if_due
 from app.db.repository import persist_result_v1, result_payload_for_storage
-from app.db.settings import read_settings
+from app.db.routing import retry_state_for_task
+from app.db.settings import lock_admission, read_settings, update_settings
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import LeaseOwnershipError, fenced_transition_task
 from app.redaction.engine import RedactionError
 from app.redaction.repository import rehydrate_for_task
 from app.workers.contracts import ControlAction, ControlDecision
+from app.workers.lane_status import LaneHealthState, update_lane_status
 
 _RESULT_STATUS_TO_TRIGGER: dict[ResultStatus, TaskTransition] = {
     ResultStatus.SUCCEEDED: TaskTransition.SUCCEED,
@@ -343,7 +347,6 @@ def submit_worker_result(
         }
         stored_payload["checks"] = []
         event_detail["reason"] = "acceptance_failed"
-        trigger = TaskTransition.RETRY
     elif result_v1.status == ResultStatus.SUCCEEDED:
         rules = [AcceptanceRule.model_validate(rule) for rule in task.payload["acceptance"]]
         acceptance = evaluate_acceptance(rules, stored_payload["output"]["text"])
@@ -355,8 +358,18 @@ def submit_worker_result(
                 "message": "Core acceptance checks failed.",
             }
             event_detail["reason"] = "acceptance_failed"
-            trigger = TaskTransition.RETRY
     event_detail["result_status"] = stored_payload["status"]
+    normalized = ResultV1.model_validate(stored_payload)
+    failure_code: ErrorCode | None = None
+    if normalized.status in (ResultStatus.FAILED, ResultStatus.BLOCKED):
+        # Typed provider errors use one policy even when the provider calls the
+        # attempt blocked. Host privacy blocks happen before dispatch, outside
+        # result ingestion. A blocked snapshot without an error stays blocked.
+        failure_code = normalized.error.code if normalized.error is not None else None
+    if failure_code in (ErrorCode.AUTH_REQUIRED, ErrorCode.POLICY_BLOCKED):
+        # Claims and owner controls use this order too. Acceptance above runs
+        # without either admission or task locks; rejected identities never pause.
+        lock_admission(session)
     task = session.scalar(
         select(Task)
         .where(Task.id == task_id)
@@ -367,6 +380,54 @@ def submit_worker_result(
     if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
         raise TaskDeadlineElapsed("Owner deadline elapsed.")
     _validate_result_identity(session, task=task, lease_id=lease_id, result=result_v1)
+    decision: RetryDecision | None = None
+    next_attempt_at: datetime | None = None
+    if failure_code is not None:
+        try:
+            payload = TaskV1.model_validate(task.payload)
+            decision = decide_failure(
+                error_code=failure_code,
+                worker=result_v1.worker,
+                attempt=task.attempt,
+                max_attempts=payload.policy.max_attempts,
+                chain=canonical_chain(payload),
+                state=retry_state_for_task(task),
+            )
+        except ValueError:
+            raise WorkerOperationError("Retry metadata is invalid.") from None
+        if decision.action == "fallback" and isinstance(task.plan, dict):
+            exclusions = task.plan.get("exclusions")
+            remaining = canonical_chain(payload)[decision.state.cursor :]
+            if (
+                isinstance(exclusions, dict)
+                and remaining
+                and all(exclusions.get(worker.value) == "rule_not_allowed" for worker in remaining)
+            ):
+                # Use the rule that admitted this attempt, not temporary lane
+                # availability. A structurally exhausted chain must terminate.
+                decision = decision.model_copy(
+                    update={"action": "fail", "reason": "fallback_exhausted"}
+                )
+        if failure_code == ErrorCode.ACCEPTANCE_FAILED:
+            # Contract: acceptance_failed -> review. The result stays stored as
+            # failed with the effective code; the owner decides, nobody retries.
+            trigger = TaskTransition.REVIEW
+        elif decision.action == "fail":
+            trigger = TaskTransition.FAIL
+        else:
+            trigger = TaskTransition.RETRY
+        if decision.action != "fail":
+            now = session.scalar(select(func.clock_timestamp()))
+            assert isinstance(now, datetime)
+            next_attempt_at = now + timedelta(seconds=decision.delay_seconds)
+        event_detail.update(
+            reason=failure_code.value,
+            retry_reason=decision.reason,
+            retry_action=decision.action,
+            delay_seconds=decision.delay_seconds,
+            next_attempt_at=next_attempt_at.isoformat() if next_attempt_at is not None else None,
+            lane_paused=decision.pause_lane,
+        )
     updated = fenced_transition_task(
         session,
         task_id=task_id,
@@ -380,5 +441,24 @@ def submit_worker_result(
             raise TaskDeadlineElapsed("Owner deadline elapsed.")
         raise LeaseOwnershipError("Result rejected: stale lease, control request or task state.")
     persist_result_v1(session, task=updated, result_payload=stored_payload)
+    if decision is not None:
+        updated.retry_state = decision.state.model_dump(mode="json")
+        updated.next_attempt_at = next_attempt_at
+        if decision.pause_lane:
+            assert failure_code is not None
+            update_settings(session, {f"lanes.{result_v1.worker.value}.paused": True})
+            update_lane_status(
+                session,
+                lane=result_v1.worker,
+                status=(
+                    LaneHealthState.AUTH_REQUIRED
+                    if failure_code == ErrorCode.AUTH_REQUIRED
+                    else LaneHealthState.PAUSED
+                ),
+                reason=failure_code.value,
+            )
+    else:
+        updated.next_attempt_at = None
+    session.flush()
     session.refresh(updated)
     return updated

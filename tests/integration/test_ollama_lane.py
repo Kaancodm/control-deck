@@ -523,7 +523,7 @@ def test_default_live_profile_stays_unavailable_without_starting_any_process(
     _assert_unclaimed(db_session, task_id)
 
 
-def test_core_acceptance_failure_records_a_single_retry_without_hidden_execution(
+def test_core_acceptance_failure_ends_in_review_without_hidden_execution(
     db_session: Session, tmp_path: Path
 ) -> None:
     task_id = _task(
@@ -534,20 +534,29 @@ def test_core_acceptance_failure_records_a_single_retry_without_hidden_execution
     outcome = _runner(db_session, tmp_path, executor).run_once()
 
     assert outcome.action == "completed"
-    assert outcome.status == "queued"
+    assert outcome.status == "review"
     assert executor.run_calls == [("run", "fixture-model")]
     stored = _stored(db_session, task_id)
     assert stored["status"] == "failed"
     assert stored["error"]["code"] == "acceptance_failed"
     assert stored["checks"][0]["passed"] is False
-    assert db_session.get(Task, task_id).attempt == 1
-    retries = list(
+    task = db_session.get(Task, task_id)
+    assert task.status == TaskState.REVIEW and task.attempt == 1
+    assert (
+        db_session.scalar(
+            select(func.count())
+            .select_from(Event)
+            .where(Event.task_id == task_id, Event.event_type == "task.retry")
+        )
+        == 0
+    )
+    reviews = list(
         db_session.scalars(
-            select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.retry")
+            select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.review")
         )
     )
-    assert len(retries) == 1
-    assert retries[0]["reason"] == "acceptance_failed"
+    assert len(reviews) == 1
+    assert reviews[0]["reason"] == "acceptance_failed"
 
 
 @pytest.mark.parametrize(
@@ -570,7 +579,12 @@ def test_simulated_failures_persist_safe_errors_without_hidden_retries(
     outcome = _runner(db_session, tmp_path, executor).run_once()
 
     assert outcome.action == "completed"
-    assert outcome.status == "failed"
+    expected_status = {
+        "worker_unavailable": "failed",
+        "acceptance_failed": "review",  # Contract: owner review, no retry.
+        "internal": "queued",
+    }
+    assert outcome.status == expected_status[code]
     assert executor.run_calls == [("run", "fixture-model")]
     stored = _stored(db_session, task_id)
     assert stored["status"] == "failed"
@@ -601,6 +615,35 @@ def test_stdout_stays_in_result_without_leaking_into_logs_or_events(
     details = list(db_session.scalars(select(Event.detail).where(Event.task_id == task_id)))
     assert marker not in json.dumps(details)
     assert marker not in (tmp_path / "runs" / str(task_id) / "1" / "ollama.log").read_text()
+
+
+# Empty output fails local acceptance: contract sends it to review without retry.
+@pytest.mark.parametrize(
+    "behavior, attempts, final",
+    [("empty", 1, TaskState.REVIEW), ("invalid_utf8", 2, TaskState.FAILED)],
+)
+def test_fake_cli_retries_are_separate_persisted_attempts_and_stop_at_policy_limit(
+    db_session: Session, tmp_path: Path, behavior: str, attempts: int, final: TaskState
+) -> None:
+    task_id = _task(db_session)
+    executor = _executor(behavior=behavior)
+    runner = _runner(db_session, tmp_path, executor)
+    for attempt in range(1, attempts + 1):
+        outcome = runner.run_once()
+        assert outcome.action == "completed"
+        assert outcome.attempt == attempt
+        assert outcome.status == (final.value if attempt == attempts else "queued")
+        assert len(executor.run_calls) == attempt
+        artifact = tmp_path / "runs" / str(task_id) / str(attempt) / "result.json"
+        assert json.loads(artifact.read_text())["status"] == "failed"
+    assert runner.run_once().action == "idle"
+    assert len(executor.run_calls) == attempts
+    db_session.expire_all()
+    assert db_session.get(Task, task_id).status == final
+    assert (
+        db_session.scalar(select(func.count()).select_from(Result).where(Result.task_id == task_id))
+        == attempts
+    )
 
 
 def test_cli_timeout_ends_one_attempt_without_expiring_task_or_retrying(

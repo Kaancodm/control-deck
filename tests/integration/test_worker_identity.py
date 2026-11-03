@@ -175,18 +175,20 @@ def test_cloud_result_is_rehydrated_locally_before_acceptance(
     assert result["output"]["text"].startswith("[[CD_")
 
 
-def test_unknown_cloud_placeholder_becomes_bounded_acceptance_retry(
+def test_unknown_cloud_placeholder_becomes_acceptance_failure_in_review(
     db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     task_id, lease_id, result = _cloud_attempt(db_session, monkeypatch, tmp_path)
     result["output"]["text"] = f"[[CD_{task_id.hex}_EMAIL_999]]"
     updated = submit_worker_result(db_session, lease_id=lease_id, result_payload=result)
     db_session.commit()
-    assert updated.status == TaskState.QUEUED
+    assert updated.status == TaskState.REVIEW
+    assert updated.attempt == 1 and updated.next_attempt_at is None
     stored = db_session.scalar(select(Result).where(Result.task_id == task_id))
     assert stored.payload["output"]["text"] == ""
     assert stored.payload["error"]["code"] == "acceptance_failed"
     event = db_session.scalar(
-        select(Event).where(Event.task_id == task_id, Event.event_type == "task.retry")
+        select(Event).where(Event.task_id == task_id, Event.event_type == "task.review")
     )
     assert event.detail["reason"] == "acceptance_failed"
+    assert event.detail["retry_action"] == "fail"

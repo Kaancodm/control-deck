@@ -141,4 +141,4 @@ def test_settings_migration_roundtrip_preserves_tasks_and_guards_controls(
     with pytest.raises(RuntimeError, match="runner control settings would be lost"):
         command.downgrade(config, "20251103_0008")
     assert db_session.scalar(text("SELECT count(*) FROM tasks WHERE id=:id"), {"id": task_id}) == 1
-    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20251103_0010"
+    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20251103_0011"

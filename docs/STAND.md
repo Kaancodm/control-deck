@@ -359,7 +359,7 @@ Referenzfaelle. Details: [WISSENS_DB.md](WISSENS_DB.md).
 ## Etappe 15: lokal abgeschlossen
 
 Draft-PR: [#30](https://github.com/Kaancodm/control-deck/pull/30), Branch
-`stage/15-hardening`, auf den korrigierten Etappe-14-Head `6b9d470` rebased.
+`stage/15-hardening`, auf den finalen Etappe-14-Head `f43b70f` rebased.
 
 Die vollstaendige Owner-UI ist mit der aeussersten HTTP-Schutzmiddleware integriert.
 Validierte Host-/Origin-Grenzen, begrenzte Requests, sichere Konfigurations- und
@@ -374,7 +374,7 @@ erscheint mit HTTP 423 ohne Passwortformular. Entsperrung bleibt eine ausdrueckl
 Aktion. «Ueberall abmelden» widerruft alle bestehenden Sessions mit Owner-/CSRF-Pruefung.
 Die Sperrreihenfolge bleibt Login-State vor Session, auch in der HTTP-Anbindung.
 
-Frischer Gesamtlauf auf dem Code- und Teststand von `b904e60`: **2081 bestanden**, keine
+Frischer Gesamtlauf auf dem Code- und Teststand von `397d723`: **2088 bestanden**, keine
 Skips oder xfail; eine bestehende Starlette/httpx-Deprecation-Warnung. `make lint`, zentraler
 Alembic-Check, separate KB-Migration samt Check und Hook-Pruefungen sind gruen.
 `make reference` und Ollama-Fake-CLI-Referenzmodus: jeweils **4/4**. Enthalten sind
@@ -391,9 +391,10 @@ aus Etappe 14 entfernt die interne UUID aus der Prompt-Ueberschrift; strukturier
 Artefaktpfade und die vollstaendige Inhaltspruefung bleiben erhalten. Regressionen pruefen
 auch, dass Telefonnummern im eigentlichen Inhalt weiterhin blockiert oder redigiert werden.
 Sichere Zustandsdiagnostik bleibt erhalten; keine Assertion wurde abgeschwaecht und kein
-Retry hinzugefuegt. Der neue Gesamtlauf nach dieser Korrektur steht noch aus.
-Die [CI von `516a770`](https://github.com/Kaancodm/control-deck/actions/runs/41616630244)
-ist gruen; der finale Head mit Diagnostik und Dokumentation wird im PR separat ausgewiesen.
+Retry hinzugefuegt. Der neue Gesamtlauf nach dieser Korrektur ist vollstaendig gruen.
+Der anschliessende Rebase uebernimmt ausschliesslich die finalen Etappe-14-Nachweise;
+Code und Tests sind zum geprueften Stand unveraendert. Die CI des exakten finalen Heads
+wird im PR separat ausgewiesen.
 Externes Review bleibt offen, der PR bleibt Draft. Kein Merge.
 
 ### Inbetriebnahme

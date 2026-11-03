@@ -103,11 +103,14 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         page.get_by_role("link", name="＋ Neuer Auftrag", exact=True).click()
         page.get_by_label("Titel", exact=True).fill("Browser smoke task")
         page.get_by_label("Anweisung", exact=True).fill("Produce synthetic text.")
+        # Only title and instructions are visible on the phone; the rest folds away.
+        assert not page.get_by_label("Dateien: UTF-8-Text, Markdown, JSON oder CSV").is_visible()
+        page.get_by_text("Mehr Optionen", exact=True).click()
         page.get_by_label("Dateien: UTF-8-Text, Markdown, JSON oder CSV").set_input_files(
             {"name": "smoke.md", "mimeType": "text/markdown", "buffer": b"Synthetic attachment."}
         )
         page.get_by_role("button", name="Auftrag zur Start-Freigabe speichern").click()
-        page.get_by_label("Auftrag und Datenklasse geprueft").check()
+        page.get_by_label("Auftrag und Datenklasse geprüft").check()
         page.get_by_role("button", name="Start freigeben", exact=True).click()
         with factory() as session:
             task = session.scalar(select(Task))
@@ -118,7 +121,7 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         assert outcome.action == "completed"
         page.reload()
         page.get_by_text("simulation-ok", exact=True).wait_for()
-        page.get_by_label("Ergebnis geprueft", exact=True).check()
+        page.get_by_label("Ergebnis geprüft", exact=True).check()
         page.get_by_role("button", name="Ergebnis freigeben", exact=True).click()
         page.get_by_text("✓ Erledigt", exact=True).wait_for()
         with factory() as session:
@@ -136,7 +139,7 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         page.goto(base + "/ui/chat")
         page.get_by_label("Nachricht", exact=True).fill("DRAFT Produce synthetic text.")
         page.get_by_role("button", name="Senden", exact=True).click()
-        page.get_by_role("button", name="Entwurf im Auftragsformular pruefen").click()
+        page.get_by_role("button", name="Entwurf im Auftragsformular prüfen").click()
         assert page.get_by_label("Titel", exact=True).input_value() == "Simulierter Entwurf"
         with factory() as session:
             assert len(session.scalars(select(Task)).all()) == 1
@@ -152,7 +155,11 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         second.get_by_label("Passwort", exact=True).fill(password)
         second.get_by_role("button", name="Anmelden", exact=True).click()
         second.wait_for_url("**/ui/tasks")
-        page.get_by_role("button", name="Ueberall abmelden", exact=True).click()
+        # Exactly one logout button is visible; "Überall abmelden" lives in the menu.
+        assert page.get_by_role("button", name="Abmelden", exact=True).is_visible()
+        assert not page.get_by_role("button", name="Überall abmelden", exact=True).is_visible()
+        page.get_by_text("Menü", exact=True).click()
+        page.get_by_role("button", name="Überall abmelden", exact=True).click()
         page.wait_for_url("**/ui/login")
         second.reload()
         second.wait_for_url("**/ui/login")

@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
 {% block title %}Lokaler Chat · Control Deck{% endblock %}
 {% block content %}
-<h1>Lokaler Chat</h1><p class="notice">Nur Ollama. Kein dauerhaft gespeicherter Verlauf. Der Chat kann Entwuerfe erstellen, aber keine Auftraege freigeben, Ergebnisse abnehmen, Wissen exportieren oder den Server steuern.</p>
+<h1>Lokaler Chat</h1><p class="notice">Nur Ollama. Kein dauerhaft gespeicherter Verlauf. Der Chat kann Entwürfe erstellen, aber keine Aufträge freigeben, Ergebnisse abnehmen, Wissen exportieren oder den Server steuern.</p>
 {% if reply %}<section class="panel"><h2>Antwort{% if reply.simulation %} · Simulation{% endif %}</h2><pre>{{ reply.answer }}</pre>
-{% if draft_json %}<form action="/ui/tasks/draft" method="post">{% include 'partials/csrf.html' %}<input type="hidden" name="draft" value="{{ draft_json }}"><button>Entwurf im Auftragsformular pruefen</button></form>{% endif %}</section>{% endif %}
+{% if draft_json %}<form action="/ui/tasks/draft" method="post">{% include 'partials/csrf.html' %}<input type="hidden" name="draft" value="{{ draft_json }}"><button>Entwurf im Auftragsformular prüfen</button></form>{% endif %}</section>{% endif %}
 <form action="/ui/chat" method="post" class="panel form-stack">{% include 'partials/csrf.html' %}
 <label for="prompt">Nachricht</label><textarea id="prompt" name="prompt" required rows="5" maxlength="16000"></textarea>
-{% if choices %}<fieldset><legend>Ausdruecklich gewaehlter Kontext (optional, maximal 4 erledigte Auftraege)</legend>{% for task in choices %}<label class="check"><input type="checkbox" name="context_task" value="{{ task.id }}"> {{ task.payload.title }} · {{ task.data_class.value }}</label>{% endfor %}</fieldset>{% endif %}
-<p class="hint">Nur diese Nachricht und ausgewaehlter Kontext gehen an den lokalen Adapter. Keine automatische Uebernahme in Cloud-Auftraege. Ohne eingerichtetes Live-Profil bleibt der Chat unverfuegbar.</p>
+{% if choices %}<fieldset><legend>Ausdrücklich gewählter Kontext (optional, maximal 4 erledigte Aufträge)</legend>{% for task in choices %}<label class="check"><input type="checkbox" name="context_task" value="{{ task.id }}"> {{ task.payload.title }} · {{ data_class_labels[task.data_class.value] }}</label>{% endfor %}</fieldset>{% endif %}
+<p class="hint">Nur diese Nachricht und ausgewählter Kontext gehen an den lokalen Adapter. Keine automatische Übernahme in Cloud-Aufträge. Ohne eingerichtetes Live-Profil bleibt der Chat unverfügbar.</p>
 <button>Senden</button></form>
 {% endblock %}

@@ -96,7 +96,7 @@ def test_global_logout_revokes_all_browsers_and_audits_once(ui_factory):
     with make_client() as first, make_client() as second:
         csrf = login(first)
         login(second)
-        assert "Ueberall abmelden" in first.get("/ui/tasks").text
+        assert "Überall abmelden" in first.get("/ui/tasks").text
         stale = dict(first.cookies)
         response = first.post("/ui/logout-all", data={"csrf": csrf}, follow_redirects=False)
         assert response.status_code == 303

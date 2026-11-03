@@ -98,3 +98,25 @@ footer { border-top: 1px solid var(--color-line); padding-block: var(--space-5);
   .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 64rem) { .filter-grid { grid-template-columns: 2fr repeat(3, 1fr) auto; } }
+/* Mobile header: three main links stay visible, everything else folds into the menu. */
+.app-header .brand { margin-right: auto; }
+.main-nav { flex-basis: 100%; }
+.menu { position: relative; margin: 0; }
+.menu > summary { list-style: none; display: inline-flex; align-items: center; padding: var(--space-2) var(--space-4); border: 1px solid var(--color-line); border-radius: var(--radius); background: var(--color-raised); font-weight: 650; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: " ▾"; }
+.menu[open] > summary::after { content: " ▴"; }
+.menu-panel { position: absolute; right: 0; left: auto; top: calc(100% + var(--space-2)); z-index: 10; min-width: 14rem; display: grid; gap: var(--space-3); padding: var(--space-3); background: var(--color-panel); border: 1px solid var(--color-line); border-radius: var(--radius); box-shadow: var(--shadow-panel); }
+.menu-panel nav { flex-direction: column; gap: 0; }
+.menu-panel nav a { padding-inline: var(--space-2); }
+.menu-panel form button { width: 100%; margin: 0; }
+@media (min-width: 40rem) { .main-nav { flex-basis: auto; } }
+/* Short form: title and instructions first, everything else folds away. */
+.form-stack > details.more { border: 1px solid var(--color-line); border-radius: var(--radius); padding-inline: var(--space-4); }
+.form-stack > details.more > summary { font-weight: 650; }
+.form-stack > details.more[open] { padding-bottom: var(--space-3); }
+@media (max-width: 39.99rem) {
+  .app-header { gap: var(--space-2) var(--space-3); }
+  .brand { font-size: 1.1rem; }
+  .menu > summary, .app-header .inline-form button { padding-inline: var(--space-3); }
+}

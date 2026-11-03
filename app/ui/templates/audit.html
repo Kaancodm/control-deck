@@ -4,7 +4,7 @@
 <h1>Audit</h1>
 <p>Auftrags-, Betriebs- und Anmeldeereignisse. Nur sichere Metadaten; keine Inhalte oder Zugangsdaten.</p>
 <form method="get" action="/ui/audit" class="filter-grid">
-  <div><label for="audit-source">Quelle</label><select id="audit-source" name="source">{% for value, label in [('all','Alle'),('task','Auftraege'),('operation','Betrieb'),('auth','Anmeldung')] %}<option value="{{ value }}" {% if filters.get('source', 'all') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div><label for="audit-source">Quelle</label><select id="audit-source" name="source">{% for value, label in [('all','Alle'),('task','Aufträge'),('operation','Betrieb'),('auth','Anmeldung')] %}<option value="{{ value }}" {% if filters.get('source', 'all') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
   <div><label for="audit-event">Ereignis</label><select id="audit-event" name="event_type"><option value="">Alle</option>{% for value in event_types %}<option {% if filters.get('event_type') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
   <div><label for="audit-actor">Akteur</label><select id="audit-actor" name="actor"><option value="">Alle</option>{% for value in actors %}<option {% if filters.get('actor') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
   <div><label for="audit-lane">Lane</label><select id="audit-lane" name="lane"><option value="">Alle</option>{% for value in workers %}<option {% if filters.get('lane') == value.value %}selected{% endif %}>{{ value.value }}</option>{% endfor %}</select></div>
@@ -27,9 +27,9 @@
   {% if item.error_code %}<p>Fehler {{ item.error_code.value }}</p>{% endif %}
   {% if item.payload_sha256 %}<p>SHA-256 {{ item.payload_sha256 }}</p>{% endif %}
   {% for name, count in item.counts.items() %}<span>{{ name }}: {{ count }} </span>{% endfor %}
-</li>{% else %}<li>Keine Ereignisse fuer diese Auswahl.</li>{% endfor %}</ol>
+</li>{% else %}<li>Keine Ereignisse für diese Auswahl.</li>{% endfor %}</ol>
 <nav class="pagination" aria-label="Seiten">
-{% if audit.offset > 0 %}<a href="{{ request.url.include_query_params(offset=[0, audit.offset-audit.limit]|max) }}">← Zurueck</a>{% endif %}
+{% if audit.offset > 0 %}<a href="{{ request.url.include_query_params(offset=[0, audit.offset-audit.limit]|max) }}">← Zurück</a>{% endif %}
 {% if audit.offset + audit.limit < audit.total %}<a href="{{ request.url.include_query_params(offset=audit.offset+audit.limit) }}">Weitere →</a>{% endif %}
 </nav>
 {% endblock %}

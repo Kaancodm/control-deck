@@ -57,18 +57,18 @@ def test_knowledge_browser_selection_and_export(
         page.get_by_label("Suchtext", exact=True).fill("Synthetic knowledge")
         page.get_by_label("Datenklasse des Auftrags (Pflicht)").select_option("local_only")
         page.get_by_role("button", name="Erlaubtes Wissen suchen").click()
-        page.get_by_role("link", name="Fuer einen neuen Auftrag auswaehlen").click()
-        assert page.get_by_label(
-            "Ausgewaehlte Wissensreferenzen", exact=False
-        ).input_value() == str(identifier)
+        page.get_by_role("link", name="Für einen neuen Auftrag auswählen").click()
+        assert page.get_by_label("Ausgewählte Wissensreferenzen", exact=False).input_value() == str(
+            identifier
+        )
         page.get_by_label("Titel", exact=True).fill("Knowledge browser task")
         page.get_by_label("Anweisung", exact=True).fill("Produce synthetic text.")
         page.get_by_role("button", name="Auftrag zur Start-Freigabe speichern").click()
-        page.get_by_role("heading", name="Ausgewaehlter Wissens-Kontext").wait_for()
-        page.get_by_text("Pruefsumme und Referenz", exact=True).click()
+        page.get_by_role("heading", name="Ausgewählter Wissens-Kontext").wait_for()
+        page.get_by_text("Prüfsumme und Referenz", exact=True).click()
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         assert page.evaluate("window.contextAttack === undefined")
-        page.get_by_label("Auftrag und Datenklasse geprueft").check()
+        page.get_by_label("Auftrag und Datenklasse geprüft").check()
         page.get_by_role("button", name="Start freigeben", exact=True).click()
         assert (
             HostRunner(factory, runs_root=tmp_path / "runs")
@@ -77,7 +77,7 @@ def test_knowledge_browser_selection_and_export(
             == "completed"
         )
         page.reload()
-        page.get_by_label("Ergebnis geprueft", exact=True).check()
+        page.get_by_label("Ergebnis geprüft", exact=True).check()
         page.get_by_role("button", name="Ergebnis freigeben", exact=True).click()
         with factory() as session:
             assert session.scalar(select(func.count()).select_from(KnowledgeExport)) == 0
@@ -86,7 +86,7 @@ def test_knowledge_browser_selection_and_export(
             "local_only"
         )
         export_form.get_by_role("checkbox").check()
-        export_form.get_by_role("button", name="In Wissen uebernehmen", exact=True).click()
+        export_form.get_by_role("button", name="In Wissen übernehmen", exact=True).click()
         page.get_by_text("Export abgeschlossen", exact=False).wait_for()
         page.wait_for_load_state("load")
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), (

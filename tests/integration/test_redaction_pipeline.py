@@ -98,7 +98,8 @@ def test_persisted_payload_roundtrip_retry_and_artifact_are_consistent(
 
 @pytest.mark.parametrize(
     "task_id,expected_maps",
-    [(UUID(int=1), 1), (UUID("aaaaaaaa-aaaa-4aaa-8aaa-0234567890aa"), 2)],
+    # The payload no longer renders the task ID, so digits in it create no extra map.
+    [(UUID(int=1), 1), (UUID("aaaaaaaa-aaaa-4aaa-8aaa-0234567890aa"), 1)],
     ids=["email-only", "phone-pattern-in-task-id"],
 )
 def test_maps_never_appear_in_owner_task_serialization(

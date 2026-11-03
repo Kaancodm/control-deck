@@ -16,7 +16,7 @@ from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.api.deps import DbSession
-from app.core.schemas import DataClass, Worker
+from app.core.schemas import DataClass, TaskV1, Worker
 from app.db.failures import list_failed_tasks
 from app.db.settings import read_settings, update_settings
 from app.db.state_machine import InvalidTaskTransitionError, TaskState
@@ -28,6 +28,9 @@ from app.db.ui_auth import (
     get_ui_session,
     revoke_ui_session,
 )
+from app.kb.contracts import allowed_classes
+from app.kb.snapshots import load_snapshots
+from app.kb.state import KnowledgeExport
 from app.privacy.config import PrivacyConfigurationError, get_privacy_settings
 from app.routing.config import RouterConfigurationError
 from app.services.tasks import (
@@ -213,7 +216,16 @@ def tasks(request: Request, session: DbSession) -> Response:
 @router.get("/tasks/new")
 def new_task(request: Request, session: DbSession) -> Response:
     owner(request, session)
-    return page(request, "task_form.html", **({"values": {}} | preview_context(request)))
+    values = {}
+    if reference := request.query_params.get("context_ref"):
+        try:
+            if str(UUID(reference)) != reference:
+                raise ValueError
+            classification = DataClass(request.query_params.get("data_class", "local_only"))
+        except ValueError:
+            raise UiError("invalid_context_reference") from None
+        values = {"context_refs": reference, "data_class": classification.value}
+    return page(request, "task_form.html", **({"values": values} | preview_context(request)))
 
 
 @router.get("/failed")
@@ -289,7 +301,24 @@ def detail(request: Request, task_id: UUID, session: DbSession) -> Response:
         text = result.payload.get("output", {}).get("text", "")
         # Stored results are authoritative local text, already restored by worker_ops.
         outputs.append({"result": result, "text": text})
-    return page(request, "task_detail.html", task=task, outputs=outputs)
+    try:
+        contexts = load_snapshots(session, TaskV1.model_validate(task.payload))
+        context_unavailable = False
+    except ValueError:
+        contexts, context_unavailable = (), True
+    export_classes = [
+        value.value for value in DataClass if task.data_class in allowed_classes(value)
+    ]
+    return page(
+        request,
+        "task_detail.html",
+        task=task,
+        outputs=outputs,
+        contexts=contexts,
+        context_unavailable=context_unavailable,
+        export_classes=export_classes,
+        knowledge_export=session.get(KnowledgeExport, task.id),
+    )
 
 
 @router.get("/tasks/{task_id}/timeline")

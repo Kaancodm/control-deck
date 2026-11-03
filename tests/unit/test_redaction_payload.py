@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -136,6 +136,37 @@ def test_cloud_ok_clean_text_keeps_its_bytes(settings: PrivacySettings) -> None:
     assert "ordinary text\nsecond line" in built.text
     assert built.applied is False and built.placeholders == 0
     assert built.sha256 == hashlib.sha256(built.text.encode()).hexdigest()
+
+
+@pytest.mark.parametrize("data_class", ["cloud_ok", "cloud_redacted"])
+@pytest.mark.parametrize("lane", [Worker.CLAUDE, Worker.CODEX])
+def test_internal_task_id_cannot_be_mistaken_for_payload_personal_data(
+    settings: PrivacySettings, data_class: str, lane: Worker
+) -> None:
+    task_id = UUID("aaaaaaaa-bbbb-4ccc-8ddd-0791234567ab")
+    task = _task(task_id=task_id, data_class=data_class)
+
+    built = build_payload(task, lane=lane, settings=settings)
+
+    assert built.text.startswith("# Task\n")
+    assert str(task_id) not in built.text
+    assert task.task_id == task_id
+    assert built.applied is False and built.placeholders == 0
+
+
+def test_uuid_shaped_user_content_still_passes_through_privacy_checks(
+    settings: PrivacySettings,
+) -> None:
+    content = "aaaaaaaa-bbbb-4ccc-8ddd-0791234567ab"
+    with pytest.raises(PrivacyInputError):
+        build_payload(
+            _task(data_class="cloud_ok", instructions=content),
+            lane=Worker.CODEX,
+            settings=settings,
+        )
+    built = build_payload(_task(instructions=content), lane=Worker.CODEX, settings=settings)
+    assert content not in built.text
+    assert built.applied is True and built.placeholders == 1
 
 
 @pytest.mark.parametrize(

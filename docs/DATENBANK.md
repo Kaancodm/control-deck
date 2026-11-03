@@ -223,3 +223,17 @@ gueltige, nicht widerrufene Owner-Sessions; vorher muessen diese widerrufen werd
 
 Die Migration veraendert keine Task-/Result-Schemas und setzt keinen `data_class`-Default.
 Details: [UI.md](UI.md).
+
+## Wissenszustand (Etappe 14)
+
+Migration `0013` ergaenzt lokale `task_context_snapshots` und `knowledge_exports`.
+Snapshots binden den Auftrag an unveraenderliche UTF-8-Bytes, ausdrueckliche Datenklasse und
+SHA-256. Updates sind durch einen DB-Trigger gesperrt; eine spaetere Retention darf alte
+terminale Tasks ohne Lease beruecksichtigen. Exportbelege bleiben erhalten und erlauben die
+idempotente Wiederaufnahme nach einem Fehler zwischen Host-DB und Wissens-DB. Ein Downgrade
+mit vorhandenen Snapshots oder Exportbelegen wird abgewiesen.
+
+Der vorgeschlagene Vertrag `deck_kb.v1` verwendet eine eigene Alembic-Kette und eine separate
+`_test`-Datenbank mit pgvector. Er aendert keine bestehenden Wissens-Tabellen und bestaetigt
+keine Kompatibilitaet einer produktiven Wissens-DB. Alle Datenklassen sind Pflichtfelder ohne
+DB-Default. Einzelheiten: [WISSENS_DB.md](WISSENS_DB.md).

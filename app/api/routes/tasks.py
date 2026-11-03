@@ -33,6 +33,8 @@ from app.db.models import Task
 from app.db.queue import expire_overdue_tasks, expire_task_if_due
 from app.db.routing import routing_snapshot
 from app.db.state_machine import InvalidTaskTransitionError, TaskState
+from app.kb.contracts import KnowledgeError
+from app.kb.snapshots import resolve_submission_contexts
 from app.privacy.config import PrivacyConfigurationError
 from app.privacy.gate import (
     PrivacyInputError,
@@ -56,6 +58,14 @@ def create_task(
     """Validate ``task.v1``, persist awaiting approval, and record audit events."""
     try:
         task = submit_task(session, body)
+    except KnowledgeError as exc:
+        session.rollback()
+        return problem_response(
+            status=422,
+            title="Knowledge context unavailable",
+            detail="The knowledge context could not be validated.",
+            errors=[{"code": exc.code}],
+        )
     except RouterConfigurationError:
         session.rollback()
         return _routing_unavailable()
@@ -124,15 +134,24 @@ def dry_run_task(
         if validate_task(data):
             raise ValueError("Invalid task payload")
         task = TaskV1.model_validate(data)
+        contexts = resolve_submission_contexts(task)
         config = get_router_config()
         snapshot = routing_snapshot(session)
         if deadline_at is not None and deadline_at <= snapshot.now:
             raise ValueError("Deadline elapsed")
-        gate = inspect_task(task)
+        gate = inspect_task(task, contexts=contexts)
         if gate.has_secrets:
             raise PrivacyViolation(gate)
         plan = route_task(
             task, config=config, usage=snapshot.usage, budget_date=snapshot.budget_date
+        )
+    except KnowledgeError as exc:
+        session.rollback()
+        return problem_response(
+            status=422,
+            title="Knowledge context unavailable",
+            detail="The knowledge context could not be validated.",
+            errors=[{"code": exc.code}],
         )
     except RouterConfigurationError:
         return _routing_unavailable()
@@ -304,6 +323,14 @@ def approve_task_endpoint(
             title="Task input temporarily unavailable",
             detail="Approval was deferred; restore the attachment and retry.",
             errors=[{"code": exc.code, "source": exc.source}],
+        )
+    except KnowledgeError as exc:
+        session.rollback()
+        return problem_response(
+            status=422,
+            title="Knowledge context unavailable",
+            detail="The knowledge context could not be validated.",
+            errors=[{"code": exc.code}],
         )
     except RouterConfigurationError:
         session.rollback()

@@ -82,8 +82,9 @@ def _task(
     text: str = "ordinary synthetic text",
     acceptance=None,
     max_attempts: int = 3,
+    task_id: UUID | None = None,
 ) -> UUID:
-    payload = _minimal_task_payload(uuid4(), max_attempts=max_attempts)
+    payload = _minimal_task_payload(task_id or uuid4(), max_attempts=max_attempts)
     payload["fallback_chain"] = ["codex", "ollama"]
     payload["data_class"] = data_class
     payload["instructions"] = text
@@ -206,6 +207,32 @@ def test_only_redacted_archived_bytes_cross_the_codex_process_boundary(
     events = list(db_session.scalars(select(Event.detail).where(Event.task_id == task_id)))
     assert original not in json.dumps(events)
     assert original not in (directory / "codex.log").read_text()
+
+
+@pytest.mark.parametrize("data_class", ["cloud_ok", "cloud_redacted"])
+def test_phone_shaped_internal_id_does_not_block_a_clean_codex_attempt(
+    db_session, tmp_path, process_calls, data_class
+):
+    task_id = _task(
+        db_session,
+        task_id=UUID("aaaaaaaa-bbbb-4ccc-8ddd-0791234567ab"),
+        data_class=data_class,
+    )
+
+    outcome = _runner(db_session, tmp_path, _executor()).run_once()
+
+    assert outcome.action == "completed"
+    assert outcome.status == "review"
+    assert outcome.task_id == task_id
+    assert outcome.attempt == 1
+    assert len(_runs(process_calls)) == 1
+    archived = (tmp_path / "runs" / str(task_id) / "1" / "payload.sent.md").read_bytes()
+    assert str(task_id).encode() not in archived
+    assert _runs(process_calls)[0][1]["input_bytes"] == archived
+    result = _stored(db_session, task_id)
+    assert result["task_id"] == str(task_id)
+    assert result["redaction"] == {"applied": False, "placeholders": 0}
+    assert result["payload_hash"] == hashlib.sha256(archived).hexdigest()
 
 
 def test_local_only_is_skipped_while_codex_executes_the_next_cloud_task(

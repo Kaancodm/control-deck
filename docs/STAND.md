@@ -317,3 +317,41 @@ Echte Logins, CLI-/Modellaufrufe, Anbieter-Kontingente und Serverinstallation we
 getestet oder ausgefuehrt. Dafuer erforderliche Pruefungen bleiben in jedem Etappen-PR
 explizit als Inbetriebnahme offen. Die lokalen Pflichtchecks verwenden nur Simulationen
 und isolierte Testdatenbanken.
+
+## Etappe 14: implementiert und vollstaendig lokal geprueft
+
+Draft-PR [#29](https://github.com/Kaancodm/control-deck/pull/29), Branch `stage/14-knowledge`.
+Elternbasis: finaler Etappe-13-Head `aa95b47c4b07f46b41adbdfeb79a046cc2766f15`, CI gruen.
+Der Rebase uebernimmt die Korrektur des historischen UI-Migrationstests: dieser prueft
+Revision `0012` ausdruecklich, statt spaetere KB-Tabellen faelschlich ihr zuzuordnen.
+
+Umgesetzt: eigener versionierter `deck_kb.v1`-Testvertrag, pgvector mit Klassenfilter vor
+Rangfolge, unveraenderliche Dokumente und Kontext-Snapshots, ausdrueckliche Datenklassen,
+lokale Fake-Embeddings, Freigabe-Hashes und wiederaufnehmbare explizite Owner-Exporte.
+Owner-API und UI bieten Suche, Kontextvorschau, Export aus `done` mit CSRF/Bestaetigung
+und sicheren Inbox-Import. Keine KB-Aufrufe unter Task-/Lease-Locks.
+
+Frische Pflichtchecks vom 2026-11-03 auf Code-Stand `6b9d470`: **1991 Tests bestanden**,
+keine Skips oder xfail; eine bestehende Starlette/httpx-Deprecation-Warnung.
+`make lint`, zentraler Alembic-Check und separate KB-Migration samt Check sind gruen.
+`make reference` und Ollama-Fake-CLI-Referenzmodus: jeweils **4/4**. Hook-Pruefungen gruen.
+Echte Chromium-Laeufe bei 390 Pixeln mit und 1024 Pixeln ohne JavaScript sind enthalten.
+Zentrale und KB-Testdatenbank sind getrennte isolierte PostgreSQL-17-/pgvector-Datenbanken.
+Der folgende Commit aendert ausschliesslich Dokumentation; finale Head-SHA und dessen CI
+werden im PR ausgewiesen. Externes Review bleibt offen, der PR bleibt Draft. Kein Merge.
+
+Die Schlusspruefung identifizierte eine gemeinsame Fehlerursache frueherer sporadischer
+Codex-`idle`-Fehler: Die generierte Task-UUID im Prompt konnte wie eine Telefonnummer
+aussehen. Die Datengrenze blockierte dann einen sauberen Cloud-Auftrag oder erzeugte eine
+unnoetige Redaktionsabbildung. Interne IDs bleiben nun in den strukturierten Daten und
+Archivpfaden; die generierte Prompt-Ueberschrift enthaelt sie nicht mehr. Der vollstaendige
+Scanner bleibt unveraendert. Sechs feste Regressionen scheiterten vor der Korrektur;
+anschliessend bestanden alle 62 betroffenen Tests und der obige Gesamtlauf. Derselbe
+Zahlenblock in Nutzertext wird weiterhin blockiert beziehungsweise redigiert.
+
+### Inbetriebnahme
+
+Produktive Schema-Kompatibilitaet, Schreibrechte, echtes lokales Embedding-Modell und
+Dimension sowie semantische Suchqualitaet bleiben offen. Das Live-Profil ist gesperrt.
+Keine echten Logins, API-Keys, Anbieteraufrufe, Serveraenderungen oder neuen inhaltlichen
+Referenzfaelle. Details: [WISSENS_DB.md](WISSENS_DB.md).

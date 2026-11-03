@@ -15,7 +15,14 @@ from app.db.models import Event, Result, Task
 from app.db.routing import persist_task_route
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import TransitionActor, transition_task
-from app.privacy.gate import PrivacyInputUnavailable, inspect_stored_task, validate_submission
+from app.kb.snapshots import (
+    inspect_with_snapshots,
+    load_snapshots,
+    resolve_submission_contexts,
+    snapshot_digests,
+    store_snapshots,
+)
+from app.privacy.gate import PrivacyInputUnavailable, validate_submission
 from app.routing.config import get_router_config
 
 _GATE_ERROR_COOLDOWN = timedelta(seconds=60)
@@ -23,10 +30,11 @@ _GATE_ERROR_COOLDOWN = timedelta(seconds=60)
 
 def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
     """Insert a task awaiting owner approval derived from a validated ``TaskV1`` model."""
+    contexts = resolve_submission_contexts(task_v1)
     existing = session.get(Task, task_v1.task_id)
     if existing is not None:
         return existing
-    gate = validate_submission(task_v1)
+    gate = validate_submission(task_v1, contexts=contexts)
     routing_config = get_router_config()
     payload = task_v1.model_dump(mode="json")
     task = Task(
@@ -40,6 +48,7 @@ def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
     )
     session.add(task)
     session.flush()
+    store_snapshots(session, task_v1, contexts)
     transition_task(
         session,
         task=task,
@@ -76,11 +85,12 @@ def create_task_from_api_payload(
         raise ValueError(issues)
 
     task_v1 = TaskV1.model_validate(data)
+    contexts = resolve_submission_contexts(task_v1)
     if deadline_at is not None and session.scalar(
         select(literal(deadline_at) <= func.clock_timestamp())
     ):
         raise ValueError("deadline_at must be in the future")
-    gate = validate_submission(task_v1)
+    gate = validate_submission(task_v1, contexts=contexts)
     routing_config = get_router_config()
     row = Task(
         id=task_v1.task_id,
@@ -94,6 +104,7 @@ def create_task_from_api_payload(
     )
     session.add(row)
     session.flush()
+    store_snapshots(session, task_v1, contexts)
     transition_task(
         session,
         task=row,
@@ -119,7 +130,7 @@ def approve_task(session: Session, task: Task) -> None:
         raise ValueError(f"task {task.id} is not awaiting approval")
     routing_config = get_router_config()
     try:
-        inspection = inspect_stored_task(task.payload)
+        inspection = inspect_with_snapshots(session, task.payload)
     except PrivacyInputUnavailable as exc:
         record_gate_error(session, task=task, error=exc, actor=TransitionActor.OPERATOR)
         raise
@@ -144,6 +155,9 @@ def approve_task(session: Session, task: Task) -> None:
         trigger=TaskTransition.APPROVE,
         detail={
             "source": "api",
+            "context_hashes": snapshot_digests(
+                load_snapshots(session, TaskV1.model_validate(task.payload))
+            ),
             "file_hashes": [
                 {"input_index": item.input_index, "sha256": item.sha256}
                 for item in inspection.file_hashes

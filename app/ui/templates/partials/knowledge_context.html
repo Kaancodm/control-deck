@@ -1,0 +1,6 @@
+{% if contexts %}<section class="panel"><h2>Ausgewaehlter Wissens-Kontext</h2>
+<p>Diese unveraenderlichen Inhalte gehoeren zur Start-Freigabe und werden vor jedem Versand erneut geprueft.</p>
+{% for context in contexts %}<h3>{{ context.data_class.value }}</h3><pre>{{ context.text }}</pre>
+<details><summary>Pruefsumme und Referenz</summary><pre>{{ context.reference }}
+{{ context.sha256 }}</pre></details>{% endfor %}
+</section>{% elif context_unavailable %}<p class="notice">Der vollstaendige Wissens-Kontext ist nicht verfuegbar. Eine Freigabe oder Ausfuehrung wird abgewiesen.</p>{% endif %}

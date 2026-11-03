@@ -216,3 +216,23 @@ export DECK_WORKER_TOKEN_CODEX='dev-codex-token'
 export DECK_OWNER_TOKEN='dev-owner-token'
 uv run pytest tests/integration/test_api.py -v
 ```
+
+## Wissens-Kontext und expliziter Export (Etappe 14)
+
+Alle folgenden Endpunkte verlangen Owner-Authentifizierung. Worker-Tokens genuegen nicht.
+
+| Endpunkt | Vertrag |
+|---|---|
+| `POST /api/v1/knowledge/search` | Body `query`, ausdrueckliches `data_class`, optional `limit` (1 bis 16). Klassenfilter wirkt vor der Vektorrangfolge. |
+| `GET /api/v1/tasks/{id}/contexts` | Unveraenderliche lokale Kontext-Snapshots mit Referenz, Klasse, Text und SHA-256; vor Start-Freigabe einsehbar. |
+| `POST /api/v1/tasks/{id}/export` | Body `data_class` ist Pflicht. Nur `done`, nur gleiche oder strengere Klasse; eigener Owner-Entscheid auch nach automatischem `done`. |
+
+`context_refs` akzeptiert kanonische Dokument-UUIDs. Die Aufloesung und Datenschranke erfolgen
+vor Speicherung. Fehlende, unzulaessige oder zu grosse Kontexte werden abgewiesen. `task.v1`
+bleibt unveraendert; lokale Snapshots und Freigabe-Digests liegen ausserhalb des Payloads.
+Worker erhalten ausschliesslich den geprueften Versandtext. Exportfehler lassen einen
+wiederaufnehmbaren Entscheid bestehen; derselbe Request erzeugt kein zweites Dokument.
+
+Aktuell ist nur das ausdrueckliche KB-Simulationsprofil auf einer isolierten Test-DB verfuegbar.
+Echter KB-Vertrag, Schreibrechte und lokales Embedding-Modell bleiben **Inbetriebnahme**.
+Details und Limits: [WISSENS_DB.md](WISSENS_DB.md).

@@ -6,10 +6,11 @@ import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from app.core.schemas import TaskV1
 from app.core.validate import validate_task
+from app.kb.snapshots import resolve_submission_contexts
 from app.privacy.gate import validate_submission
 from app.ui.files import Upload
 
@@ -22,6 +23,18 @@ class FormError(ValueError):
 
 def _workers(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def _context_refs(value: str) -> list[dict[str, str]]:
+    if len(value) > 1024:
+        raise FormError("invalid_context_references")
+    references = value.split()
+    if len(references) > 16 or len(set(references)) != len(references):
+        raise FormError("invalid_context_references")
+    for reference in references:
+        if str(UUID(reference)) != reference:
+            raise FormError("invalid_context_references")
+    return [{"source": "knowledge_db", "ref": reference} for reference in references]
 
 
 def task_from_form(values: Mapping[str, str], uploads: Sequence[Upload] = ()) -> TaskV1:
@@ -47,7 +60,7 @@ def task_from_form(values: Mapping[str, str], uploads: Sequence[Upload] = ()) ->
             "title": values.get("title", ""),
             "instructions": values.get("instructions", ""),
             "inputs": inputs,
-            "context_refs": [],
+            "context_refs": _context_refs(values.get("context_refs", "")),
             "data_class": data_class,
             "policy": {
                 "allowed_workers": _workers(values.get("allowed_workers", "")) or None,
@@ -63,7 +76,7 @@ def task_from_form(values: Mapping[str, str], uploads: Sequence[Upload] = ()) ->
         if validate_task(payload):
             raise FormError()
         task = TaskV1.model_validate(payload)
-        validate_submission(task)
+        validate_submission(task, contexts=resolve_submission_contexts(task))
         return task
     except (ValueError, TypeError, UnicodeError) as exc:
         if isinstance(exc, FormError):

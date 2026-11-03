@@ -1,6 +1,6 @@
 # Stand des Repositorys
 
-## Etappe 17: Integration in Arbeit
+## Etappe 17 implementiert und lokal geprueft
 
 Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.
 Migration `0016` zaehlt ausschliesslich endgueltig angenommene Ergebnisse, atomar mit
@@ -15,16 +15,20 @@ gueltige Session erlauben Gesundheitsdetails; anonym bleibt nur der Minimalstatu
 Die Session gilt nun fuer den Root-Pfad, CSRF bleibt auf `/ui`; alte Session-Cookies
 werden beim Setzen und Abmelden entfernt. Schreib-APIs erhalten keine Session-Rechte.
 
-147 gezielte Zaehler-/UI-/Health-/Audit-/Cookie-Tests bestehen. Anschliessend bestehen
-27 UI-/Health-/Browser-Tests einschliesslich unklassifiziertem Fehlerzustand und echten
-Chromium-Smokes: Audit-Filter, Seitenwechsel, CSV, Warnband, Session-Health und Logout
-bei 390 Pixeln mit JavaScript sowie 1024 Pixeln ohne JavaScript. `make lint` ist gruen.
-Weitere 13 Zaehler-/Browser-Tests und 27 Health-/UI-Tests bestaetigen getrennte konkurrierende
-Ergebnisse, Schemaabweichungen und ungueltige Steuerung. Zentrale und KB-Migrationspruefung
-sowie beide Referenzmodi mit je 4/4 bestehen. Das sind keine Gesamt-Testzahlen.
-Finaler Eltern-Rebase und vollstaendige Pflichtchecks/CI
-stehen noch aus. Der Abnahme-Entwurf aus Checkpoint `a2e6ff3` liegt unveraendert unter
-`docs/ABNAHME_CHECKLISTE_ENTWURF.md`; Etappe 18 wird damit nicht gestartet.
+Pflichtchecks auf isolierten PostgreSQL-17-Testdatenbanken: **2292 Tests bestanden**,
+keine xfail oder Skips. Darin enthalten sind **118 neue Etappe-17-Tests** (52 Integration,
+66 Unit), einschliesslich echter Chromium-Smokes bei 390 Pixeln mit JavaScript und
+1024 Pixeln ohne JavaScript. Geprueft sind Audit-Filter, Seitenwechsel, CSV, Warnband,
+Session-Health, Logout, unklassifizierte Fehler, konkurrierende Ergebnisse und sichere
+Fehlerantworten. `make lint`, zentrale und KB-Alembic-Pruefung, beide Referenzmodi mit
+je **4/4** sowie beide Hook-Suites sind gruen. Eine bestehende Starlette/httpx-Warnung.
+
+Die Vollsuite lief auf `44a22c5`. Der anschliessende Eltern-Rebase auf den finalen
+Etappe-16-Head `a22149b` aenderte ausschliesslich `docs/STAND.md`; Anwendung, Migrationen
+und Tests sind identisch. CI des finalen Heads steht im PR. Der Abnahme-Entwurf aus
+Checkpoint `a2e6ff3` liegt unveraendert unter `docs/ABNAHME_CHECKLISTE_ENTWURF.md`;
+Etappe 18 wird damit nicht gestartet. Externes Review durch einen anderen Anbieter
+und Owner-Merge bleiben ausstehend.
 
 ### Inbetriebnahme
 

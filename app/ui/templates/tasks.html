@@ -3,29 +3,39 @@
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">Arbeitsuebersicht</p><h1>Auftraege</h1></div>
 <a class="button" href="/ui/tasks/new">＋ Neuer Auftrag</a></div>
+<section id="waiting-tasks" class="priority-section" aria-labelledby="waiting-heading">
+  <div class="section-heading"><h2 id="waiting-heading">Wartet auf dich <span class="count">{{ waiting_total }}</span></h2></div>
+  <p class="hint">Offene Start- und Ergebnis-Freigaben aus allen Auftraegen, unabhaengig von den Filtern unten.</p>
+  <div class="task-grid">
+  {% for task in waiting %}{% with needs_owner=true %}{% include 'partials/task_card.html' %}{% endwith %}
+  {% else %}<p class="panel">{% if waiting_total %}Keine Freigaben auf dieser Seite.{% else %}Keine offenen Start- oder Ergebnis-Freigaben.{% endif %}</p>{% endfor %}
+  </div>
+  <nav class="pagination" aria-label="Freigabeseiten">
+    {% if waiting_offset > 0 %}<a href="{{ request.url.include_query_params(waiting_offset=[0, waiting_offset-50]|max) }}#waiting-tasks">← Zurueck zu Freigaben</a>{% endif %}
+    {% if waiting_offset + 50 < waiting_total %}<a href="{{ request.url.include_query_params(waiting_offset=waiting_offset+50) }}#waiting-tasks">Weitere Freigaben →</a>{% endif %}
+  </nav>
+</section>
+<section aria-labelledby="tasks-heading">
+<h2 id="tasks-heading">Auftraege filtern</h2>
 <nav class="tabs" aria-label="Auftragsansichten">
   <a href="/ui/tasks?state=awaiting_approval">Start-Freigaben</a><a href="/ui/tasks?state=review">Ergebnis-Reviews</a>
   <a href="/ui/tasks?state=blocked">Blockiert</a><a href="/ui/failed">Fehlgeschlagen</a><a href="/ui/tasks">Alle</a>
 </nav>
 <form method="get" action="/ui/tasks" class="panel filter-grid">
   <div><label for="search">Titel suchen</label><input id="search" name="search" value="{{ filters.get('search','') }}" maxlength="120"></div>
-  <div><label for="state">Status</label><select id="state" name="state"><option value="">Alle</option>{% for value in states %}<option value="{{ value.value }}" {% if filters.get('state') == value.value %}selected{% endif %}>{{ status_labels[value.value][1] }}</option>{% endfor %}</select></div>
+  <div><label for="state">Task-Zustand</label><select id="state" name="state"><option value="">Alle</option>{% for value in states %}<option value="{{ value.value }}" {% if filters.get('state') == value.value %}selected{% endif %}>{{ status_labels[value.value][1] }}</option>{% endfor %}</select></div>
   <div><label for="data_class">Datenklasse</label><select id="data_class" name="data_class"><option value="">Alle</option>{% for value in classes %}<option {% if filters.get('data_class') == value.value %}selected{% endif %}>{{ value.value }}</option>{% endfor %}</select></div>
   <div><label for="lane">Lane</label><select id="lane" name="lane"><option value="">Alle</option>{% for worker in workers %}<option {% if filters.get('lane') == worker.value %}selected{% endif %}>{{ worker.value }}</option>{% endfor %}</select></div>
   <button type="submit">Filtern</button>
 </form>
 <p>{{ total }} Auftraege · Seite {{ offset // 50 + 1 }}</p>
 <section class="task-grid" aria-label="Auftragsliste">
-{% for task in tasks %}<article class="panel task-card">
-  {% include 'partials/status.html' %}
-  <h2><a href="/ui/tasks/{{ task.id }}">{{ task.payload.title }}</a></h2>
-  <p>{{ task.data_class.value }} · Lane {{ task.lane or 'offen' }} · Versuch {{ task.attempt }}</p>
-  {% if task.deadline_at %}<p>Owner-Deadline: {{ task.deadline_at.isoformat() }}</p>{% endif %}
-  {% if task.next_attempt_at %}<p>Naechster Versuch ab {{ task.next_attempt_at.isoformat() }}</p>{% endif %}
-</article>{% else %}<p class="panel">Keine passenden Auftraege.</p>{% endfor %}
+{% for task in tasks %}{% with needs_owner=false %}{% include 'partials/task_card.html' %}{% endwith %}
+{% else %}<p class="panel">Keine passenden Auftraege.</p>{% endfor %}
 </section>
 <nav class="pagination" aria-label="Seiten">
-{% if offset > 0 %}<a href="{{ request.url.include_query_params(offset=offset-50) }}">← Zurueck</a>{% endif %}
+{% if offset > 0 %}<a href="{{ request.url.include_query_params(offset=[0, offset-50]|max) }}">← Zurueck</a>{% endif %}
 {% if offset + 50 < total %}<a href="{{ request.url.include_query_params(offset=offset+50) }}">Weitere →</a>{% endif %}
 </nav>
+</section>
 {% endblock %}

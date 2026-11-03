@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from uuid import UUID
 
@@ -15,14 +16,16 @@ from sqlalchemy.orm import sessionmaker
 from app.api.app import create_app
 from app.api.deps import get_db
 from app.core.schemas import Worker
-from app.db.models import Event, Task
+from app.db.models import Event, Result, Task
 from app.db.state_machine import TaskState
 from app.db.ui_auth import UiSession
 from app.redaction.placeholders import PLACEHOLDER_PATTERN
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.ui.chat import SimulatedChat
+from app.ui.forms import task_from_form
 from app.workers.runner import HostRunner
 from app.workers.runner_main import SimulationExecutor
+from tests.integration.test_data_gate import privacy_paths as privacy_paths
 
 PASSWORD = "synthetic-ui-owner-password"
 
@@ -158,10 +161,10 @@ def test_full_owner_workflow_with_simulated_host_runner(ui_client, db_session, t
     location = create(ui_client, csrf)
     task_id = UUID(location.rsplit("/", 1)[1])
     assert db_session.get(Task, task_id).status == TaskState.AWAITING_APPROVAL
-    assert (
-        ui_client.post(location + "/approve", data={"csrf": csrf, "confirm": "yes"}).status_code
-        == 200
+    response = ui_client.post(
+        location + "/approve-start", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False
     )
+    assert response.status_code == 303 and response.headers["location"] == location
     factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
     runner = HostRunner(factory, runs_root=tmp_path / "runs")
     outcome = runner.run_once(Worker.OLLAMA, SimulationExecutor(Worker.OLLAMA))
@@ -170,14 +173,16 @@ def test_full_owner_workflow_with_simulated_host_runner(ui_client, db_session, t
     assert db_session.get(Task, task_id).status == TaskState.REVIEW
     page = ui_client.get(location)
     assert "simulation-ok" in page.text and "task.succeed" in page.text
+    assert "status-review" in page.text and "result-succeeded" in page.text
+    assert "noch nicht erledigt" in page.text
     artifact = ui_client.get(location + "/payload/1")
     assert artifact.status_code == 200
     assert artifact.headers["content-type"].startswith("text/plain")
     assert artifact.headers["cache-control"] == "no-store"
-    assert (
-        ui_client.post(location + "/accept", data={"csrf": csrf, "confirm": "yes"}).status_code
-        == 200
+    response = ui_client.post(
+        location + "/approve-result", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False
     )
+    assert response.status_code == 303 and response.headers["location"] == location
     db_session.expire_all()
     assert db_session.get(Task, task_id).status == TaskState.DONE
     assert (
@@ -259,13 +264,21 @@ def test_rejected_upload_leaves_no_private_file(ui_client, tmp_path):
 def test_chat_draft_is_not_a_task_until_explicit_submit(ui_client, db_session):
     csrf = login(ui_client)
     response = ui_client.post(
-        "/ui/chat", data={"csrf": csrf, "prompt": "DRAFT Produce synthetic text."}
+        "/ui/chat",
+        data={"csrf": csrf, "prompt": "DRAFT Produce synthetic text."},
+        follow_redirects=False,
     )
+    assert response.status_code == 303
+    response = ui_client.get(response.headers["location"])
     assert response.status_code == 200 and "Simulation" in response.text
     assert db_session.scalar(select(func.count()).select_from(Task)) == 0
     assert db_session.scalar(select(func.count()).select_from(Event)) == 0
     draft = Inputs(response.text).inputs["draft"]
-    preview = ui_client.post("/ui/tasks/draft", data={"csrf": csrf, "draft": draft})
+    preview = ui_client.post(
+        "/ui/tasks/draft", data={"csrf": csrf, "draft": draft}, follow_redirects=False
+    )
+    assert preview.status_code == 303
+    preview = ui_client.get(preview.headers["location"])
     assert preview.status_code == 200 and "Unverbindlicher Chat-Entwurf" in preview.text
     assert db_session.scalar(select(func.count()).select_from(Task)) == 0
     location = create(ui_client, csrf, instructions=json.loads(draft)["instructions"])
@@ -466,3 +479,213 @@ def test_authoritative_restored_result_and_model_html_remain_escaped(
     assert "<mark" not in page.text
     assert "<script>alert(1)</script>" not in page.text
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page.text
+
+
+def seed_list_task(db_session, title, state, *, lane="ollama", data_class="local_only", **fields):
+    envelope = task_from_form(
+        form_data("", title=title, data_class=data_class, cloud_confirm="yes")
+    )
+    task = Task(
+        id=envelope.task_id,
+        payload=envelope.model_dump(mode="json"),
+        data_class=envelope.data_class,
+        status=state,
+        lane=lane,
+        **fields,
+    )
+    db_session.add(task)
+    db_session.flush()
+    return task
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("state=review", ["Review alpha"]),
+        ("lane=claude", ["Cloud beta"]),
+        ("data_class=cloud_ok", ["Cloud beta"]),
+        ("search=ALPHA", ["Review alpha"]),
+        ("search=%25_", ["Literal %_ title"]),
+        ("state=queued&lane=claude&data_class=cloud_ok&search=beta", ["Cloud beta"]),
+        ("state=review&lane=claude", []),
+    ],
+)
+def test_task_filters_are_applied_together_on_the_server(
+    ui_client, db_session, privacy_paths, query, expected
+):
+    login(ui_client)
+    seed_list_task(db_session, "Review alpha", TaskState.REVIEW)
+    seed_list_task(db_session, "Cloud beta", TaskState.QUEUED, lane="claude", data_class="cloud_ok")
+    seed_list_task(db_session, "Literal %_ title", TaskState.QUEUED)
+    db_session.commit()
+    response = ui_client.get("/ui/tasks?" + query)
+    assert response.status_code == 200
+    assert sorted(task.payload["title"] for task in response.context["tasks"]) == expected
+    assert response.context["total"] == len(expected)
+    assert response.context["waiting_total"] == 1
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "state=invalid",
+        "lane=invalid",
+        "data_class=invalid",
+        "offset=-1",
+        "offset=no",
+        "waiting_offset=-1",
+        "waiting_offset=no",
+        "search=" + "a" * 121,
+    ],
+)
+def test_invalid_task_filters_are_rejected(ui_client, query):
+    login(ui_client)
+    assert ui_client.get("/ui/tasks?" + query).status_code == 422
+
+
+def test_waiting_section_only_contains_owner_approvals_regardless_of_filters(ui_client, db_session):
+    login(ui_client)
+    for state in TaskState:
+        seed_list_task(
+            db_session,
+            "State " + state.value,
+            state,
+            cancel_requested=state == TaskState.RUNNING,
+        )
+    db_session.commit()
+    response = ui_client.get("/ui/tasks?state=failed&search=missing&offset=50")
+    assert response.status_code == 200
+    assert response.context["tasks"] == []
+    assert {task.status for task in response.context["waiting"]} == {
+        TaskState.AWAITING_APPROVAL,
+        TaskState.REVIEW,
+    }
+    assert response.context["waiting_total"] == 2
+    assert response.text.index("Wartet auf dich") < response.text.index('class="tabs"')
+    all_tasks = ui_client.get("/ui/tasks")
+    assert "Abbruch angefordert" in all_tasks.text
+    assert "Historisch erfolgreich" in all_tasks.text
+
+
+def test_waiting_and_filtered_pages_have_independent_counts_and_links(ui_client, db_session):
+    login(ui_client)
+    now = datetime.now(UTC)
+    for index in range(51):
+        seed_list_task(
+            db_session,
+            f"Approval {index}",
+            TaskState.AWAITING_APPROVAL,
+            created_at=now - timedelta(seconds=index + 60),
+        )
+        seed_list_task(
+            db_session,
+            f"Running {index}",
+            TaskState.RUNNING,
+            created_at=now - timedelta(seconds=index),
+        )
+    db_session.commit()
+    first = ui_client.get("/ui/tasks?state=running&lane=ollama")
+    assert first.context["waiting_total"] == first.context["total"] == 51
+    assert len(first.context["waiting"]) == len(first.context["tasks"]) == 50
+    assert "state=running&amp;lane=ollama&amp;waiting_offset=50" in first.text
+    assert "state=running&amp;lane=ollama&amp;offset=50" in first.text
+    second = ui_client.get("/ui/tasks?state=running&lane=ollama&offset=50&waiting_offset=50")
+    assert len(second.context["waiting"]) == len(second.context["tasks"]) == 1
+    assert not (
+        {task.id for task in first.context["waiting"]}
+        & {task.id for task in second.context["waiting"]}
+    )
+    beyond = ui_client.get("/ui/tasks?waiting_offset=100")
+    assert "Keine Freigaben auf dieser Seite" in beyond.text
+    assert "Keine offenen Start- oder Ergebnis-Freigaben" not in beyond.text
+
+
+def test_list_and_detail_show_latest_and_historical_result_states_separately(ui_client, db_session):
+    login(ui_client)
+    task = seed_list_task(db_session, "Review with attempts", TaskState.REVIEW, attempt=2)
+    for attempt, state in ((2, "succeeded"), (1, "failed")):
+        db_session.add(
+            Result(
+                task_id=task.id,
+                attempt=attempt,
+                payload={
+                    "schema_version": "result.v1",
+                    "task_id": str(task.id),
+                    "attempt": attempt,
+                    "status": state,
+                    "output": {"text": "Synthetic output"},
+                },
+            )
+        )
+    db_session.commit()
+    listing = ui_client.get("/ui/tasks")
+    assert "status-review" in listing.text and "result-succeeded" in listing.text
+    assert "result-failed" not in listing.text
+    detail = ui_client.get(f"/ui/tasks/{task.id}")
+    assert "status-review" in detail.text
+    assert "result-succeeded" in detail.text and "result-failed" in detail.text
+
+
+@pytest.mark.parametrize(
+    "action", ["approve-start", "approve-result", "approve", "accept", "reject", "cancel"]
+)
+@pytest.mark.parametrize("bad_csrf", ["", "forged", "other-session"])
+def test_all_task_posts_require_session_bound_csrf(ui_client, db_session, action, bad_csrf):
+    login(ui_client)
+    location = create(ui_client, ui_client.cookies[CSRF_COOKIE])
+    if bad_csrf == "other-session":
+        cookie = ui_client.cookies[SESSION_COOKIE]
+        ui_client.cookies.clear()
+        bad_csrf = Inputs(ui_client.get("/ui/login").text).inputs["csrf"]
+        ui_client.cookies.clear()
+        ui_client.cookies.set(SESSION_COOKIE, cookie)
+    before = db_session.scalar(select(func.count()).select_from(Event))
+    response = ui_client.post(
+        location + "/" + action,
+        data={"csrf": bad_csrf, "confirm": "yes", "reason": "Synthetic rejection"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 403
+    assert db_session.scalar(select(func.count()).select_from(Event)) == before
+    assert (
+        db_session.get(Task, UUID(location.rsplit("/", 1)[1])).status == TaskState.AWAITING_APPROVAL
+    )
+
+
+@pytest.mark.parametrize(
+    "path", ["/ui/tasks/draft", "/ui/chat", "/ui/control", "/ui/logout", "/ui/tasks/new"]
+)
+@pytest.mark.parametrize("bad_csrf", ["", "forged"])
+def test_non_task_posts_reject_bad_csrf(ui_client, path, bad_csrf):
+    login(ui_client)
+    assert ui_client.post(path, data={"csrf": bad_csrf}, follow_redirects=False).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "state,action", [(TaskState.AWAITING_APPROVAL, "cancel"), (TaskState.REVIEW, "reject")]
+)
+def test_cancel_and_reject_use_303_and_refresh_does_not_repeat_action(
+    ui_client, db_session, state, action
+):
+    csrf = login(ui_client)
+    task = seed_list_task(db_session, "Owner decision", state)
+    db_session.commit()
+    location = f"/ui/tasks/{task.id}"
+    response = ui_client.post(
+        location + "/" + action,
+        data={"csrf": csrf, "confirm": "yes", "reason": "Synthetic rejection"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303 and response.headers["location"] == location
+    before = db_session.scalar(select(func.count()).select_from(Event))
+    for _ in range(2):
+        assert ui_client.get(location).status_code == 200
+    assert db_session.scalar(select(func.count()).select_from(Event)) == before
+
+
+def test_control_success_uses_303(ui_client):
+    csrf = login(ui_client)
+    response = ui_client.post(
+        "/ui/control", data={"csrf": csrf, "key": "paused", "value": "true"}, follow_redirects=False
+    )
+    assert response.status_code == 303 and response.headers["location"] == "/ui/lanes"

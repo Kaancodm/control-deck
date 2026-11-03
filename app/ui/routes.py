@@ -41,7 +41,7 @@ from app.ui.chat import ChatError, ChatRequest, UnavailableChat, ask_local
 from app.ui.files import MAX_FILE_BYTES, Upload, read_payload, store_uploads
 from app.ui.forms import FormError, form_from_draft, task_from_form, validate_draft
 from app.ui.middleware import MAX_BODY_BYTES
-from app.ui.views import page
+from app.ui.views import page, preview_context, preview_redirect
 from app.workers.lane_status import list_lane_status
 
 router = APIRouter(prefix="/ui", include_in_schema=False)
@@ -173,6 +173,7 @@ def tasks(request: Request, session: DbSession) -> Response:
         data_class = DataClass(query["data_class"]) if query.get("data_class") else None
         lane = Worker(query["lane"]) if query.get("lane") else None
         offset = int(query.get("offset", "0"))
+        waiting_offset = int(query.get("waiting_offset", "0"))
         rows, total = list_owner_tasks(
             session,
             state=state,
@@ -181,12 +182,16 @@ def tasks(request: Request, session: DbSession) -> Response:
             search=query.get("search", ""),
             offset=offset,
         )
+        waiting, waiting_total = list_owner_tasks(session, needs_owner=True, offset=waiting_offset)
     except ValueError:
         raise UiError("invalid_filter") from None
     return page(
         request,
         "tasks.html",
         tasks=rows,
+        waiting=waiting,
+        waiting_total=waiting_total,
+        waiting_offset=waiting_offset,
         total=total,
         offset=offset,
         filters=query,
@@ -199,7 +204,7 @@ def tasks(request: Request, session: DbSession) -> Response:
 @router.get("/tasks/new")
 def new_task(request: Request, session: DbSession) -> Response:
     owner(request, session)
-    return page(request, "task_form.html", values={})
+    return page(request, "task_form.html", **({"values": {}} | preview_context(request)))
 
 
 @router.get("/failed")
@@ -224,7 +229,7 @@ async def draft_form(request: Request, session: DbSession) -> Response:
         draft = validate_draft(_value(data, "draft"))
     except FormError:
         raise UiError("invalid_draft") from None
-    return page(request, "task_form.html", values=form_from_draft(draft), draft=True)
+    return preview_redirect(request, "/ui/tasks/new", values=form_from_draft(draft), draft=True)
 
 
 @router.post("/tasks/new")
@@ -289,6 +294,7 @@ async def action(request: Request, task_id: UUID, action: str, session: DbSessio
     owner(request, session)
     data = await form(request)
     csrf(request, session, data)
+    action = {"approve-start": "approve", "approve-result": "accept"}.get(action, action)
     if action not in {"approve", "accept", "reject", "cancel"}:
         raise UiError("invalid_action", 404)
     if _value(data, "confirm") != "yes":
@@ -363,7 +369,7 @@ async def control(request: Request, session: DbSession) -> Response:
 def chat_page(request: Request, session: DbSession) -> Response:
     owner(request, session)
     done, _ = list_owner_tasks(session, state=TaskState.DONE, limit=50)
-    return page(request, "chat.html", choices=done)
+    return page(request, "chat.html", choices=done, **preview_context(request))
 
 
 @router.post("/chat")
@@ -390,10 +396,9 @@ async def chat(request: Request, session: DbSession) -> Response:
         reply = await run_in_threadpool(ask_local, adapter, chat_request)
     except (ChatError, ValueError):
         return page(request, "chat.html", choices=[], error="local_chat_unavailable", status=503)
-    return page(
+    return preview_redirect(
         request,
-        "chat.html",
-        choices=[],
+        "/ui/chat",
         reply=reply,
         draft_json=reply.draft.model_dump_json() if reply.draft else None,
     )

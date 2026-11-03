@@ -1,13 +1,13 @@
 :root {
   color-scheme: dark;
-  --color-bg: #0b1423;
-  --color-panel: #142238;
-  --color-raised: #1d304b;
+  --color-bg: #0b101b;
+  --color-panel: #1a2538;
+  --color-raised: #222f47;
   --color-text: #edf3fd;
   --color-muted: #bdcce0;
-  --color-line: #405775;
+  --color-line: #3b4b65;
   --color-accent: #a8d6ff;
-  --color-action: #b7dcff;
+  --color-action: #aae1c6;
   --color-action-text: #10243e;
   --color-danger: #ffb3b3;
   --color-success: #a7e4c0;
@@ -19,6 +19,7 @@
   --space-5: 1.5rem;
   --space-6: 2rem;
   --radius: .75rem;
+  --shadow-panel: 0 .5rem 1.5rem rgb(0 0 0 / 18%);
   --control-size: 2.75rem;
   --font-body: system-ui, sans-serif;
   --font-code: ui-monospace, monospace;
@@ -30,7 +31,7 @@ a { color: var(--color-accent); text-underline-offset: .2em; overflow-wrap: anyw
 button, input, select, textarea { font: inherit; }
 button, .button, input, select, textarea, summary { min-height: var(--control-size); }
 button, .button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--radius); padding: var(--space-2) var(--space-4); background: var(--color-action); color: var(--color-action-text); font-weight: 650; text-decoration: none; cursor: pointer; }
-button.quiet { background: var(--color-raised); color: var(--color-text); border-color: var(--color-line); }
+button.quiet, .button.quiet { background: var(--color-raised); color: var(--color-text); border-color: var(--color-line); }
 button.danger { background: var(--color-danger); }
 input, select, textarea { display: block; width: 100%; min-width: 0; max-width: 100%; padding: var(--space-2); border: 1px solid var(--color-line); border-radius: var(--radius); background: var(--color-bg); color: var(--color-text); }
 textarea { resize: vertical; }
@@ -58,10 +59,18 @@ main { padding-block: var(--space-5); }
 .page-heading { display: flex; flex-wrap: wrap; gap: var(--space-4); justify-content: space-between; align-items: center; }
 .page-heading h1 { margin-top: var(--space-2); }
 .eyebrow { text-transform: uppercase; letter-spacing: .1em; font-size: .75rem; color: var(--color-muted); }
-.panel { border: 1px solid var(--color-line); border-radius: var(--radius); background: var(--color-panel); padding: var(--space-5); margin-block: var(--space-4); min-width: 0; }
+.panel { border: 1px solid var(--color-line); border-radius: var(--radius); background: var(--color-panel); box-shadow: var(--shadow-panel); padding: var(--space-5); margin-block: var(--space-4); min-width: 0; }
 .narrow { max-width: 28rem; margin-inline: auto; }
 .field-grid, .task-grid, .action-grid, .filter-grid { display: grid; gap: var(--space-4); }
 .task-grid .panel { margin: 0; }
+.task-card { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); }
+.task-card h3, .task-card p { margin: 0; }
+.task-card .button { margin-top: auto; }
+.task-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.section-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.priority-section { margin-block: var(--space-5) var(--space-6); padding-bottom: var(--space-4); border-bottom: 1px solid var(--color-line); }
+.priority-section .task-card { border-top: 3px solid var(--color-warning); }
+.count { display: inline-block; padding: var(--space-1) var(--space-3); border-radius: 2rem; background: var(--color-raised); color: var(--color-warning); font-size: .9rem; }
 .task-card p, .hint, footer, time { color: var(--color-muted); }
 .filter-grid { align-items: end; }
 .filter-grid button { margin: 0; }
@@ -69,6 +78,10 @@ main { padding-block: var(--space-5); }
 .status-done { color: var(--color-success); }
 .status-blocked, .status-failed, .error { color: var(--color-danger); }
 .status-review, .status-awaiting_approval { color: var(--color-warning); }
+.result-status { font-size: .875rem; overflow-wrap: anywhere; }
+.result-status.status { border-style: dashed; }
+.result-succeeded { color: var(--color-success); }
+.result-failed, .result-blocked { color: var(--color-danger); }
 .notice { border-left: 3px solid var(--color-warning); padding: var(--space-3) var(--space-4); background: var(--color-raised); overflow-wrap: anywhere; }
 .control-band { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-3); padding: var(--space-3); background: var(--color-raised); border-radius: var(--radius); }
 .timeline { padding-left: var(--space-5); }

@@ -84,6 +84,7 @@ def list_owner_tasks(
     state: TaskState | None = None,
     data_class: DataClass | None = None,
     lane: Worker | None = None,
+    needs_owner: bool = False,
     search: str = "",
     limit: int = 50,
     offset: int = 0,
@@ -94,6 +95,8 @@ def list_owner_tasks(
     predicates = []
     if state is not None:
         predicates.append(Task.status == state)
+    if needs_owner:
+        predicates.append(Task.status.in_((TaskState.AWAITING_APPROVAL, TaskState.REVIEW)))
     if data_class is not None:
         predicates.append(Task.data_class == data_class)
     if lane is not None:
@@ -106,6 +109,7 @@ def list_owner_tasks(
     rows = session.scalars(
         select(Task)
         .where(*predicates)
+        .options(selectinload(Task.results))
         .order_by(Task.created_at.desc(), Task.id)
         .limit(limit)
         .offset(offset)

@@ -10,8 +10,11 @@ Versandbytes uebergeben; `local_only` bleibt bei Ollama. Das Live-Profil bleibt 
 bis Werkzeugabschaltung, Rootless-Isolation und Netzgrenzen bei der Inbetriebnahme belegt
 sind. Keine echten Anbieteraufrufe, Logins, API-Keys oder Serveraenderungen. Pflichtchecks
 und Review-Bereitschaft folgen nach dem Rebase auf die fertige Etappe 11.
-Erster Code-Checkpoint: 130 gezielte Tests bestanden (110 Unit, 20 Integration);
-Lint, Format und Mypy gruen. Die gepinnte Image-Vorlage ist noch nicht gebaut.
+Zwischenstand vor dem Eltern-Rebase: 131 neue gezielte Tests (110 Unit, 21 Integration)
+und die Vollsuite mit 1395 Tests bestanden; keine Skips oder xfail. `make lint`,
+`uv run alembic -x target=test check` und `make reference` (4/4) gruen, eigene isolierte
+PostgreSQL-17-Testdatenbank. Nach dem Rebase werden die Pflichtchecks erneut ausgefuehrt.
+Die gepinnte Image-Vorlage ist noch nicht gebaut.
 Details und Inbetriebnahme-Nachweise: [LANES.md](LANES.md).
 
 ## Etappe 11 bereit fuer externes Review

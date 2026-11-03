@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hmac
 import math
 from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean,
@@ -16,7 +18,9 @@ from sqlalchemy import (
     delete,
     func,
     select,
+    update,
 )
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -24,8 +28,10 @@ from app.db.base import Base
 from app.ui.auth import (
     AuthSettings,
     SessionCredentials,
+    get_auth_settings,
     issue_token,
     matches_token_hash,
+    password_fingerprint,
     token_digest,
     verify_owner_password,
 )
@@ -43,6 +49,8 @@ class UiSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    password_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class UiLoginState(Base):
@@ -52,11 +60,43 @@ class UiLoginState(Base):
     __table_args__ = (
         CheckConstraint("id = 1", name="ck_ui_login_state_singleton"),
         CheckConstraint("failures >= 0", name="ck_ui_login_state_failures_nonnegative"),
+        CheckConstraint("daily_failures >= 0", name="ck_ui_login_state_daily_failures_nonnegative"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     failures: Mapped[int] = mapped_column(Integer, nullable=False)
     window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    daily_failures: Mapped[int] = mapped_column(Integer, nullable=False)
+    day_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    throttled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuthEvent(Base):
+    """Taskless authentication observations contain no credentials or client identifiers."""
+
+    __tablename__ = "auth_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('auth.login_failed', 'auth.login_throttled', 'auth.login_locked', "
+            "'auth.login_succeeded', 'auth.logout', 'auth.sessions_revoked', "
+            "'auth.login_unlocked')",
+            name="ck_auth_events_type",
+        ),
+        CheckConstraint("affected_sessions >= 0", name="ck_auth_events_count"),
+        Index("ix_auth_events_created_at", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
+    )
+    affected_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+def _audit(session: Session, event_type: str, *, affected_sessions: int = 0) -> None:
+    session.add(AuthEvent(event_type=event_type, affected_sessions=affected_sessions))
 
 
 class SessionCapacityError(ValueError):
@@ -91,7 +131,13 @@ def _database_now(session: Session) -> datetime:
 def _lock_login_state(session: Session) -> UiLoginState:
     session.execute(
         insert(UiLoginState)
-        .values(id=1, failures=0, window_started_at=func.clock_timestamp())
+        .values(
+            id=1,
+            failures=0,
+            window_started_at=func.clock_timestamp(),
+            daily_failures=0,
+            day_started_at=func.clock_timestamp(),
+        )
         .on_conflict_do_nothing(index_elements=["id"])
     )
     state = session.scalar(
@@ -123,6 +169,8 @@ def _issue_session(
             authenticated=authenticated,
             created_at=now,
             expires_at=credentials.expires_at,
+            last_active_at=now,
+            password_fingerprint=password_fingerprint(settings) if authenticated else None,
         )
     )
     session.flush()
@@ -150,6 +198,8 @@ def get_ui_session(
     *,
     owner_required: bool = True,
     for_update: bool = False,
+    settings: AuthSettings | None = None,
+    touch_activity: bool = True,
 ) -> UiSession | None:
     """Resolve an unexpired, unrevoked session using database time, never browser time."""
     digest = token_digest(token)
@@ -164,7 +214,34 @@ def get_ui_session(
         query = query.where(UiSession.authenticated.is_(True))
     if for_update:
         query = query.with_for_update()
-    return session.scalar(query.execution_options(populate_existing=True))
+    row = session.scalar(query.execution_options(populate_existing=True))
+    if row is None or not row.authenticated:
+        return row
+    current = settings or get_auth_settings()
+    now = _database_now(session)
+    fingerprint = password_fingerprint(current)
+    if (
+        not hmac.compare_digest(row.password_fingerprint or "", fingerprint)
+        or row.last_active_at <= now - current.idle_lifetime
+    ):
+        return None
+    # Anonymous/login resolution must not take a session write lock before the
+    # singleton login lock. Owner requests may extend idle time, never absolute expiry.
+    if owner_required and touch_activity:
+        return session.scalar(
+            update(UiSession)
+            .where(
+                UiSession.token_hash == row.token_hash,
+                UiSession.revoked_at.is_(None),
+                UiSession.expires_at > func.clock_timestamp(),
+                UiSession.password_fingerprint == fingerprint,
+                UiSession.last_active_at > func.clock_timestamp() - current.idle_lifetime,
+            )
+            .values(last_active_at=func.clock_timestamp())
+            .returning(UiSession)
+            .execution_options(populate_existing=True)
+        )
+    return row
 
 
 def check_csrf(row: UiSession, provided: str | None) -> bool:
@@ -186,23 +263,39 @@ def authenticate_owner(
     before any session lock prevents concurrent logins from exceeding the cap.
     """
     state = _lock_login_state(session)
-    row = get_ui_session(session, token, owner_required=False, for_update=True)
+    row = get_ui_session(session, token, owner_required=False, for_update=True, settings=settings)
     if row is None:
         return LoginOutcome("session_required")
     if not check_csrf(row, csrf):
         return LoginOutcome("invalid_csrf")
     now = _database_now(session)
+    if state.locked_at is not None:
+        return LoginOutcome("login_locked")
+    if now >= state.day_started_at + settings.daily_failure_window:
+        state.daily_failures = 0
+        state.day_started_at = now
     window_ends = state.window_started_at + settings.failure_window
     if now >= window_ends:
         state.failures = 0
         state.window_started_at = now
+        state.throttled_at = None
         window_ends = now + settings.failure_window
     if state.failures >= settings.max_failures:
+        if state.throttled_at is None:
+            state.throttled_at = now
+            _audit(session, "auth.login_throttled")
         return LoginOutcome(
             "login_throttled", retry_after=max(1, math.ceil((window_ends - now).total_seconds()))
         )
     if not verify_owner_password(password, settings):
         state.failures += 1
+        state.daily_failures += 1
+        _audit(session, "auth.login_failed")
+        if state.daily_failures >= settings.max_daily_failures:
+            state.locked_at = now
+            _audit(session, "auth.login_locked")
+            session.flush()
+            return LoginOutcome("login_locked")
         session.flush()
         return LoginOutcome("invalid_credentials")
     now = _database_now(session)
@@ -211,8 +304,10 @@ def authenticate_owner(
         return LoginOutcome("session_required")
     state.failures = 0
     state.window_started_at = now
+    state.throttled_at = None
     row.revoked_at = now
     credentials = _issue_session(session, settings=settings, authenticated=True, now=now)
+    _audit(session, "auth.login_succeeded")
     return LoginOutcome("authenticated", credentials=credentials)
 
 
@@ -229,4 +324,35 @@ def revoke_ui_session(session: Session, token: str | None) -> None:
     )
     if row is not None and row.revoked_at is None:
         row.revoked_at = _database_now(session)
+        _audit(session, "auth.logout", affected_sessions=1)
         session.flush()
+
+
+def revoke_all_ui_sessions(
+    session: Session, token: str | None, csrf: str | None, settings: AuthSettings
+) -> bool:
+    """Authenticate and revoke under the login -> session lock order."""
+    _lock_login_state(session)
+    owner = get_ui_session(session, token, for_update=True, settings=settings, touch_activity=False)
+    if owner is None or not check_csrf(owner, csrf):
+        return False
+    tokens = session.scalars(
+        update(UiSession)
+        .where(UiSession.revoked_at.is_(None))
+        .values(revoked_at=func.clock_timestamp())
+        .returning(UiSession.token_hash)
+    ).all()
+    _audit(session, "auth.sessions_revoked", affected_sessions=len(tokens))
+    session.flush()
+    return True
+
+
+def unlock_owner_login(session: Session) -> None:
+    """Explicit local administration; resets the persisted lock, not password configuration."""
+    state = _lock_login_state(session)
+    now = _database_now(session)
+    state.failures = state.daily_failures = 0
+    state.window_started_at = state.day_started_at = now
+    state.locked_at = state.throttled_at = None
+    _audit(session, "auth.login_unlocked")
+    session.flush()

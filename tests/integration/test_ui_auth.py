@@ -34,7 +34,10 @@ def auth_settings() -> AuthSettings:
 
 
 @pytest.fixture
-def auth_session(db_session: Session) -> Generator[Session, None, None]:
+def auth_session(
+    db_session: Session, auth_settings: AuthSettings, monkeypatch: pytest.MonkeyPatch
+) -> Generator[Session, None, None]:
+    monkeypatch.setenv("DECK_OWNER_PASSWORD_HASH", auth_settings.password_hash)
     db_session.execute(delete(UiSession))
     db_session.execute(delete(UiLoginState))
     db_session.commit()

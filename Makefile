@@ -1,7 +1,10 @@
-.PHONY: lint test validate reference set-password
+.PHONY: lint test validate reference set-password unlock-login
 
 set-password:
 	uv run python scripts/set_password.py
+
+unlock-login:
+	uv run python scripts/unlock_login.py --target configured --confirm-unlock
 
 lint:
 	uv run ruff check --no-cache .

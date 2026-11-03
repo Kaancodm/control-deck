@@ -52,5 +52,7 @@ def db_session(migrated_database: None) -> Generator[Session, None, None]:
             session.execute(text("TRUNCATE lane_status"))
         if session.scalar(text("SELECT to_regclass('ui_sessions')")) is not None:
             session.execute(text("TRUNCATE ui_sessions, ui_login_state"))
+        if session.scalar(text("SELECT to_regclass('auth_events')")) is not None:
+            session.execute(text("TRUNCATE auth_events"))
         session.commit()
         session.close()

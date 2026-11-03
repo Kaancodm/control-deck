@@ -17,7 +17,10 @@ from app.db.state_machine import (
     ("current", "trigger", "expected"),
     [
         (None, TaskTransition.ENQUEUE, TaskState.QUEUED),
+        (None, TaskTransition.SUBMIT, TaskState.AWAITING_APPROVAL),
         (None, TaskTransition.BLOCK, TaskState.BLOCKED),
+        (TaskState.AWAITING_APPROVAL, TaskTransition.APPROVE, TaskState.QUEUED),
+        (TaskState.AWAITING_APPROVAL, TaskTransition.CANCEL, TaskState.CANCELLED),
         (TaskState.QUEUED, TaskTransition.ACQUIRE, TaskState.LEASED),
         (TaskState.QUEUED, TaskTransition.BLOCK, TaskState.BLOCKED),
         (TaskState.QUEUED, TaskTransition.CANCEL, TaskState.CANCELLED),
@@ -71,4 +74,6 @@ def test_allowed_triggers_queued() -> None:
 
 def test_allowed_triggers_initial() -> None:
     triggers = allowed_triggers(None)
-    assert triggers == frozenset({TaskTransition.ENQUEUE, TaskTransition.BLOCK})
+    assert triggers == frozenset(
+        {TaskTransition.ENQUEUE, TaskTransition.SUBMIT, TaskTransition.BLOCK}
+    )

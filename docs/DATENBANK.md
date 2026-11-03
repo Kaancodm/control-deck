@@ -6,7 +6,7 @@ Etappe `03-db-schema` fuehrt PostgreSQL als persistente Queue und Audit-Store ei
 
 | Tabelle | Zweck |
 |---------|--------|
-| `tasks` | Unveraenderlicher `task.v1`-Payload (JSONB), Laufstatus, `data_class`, Versuchszaehler |
+| `tasks` | Unveraenderlicher `task.v1`-Payload (JSONB), Laufstatus, `data_class`, Versuchszaehler, Freigabe (`requires_approval`, `approved_at`) |
 | `results` | `result.v1`-Snapshots pro Versuch (eindeutig pro `task_id` + `attempt`) |
 | `events` | Append-only Audit-Log (Uebergaenge, Metadaten in JSONB) |
 | `leases` | Pull-Lease pro Task (`lease_id`, `expires_at`, `heartbeat_at`, optional `holder`) |
@@ -19,7 +19,8 @@ Pflichtfeld gemaess ADR 0005, Datenbank-Default **`local_only`**. Erlaubte Werte
 
 | Status | Bedeutung |
 |--------|-----------|
-| `queued` | Validiert, wartet auf Lease |
+| `awaiting_approval` | Validiert, wartet auf Owner-Freigabe (HTTP-API) |
+| `queued` | Freigegeben, wartet auf Lease |
 | `leased` | Runner haelt Lease, Start steht aus |
 | `running` | Ausfuehrung aktiv |
 | `succeeded` | Erfolgreich abgeschlossen |

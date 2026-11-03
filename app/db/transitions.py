@@ -103,6 +103,16 @@ def transition_task(
         session.flush()
         return result
 
+    if effective_trigger == TaskTransition.SUBMIT:
+        if current != TaskState.AWAITING_APPROVAL:
+            raise InvalidTaskTransitionError("submit is only valid for new tasks awaiting approval")
+        result = apply_transition(None, TaskTransition.SUBMIT)
+        now = datetime.now(tz=UTC)
+        _touch_updated_at(task, now=now)
+        record_transition_event(session, task_id=task.id, result=result, detail=detail)
+        session.flush()
+        return result
+
     result = apply_transition(current, effective_trigger)
     now = datetime.now(tz=UTC)
 

@@ -7,6 +7,7 @@ from enum import StrEnum
 
 
 class TaskState(StrEnum):
+    AWAITING_APPROVAL = "awaiting_approval"
     QUEUED = "queued"
     LEASED = "leased"
     RUNNING = "running"
@@ -30,6 +31,8 @@ class TaskTransition(StrEnum):
     """Triggers that drive state changes and audit events."""
 
     ENQUEUE = "enqueue"
+    SUBMIT = "submit"
+    APPROVE = "approve"
     BLOCK = "block"
     ACQUIRE = "acquire"
     START = "start"
@@ -45,7 +48,12 @@ class TaskTransition(StrEnum):
 _TRANSITION_TABLE: dict[TaskState | None, dict[TaskTransition, TaskState]] = {
     None: {
         TaskTransition.ENQUEUE: TaskState.QUEUED,
+        TaskTransition.SUBMIT: TaskState.AWAITING_APPROVAL,
         TaskTransition.BLOCK: TaskState.BLOCKED,
+    },
+    TaskState.AWAITING_APPROVAL: {
+        TaskTransition.APPROVE: TaskState.QUEUED,
+        TaskTransition.CANCEL: TaskState.CANCELLED,
     },
     TaskState.QUEUED: {
         TaskTransition.ACQUIRE: TaskState.LEASED,

@@ -3,7 +3,7 @@
 Lokale Steuerzentrale fuer KI-gestuetzte Aufgaben — ohne bezahlte APIs zur Laufzeit.
 Dieses Repository enthaelt das Grundgeruest, Uebergabe-Schemas (`task.v1`, `result.v1`) und Validierung.
 
-**Status:** noch nicht lauffaehig (kein API-Server, keine Worker, keine Datenbank-Anbindung in dieser Etappe).
+**Status:** FastAPI-API (Etappe 04) und PostgreSQL-Queue vorhanden; Worker-Laufzeit folgt in spaeteren Etappen.
 
 ## Zweck
 

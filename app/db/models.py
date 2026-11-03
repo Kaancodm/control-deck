@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -17,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -62,6 +64,13 @@ class Task(Base):
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    requires_approval: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

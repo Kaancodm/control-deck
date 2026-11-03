@@ -2,21 +2,21 @@
 {% block title %}Wissen · Control Deck{% endblock %}
 {% block content %}
 <h1>Wissen suchen</h1>
-<p>Waehle die Datenklasse des geplanten Auftrags. Die Suche zeigt nur dafuer erlaubte Inhalte.</p>
+<p>Wähle die Datenklasse des geplanten Auftrags. Die Suche zeigt nur dafür erlaubte Inhalte.</p>
 <form action="/ui/knowledge" method="post" class="panel form-stack">
   {% include 'partials/csrf.html' %}
   <label for="query">Suchtext</label><textarea id="query" name="query" required maxlength="6000" rows="3"></textarea>
   <label for="knowledge_class">Datenklasse des Auftrags (Pflicht)</label>
   <select id="knowledge_class" name="data_class" required>
-    <option value="">Bitte ausdruecklich waehlen</option>
-    {% for value in ['local_only','cloud_redacted','cloud_ok'] %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+    <option value="">Bitte ausdrücklich wählen</option>
+    {% for value in ['local_only','cloud_redacted','cloud_ok'] %}<option value="{{ value }}">{{ data_class_labels[value] }}</option>{% endfor %}
   </select>
   <button type="submit">Erlaubtes Wissen suchen</button>
 </form>
 {% if hits is not none %}
-  {% for hit in hits %}<section class="panel"><h2>Wissenseintrag · {{ hit.data_class.value }}</h2>
+  {% for hit in hits %}<section class="panel"><h2>Wissenseintrag · {{ data_class_labels[hit.data_class.value] }}</h2>
     <pre>{{ hit.text }}</pre>
-    <a href="/ui/tasks/new?context_ref={{ hit.reference }}&amp;data_class={{ selected_class }}">Fuer einen neuen Auftrag auswaehlen</a>
-  </section>{% else %}<p class="notice">Keine erlaubten Eintraege gefunden.</p>{% endfor %}
+    <a href="/ui/tasks/new?context_ref={{ hit.reference }}&amp;data_class={{ selected_class }}">Für einen neuen Auftrag auswählen</a>
+  </section>{% else %}<p class="notice">Keine erlaubten Einträge gefunden.</p>{% endfor %}
 {% endif %}
 {% endblock %}

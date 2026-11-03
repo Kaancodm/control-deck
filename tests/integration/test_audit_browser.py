@@ -59,7 +59,8 @@ def test_audit_and_health_browser_flow(browser_app, monkeypatch, width, javascri
         page.get_by_label("Passwort", exact=True).fill(password)
         page.get_by_role("button", name="Anmelden", exact=True).click()
         page.locator('[data-lane-warning="auth_required"]').wait_for()
-        assert "Pausenzustand und Anmeldeverfahren pruefen" in page.content()
+        assert "Pausenzustand und Anmeldeverfahren prüfen" in page.content()
+        page.get_by_text("Menü", exact=True).click()
         page.get_by_role("link", name="Audit", exact=True).click()
         page.get_by_label("Quelle", exact=True).select_option("operation")
         page.get_by_label("Je Seite", exact=True).fill("2")
@@ -78,9 +79,10 @@ def test_audit_and_health_browser_flow(browser_app, monkeypatch, width, javascri
             page.get_by_role("link", name="Sichtbare Seite als CSV", exact=True).click()
         assert download.value.suggested_filename == "audit.csv"
         assert download.value.failure() is None
+        page.get_by_text("Menü", exact=True).click()
         page.get_by_role("link", name="Lanes", exact=True).click()
         page.wait_for_load_state("load")
-        assert "Versuchszaehler seit Migration 0016" in page.content()
+        assert "Versuchszähler seit Migration 0016" in page.content()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         # Browser's HTTP context uses actual cookie scope even without JavaScript.
         response = context.request.get(base + "/api/v1/health")

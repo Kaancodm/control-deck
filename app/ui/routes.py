@@ -63,7 +63,7 @@ from app.ui.auth import (
     set_session_cookies,
 )
 from app.ui.chat import ChatError, ChatRequest, UnavailableChat, ask_local
-from app.ui.files import MAX_FILE_BYTES, Upload, read_payload, store_uploads
+from app.ui.files import MAX_FILE_BYTES, UiFileError, Upload, read_payload, store_uploads
 from app.ui.forms import FormError, form_from_draft, task_from_form, validate_draft
 from app.ui.middleware import MAX_BODY_BYTES
 from app.ui.views import page, preview_context, preview_redirect
@@ -331,10 +331,12 @@ async def create_task(request: Request, session: DbSession) -> Response:
         return page(
             request, "task_form.html", values={}, error="configuration_unavailable", status=503
         )
-    except (ValueError, IntegrityError):
+    except (ValueError, IntegrityError) as exc:
         session.rollback()
-        # Rejected raw input may include a secret. Never echo it into an error page.
-        return page(request, "task_form.html", values={}, error="submission_rejected", status=422)
+        # Rejected raw input may include a secret. Never echo it into an error page; only the
+        # fixed server-side code is shown so the owner learns what to correct.
+        code = exc.code if isinstance(exc, (FormError, UiFileError)) else "submission_rejected"
+        return page(request, "task_form.html", values={}, error=code, status=422)
     finally:
         await data.close()
 

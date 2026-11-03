@@ -1,13 +1,13 @@
-{% if task.status.value == 'done' %}<section class="panel"><h2>In Wissen uebernehmen</h2>
-{% if knowledge_export and knowledge_export.state == 'completed' %}<p class="notice">Export abgeschlossen · {{ knowledge_export.data_class }}</p>
+{% if task.status.value == 'done' %}<section class="panel"><h2>In Wissen übernehmen</h2>
+{% if knowledge_export and knowledge_export.state == 'completed' %}<p class="notice">Export abgeschlossen · {{ data_class_labels.get(knowledge_export.data_class, knowledge_export.data_class) }}</p>
 {% else %}
-{% if knowledge_export %}<p class="notice">Der Export ist noch offen ({{ knowledge_export.data_class }}). Derselbe Entscheid setzt ihn ohne Duplikat fort.</p>{% endif %}
+{% if knowledge_export %}<p class="notice">Der Export ist noch offen ({{ data_class_labels.get(knowledge_export.data_class, knowledge_export.data_class) }}). Derselbe Entscheid setzt ihn ohne Duplikat fort.</p>{% endif %}
 <p>Dies ist ein eigener Owner-Entscheid. Das Ergebnis wird nicht automatisch exportiert.</p>
 <form method="post" action="/ui/tasks/{{ task.id }}/export" class="form-stack">
   {% include 'partials/csrf.html' %}
   <label for="export_class">Datenklasse des Wissenseintrags (Pflicht)</label>
-  <select id="export_class" name="data_class" required><option value="">Bitte ausdruecklich waehlen</option>
-  {% for value in export_classes %}<option value="{{ value }}">{{ value }}</option>{% endfor %}</select>
-  <label class="check"><input type="checkbox" name="confirm" value="yes" required> Ergebnis und Export-Datenklasse geprueft; ausdruecklich in Wissen uebernehmen.</label>
-  <button type="submit">{% if knowledge_export %}Export fortsetzen{% else %}In Wissen uebernehmen{% endif %}</button>
+  <select id="export_class" name="data_class" required><option value="">Bitte ausdrücklich wählen</option>
+  {% for value in export_classes %}<option value="{{ value }}">{{ data_class_labels[value] }}</option>{% endfor %}</select>
+  <label class="check"><input type="checkbox" name="confirm" value="yes" required> Ergebnis und Export-Datenklasse geprüft; ausdrücklich in Wissen übernehmen.</label>
+  <button type="submit">{% if knowledge_export %}Export fortsetzen{% else %}In Wissen übernehmen{% endif %}</button>
 </form>{% endif %}</section>{% endif %}

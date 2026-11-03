@@ -14,17 +14,23 @@
     <header class="app-header">
       <a class="brand" href="/ui/tasks">◈ Control Deck</a>
       {% if owner %}
-      <nav aria-label="Hauptnavigation">
-        <a href="/ui/tasks">Auftraege</a><a href="/ui/tasks/new">Neuer Auftrag</a>
-        <a href="/ui/knowledge">Wissen</a><a href="/ui/lanes">Lanes</a><a href="/ui/chat">Lokaler Chat</a>
-        <a href="/ui/audit">Audit</a>
-      </nav>
+      <details class="menu">
+        <summary>Menü</summary>
+        <div class="menu-panel">
+          <nav aria-label="Weitere Bereiche">
+            <a href="/ui/lanes">Lanes</a><a href="/ui/chat">Lokaler Chat</a><a href="/ui/audit">Audit</a>
+          </nav>
+          <form action="/ui/logout-all" method="post">
+            {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Überall abmelden</button>
+          </form>
+        </div>
+      </details>
       <form action="/ui/logout" method="post" class="inline-form">
         {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Abmelden</button>
       </form>
-      <form action="/ui/logout-all" method="post" class="inline-form">
-        {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Ueberall abmelden</button>
-      </form>
+      <nav class="main-nav" aria-label="Hauptnavigation">
+        <a href="/ui/tasks">Aufträge</a><a href="/ui/tasks/new">Neuer Auftrag</a><a href="/ui/knowledge">Wissen</a>
+      </nav>
       {% endif %}
     </header>
     {% if owner and controls %}
@@ -34,7 +40,13 @@
     </aside>
     {% endif %}
     <main id="content">
-      {% if error %}<p class="notice error" role="alert">{{ error }} — Eingabe oder Verfuegbarkeit pruefen.</p>{% endif %}
+      {% if error %}{% set message = error_messages.get(error) %}
+      <p class="notice error" role="alert">
+        <strong>{{ message[0] if message else 'Diese Aktion ist nicht möglich.' }}</strong>
+        {{ message[1] if message else 'Eingabe prüfen und erneut versuchen.' }}
+        <span class="hint">(Code: {{ error }})</span>
+      </p>
+      {% endif %}
       {% block content %}{% endblock %}
     </main>
     <footer>Lokales Deck · Darstellung themebar · Live-Inbetriebnahme separat</footer>

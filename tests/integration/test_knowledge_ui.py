@@ -72,7 +72,7 @@ def test_search_context_is_escaped_and_selection_prefills_explicit_form(ui_clien
     assert reference in selected.text
     path = create(ui_client, csrf, context_refs=reference)
     detail = ui_client.get(path)
-    assert "Ausgewaehlter Wissens-Kontext" in detail.text
+    assert "Ausgewählter Wissens-Kontext" in detail.text
     assert "&lt;script&gt;" in detail.text
 
 
@@ -84,7 +84,7 @@ def test_search_for_cloud_never_displays_local_context(ui_client, knowledge_stor
     )
     assert response.status_code == 200
     assert "Local-only hidden content" not in response.text
-    assert "Keine erlaubten Eintraege" in response.text
+    assert "Keine erlaubten Einträge" in response.text
 
 
 @pytest.mark.parametrize("missing", ["csrf", "confirm", "data_class"])

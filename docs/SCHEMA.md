@@ -1,9 +1,10 @@
 # Uebergabe-Schemas v1
 
-Control Deck tauscht Auftraege und Ergebnisse als JSON aus. Normative Definitionen:
+Control Deck tauscht Auftraege und Ergebnisse als JSON aus. Normative Definitionen (Repo und installiertes Wheel):
 
-- `schemas/task.v1.json`
-- `schemas/result.v1.json`
+- `schemas/task.v1.json` (Entwickler-Referenz)
+- `schemas/result.v1.json` (Entwickler-Referenz)
+- `app/schemas/*.json` (gebundelt im Paket; Laufzeit-Laden via `importlib.resources`)
 
 Spiegel in Python: `app/core/schemas.py`.
 

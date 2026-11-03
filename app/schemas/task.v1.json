@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-deck.local/schemas/task.v1.json",
+  "title": "Control Deck Task v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "parent_task_id",
+    "created_at",
+    "requested_by",
+    "kind",
+    "title",
+    "instructions",
+    "inputs",
+    "context_refs",
+    "data_class",
+    "policy",
+    "acceptance",
+    "fallback_chain",
+    "labels"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "task.v1"
+    },
+    "task_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "parent_task_id": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "requested_by": {
+      "type": "string",
+      "enum": ["ui", "api", "n8n", "system"]
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["research", "summarize", "draft", "code", "review", "classify", "custom"]
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/task_input"
+      }
+    },
+    "context_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/context_ref"
+      }
+    },
+    "data_class": {
+      "type": "string",
+      "enum": ["local_only", "cloud_redacted", "cloud_ok"]
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "acceptance": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/acceptance_rule"
+      }
+    },
+    "fallback_chain": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["ollama", "claude", "codex"]
+      }
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "task_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "enum": ["text", "file"]
+        },
+        "value": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "mime": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "text" } },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["value"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "file" } },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*\\.\\.).+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "context_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "ref"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["knowledge_db"]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forbidden_workers"],
+      "properties": {
+        "allowed_workers": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string",
+            "enum": ["ollama", "claude", "codex"]
+          }
+        },
+        "forbidden_workers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["ollama", "claude", "codex"]
+          }
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 3
+        },
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 7200,
+          "default": 900
+        },
+        "require_review": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "acceptance_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "must_contain",
+            "must_not_contain",
+            "regex",
+            "json_schema",
+            "max_chars",
+            "human"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

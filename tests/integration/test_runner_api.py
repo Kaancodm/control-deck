@@ -30,8 +30,8 @@ def _owner() -> dict[str, str]:
     return {"Authorization": "Bearer " + os.environ["DECK_OWNER_TOKEN"]}
 
 
-def _worker() -> dict[str, str]:
-    return {"Authorization": "Bearer " + os.environ["DECK_WORKER_TOKEN"]}
+def _worker(worker: str = "ollama") -> dict[str, str]:
+    return {"Authorization": "Bearer " + os.environ[f"DECK_WORKER_TOKEN_{worker.upper()}"]}
 
 
 def _enqueue(
@@ -51,7 +51,7 @@ def _enqueue(
 
 
 def _claim(client: TestClient, worker: str = "ollama") -> dict:
-    response = client.post("/api/v1/worker/lease", json={"worker": worker}, headers=_worker())
+    response = client.post("/api/v1/worker/lease", json={"worker": worker}, headers=_worker(worker))
     assert response.status_code == 200, response.text
     return response.json()
 

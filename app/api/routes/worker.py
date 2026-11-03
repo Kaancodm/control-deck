@@ -54,6 +54,14 @@ class WorkerLeaseRequest(BaseModel):
     lease_ttl_seconds: int | None = Field(default=None, ge=30, le=7200)
 
 
+def _require_worker_identity(authenticated: Worker, claimed: object) -> None:
+    if claimed != authenticated.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Worker identity does not match the authenticated lane",
+        )
+
+
 def _control_response(decision: ControlDecision) -> WorkerHeartbeatResponse:
     return WorkerHeartbeatResponse(
         action=decision.action,
@@ -69,10 +77,11 @@ def worker_lease(
     _worker: WorkerAuth,
 ) -> WorkerLeaseResponse | JSONResponse:
     """Prepare and commit the claimed attempt before exposing transport bytes."""
+    _require_worker_identity(_worker, body.worker)
     try:
         prepared = claim_prepared_attempt(
             session,
-            worker=body.worker,
+            worker=_worker,
             lease_ttl=timedelta(seconds=body.lease_ttl_seconds or default_lease_ttl_seconds()),
             runs_root=Path(os.environ.get("DECK_RUNS_DIR", "runs")),
             holder=body.holder,
@@ -133,13 +142,14 @@ def worker_start(
     _worker: WorkerAuth,
 ) -> WorkerHeartbeatResponse:
     """Explicitly start one prepared attempt; return committed stop decisions."""
+    _require_worker_identity(_worker, body.worker)
     try:
         decision = start_worker_attempt(
             session,
             task_id=body.task_id,
             lease_id=body.lease_id,
             attempt=body.attempt,
-            worker=body.worker,
+            worker=_worker,
         )
         session.commit()
     except WorkerOperationError as exc:
@@ -155,12 +165,13 @@ def worker_heartbeat(
     _worker: WorkerAuth,
 ) -> WorkerHeartbeatResponse:
     """Commit expiry/control changes before the caller acts on the decision."""
+    _require_worker_identity(_worker, body.worker)
     decision = control_attempt(
         session,
         task_id=body.task_id,
         lease_id=body.lease_id,
         attempt=body.attempt,
-        worker=body.worker,
+        worker=_worker,
         extend_by=timedelta(seconds=body.extend_seconds or default_heartbeat_extend_seconds()),
     )
     session.commit()
@@ -174,6 +185,7 @@ def worker_result(
     _worker: WorkerAuth,
 ) -> WorkerResultResponse | JSONResponse:
     """Validate lane/attempt/preparation identity and accept a started result."""
+    _require_worker_identity(_worker, body.result.get("worker"))
     try:
         task = submit_worker_result(session, lease_id=body.lease_id, result_payload=body.result)
         response = WorkerResultResponse(task=task_summary(task))

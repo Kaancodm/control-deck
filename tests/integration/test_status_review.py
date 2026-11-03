@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.app import create_app
 from app.api.deps import get_db
-from app.core.schemas import TaskV1
+from app.core.schemas import TaskV1, Worker
 from app.db.models import Lease, Result, Task
 from app.db.queue import dequeue_next_queued_task, reap_expired_leases
 from app.db.session import get_engine
@@ -31,7 +31,7 @@ def review_client(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> Generator[TestClient, None, None]:
     monkeypatch.setenv("DECK_OWNER_TOKEN", "test-review-owner")
-    monkeypatch.setenv("DECK_WORKER_TOKEN", "test-review-worker")
+    monkeypatch.setenv("DECK_WORKER_TOKEN_OLLAMA", "test-review-worker")
     app = create_app()
     app.state.prepared_attempts = {}
 
@@ -539,7 +539,9 @@ def test_lease_timeout_without_owner_deadline_is_never_expired(
     assert detail["deadline_at"] is None
     assert all(event["event_type"] != "task.expire" for event in detail["events"])
     if expected == "queued":
-        claimed = dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=60))
+        claimed = dequeue_next_queued_task(
+            db_session, worker=Worker.OLLAMA, lease_ttl=timedelta(seconds=60)
+        )
         assert claimed is not None and claimed.attempt == 2
 
 
@@ -603,7 +605,9 @@ def test_acceptance_allows_concurrent_control_and_rechecks_fencing(
                     trigger=TaskTransition.LEASE_EXPIRED,
                     lease_id=lease_id,
                 )
-                claimed = dequeue_next_queued_task(other, lease_ttl=timedelta(minutes=5))
+                claimed = dequeue_next_queued_task(
+                    other, worker=Worker.OLLAMA, lease_ttl=timedelta(minutes=5)
+                )
                 assert claimed is not None and claimed.id == task_id
                 assert claimed.attempt == 2
             other.commit()

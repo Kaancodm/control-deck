@@ -58,7 +58,9 @@ def gate_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[TestClient, None, None]:
     monkeypatch.setenv("DECK_OWNER_TOKEN", "test-gate-owner")
-    monkeypatch.setenv("DECK_WORKER_TOKEN", "test-gate-worker")
+    monkeypatch.setenv("DECK_WORKER_TOKEN_OLLAMA", "test-gate-worker")
+    monkeypatch.setenv("DECK_WORKER_TOKEN_CLAUDE", "test-gate-claude")
+    monkeypatch.setenv("DECK_WORKER_TOKEN_CODEX", "test-gate-codex")
     app = create_app()
 
     def override_db() -> Generator[Session, None, None]:
@@ -508,6 +510,10 @@ def approved_local_task(gate_client: TestClient) -> str:
 def test_cloud_worker_cannot_lease_local_only_task(
     gate_client: TestClient, approved_local_task: str, worker: str
 ) -> None:
-    response = gate_client.post("/api/v1/worker/lease", json={"worker": worker}, headers=_WORKER)
+    response = gate_client.post(
+        "/api/v1/worker/lease",
+        json={"worker": worker},
+        headers={"Authorization": f"Bearer test-gate-{worker}"},
+    )
     assert response.status_code == 404
     assert approved_local_task not in response.text

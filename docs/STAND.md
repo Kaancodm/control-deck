@@ -20,8 +20,12 @@ Nachbesserung der Zaehlernachweise: Die unveraenderte Basis `1f2995f` besteht be
 Einmalzaehlung; drei angenommene Fehler und danach Erfolg mit Gesamtzaehler 4 und
 Fehlerserie 0; unveraenderte Zaehler, Fehler- und Erfolgszeitpunkte bei Doppelabgabe,
 abgelaufener Lease oder Deadline. Rollback- und Konkurrenznachweise bleiben erhalten.
-Der Produktionscode benoetigt keine Korrektur; `make lint` ist gruen. Die Vollsuite
-auf der nachgebesserten Etappe-16-Basis folgt nach deren Fertigstellung.
+Die Produktionslogik der Zaehler benoetigt keine Korrektur. Auf der nachgebesserten
+Etappe-16-Codebasis `5f4243b` bestehen **123 gezielte Tests** fuer Audit, Gesundheit
+und Zaehler; `make lint` ist gruen. Audit und CSV erhalten die bekannten Codes
+`restore_failed` und `restore_partial_failure`, damit Teilfehler sichtbar bleiben.
+Rohdetails und unbekannte Restore-Gruende bleiben ausgeblendet. Die Vollsuite und
+Pflichtchecks auf dieser Basis folgen; `CHANGELOG.md` enthaelt den Etappe-17-Eintrag.
 
 Bisherige Pflichtchecks auf isolierten PostgreSQL-17-Testdatenbanken: **2292 Tests bestanden**,
 keine xfail oder Skips. Darin enthalten sind **118 neue Etappe-17-Tests** (52 Integration,
@@ -31,10 +35,11 @@ Session-Health, Logout, unklassifizierte Fehler, konkurrierende Ergebnisse und s
 Fehlerantworten. `make lint`, zentrale und KB-Alembic-Pruefung, beide Referenzmodi mit
 je **4/4** sowie beide Hook-Suites sind gruen. Eine bestehende Starlette/httpx-Warnung.
 
-Die Vollsuite lief auf `44a22c5`. Der anschliessende Eltern-Rebase auf den finalen
+Die bisherige Vollsuite lief auf `44a22c5`. Der damalige Eltern-Rebase auf den
 Etappe-16-Head `a22149b` aenderte ausschliesslich `docs/STAND.md`; Anwendung, Migrationen
 und Tests sind identisch. CI des finalen Heads steht im PR. Der Abnahme-Entwurf aus
-Checkpoint `a2e6ff3` liegt unveraendert unter `docs/ABNAHME_CHECKLISTE_ENTWURF.md`;
+Checkpoint `a2e6ff3` liegt unter `docs/ABNAHME_CHECKLISTE_ENTWURF.md`; sein Backup-Kriterium
+verlangt nun ausdruecklich beide Datenbanken, zwei leere Ziele und fehlgeschlagene Teil-Restores.
 Etappe 18 wird damit nicht gestartet. Externes Review durch einen anderen Anbieter
 und Owner-Merge bleiben ausstehend.
 

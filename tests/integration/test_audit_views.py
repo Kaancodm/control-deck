@@ -265,6 +265,45 @@ def test_audit_csv_matches_filtered_visible_page_and_excludes_raw_data(ui_client
     assert "auth.login_succeeded" in ui_client.get("/ui/audit?source=auth").text
 
 
+def test_restore_failures_remain_distinct_in_protected_audit_and_csv(ui_client, db_session):
+    expected = {}
+    for reason, restored in (
+        ("restore_failed", 0),
+        ("restore_partial_failure", 1),
+        ("restore_private_reason", 0),
+    ):
+        operation_id = uuid4()
+        expected[str(operation_id)] = "" if reason == "restore_private_reason" else reason
+        db_session.add(
+            OperationEvent(
+                operation_id=operation_id,
+                operation_type="restore",
+                phase="failed",
+                detail={
+                    "reason": reason,
+                    "backups": restored,
+                    "path": "private-restore-path",
+                    "stderr": "private-restore-output",
+                },
+            )
+        )
+    db_session.commit()
+    query = "?source=operation&event_type=operation.restore"
+    assert ui_client.get("/ui/audit" + query, follow_redirects=False).status_code == 303
+    assert ui_client.get("/ui/audit.csv" + query, follow_redirects=False).status_code == 303
+    login(ui_client)
+    html = ui_client.get("/ui/audit" + query)
+    response = ui_client.get("/ui/audit.csv" + query)
+    assert html.status_code == response.status_code == 200
+    assert "restore_failed" in html.text and "restore_partial_failure" in html.text
+    rows = list(csv.DictReader(io.StringIO(response.text)))
+    assert {row["operation_id"]: row["reason"] for row in rows} == expected
+    assert all(row["phase"] == "failed" for row in rows)
+    assert all(row["operation_id"] in html.text for row in rows)
+    combined = html.text + response.text
+    assert "private-restore-" not in combined and "restore_private_reason" not in combined
+
+
 @pytest.mark.parametrize(
     "query",
     [

@@ -44,7 +44,7 @@ Alle Ergebnisse sind offen. Die Etappen-PRs enthalten bereits separate lokale En
 | UI und Chat | Browser bei 390 und 1024 Pixeln; Login, Freigabe, Review, Dateien, lokaler Entwurf | Funktionen nutzbar; CSS-Variablen/Partials zentral; Chat ohne Freigabe-/Exportrechte und ohne automatische Verlauf-Uebernahme | Offen |
 | Anmeldung und Rechte | Session-Ablauf, Abmelden, CSRF, XSS, Raten- und Request-Limits, Lane-/Owner-Trennung | Unberechtigte Zugriffe abgewiesen; keine Geheimnisse in Antworten, Events oder Logs | Offen |
 | Wissen | Klassenmatrix, explizite Referenzen, Approval-Hashes, Export aus `done`, Wiederholung nach Teilfehler | Kein `local_only` im Cloud-Kontext; fehlende/unzulaessige Referenzen gemeldet; Export nur ausdruecklich und idempotent | Offen |
-| Backup und Restore | Dump mit Manifest/Pruefsumme, Restore in leere isolierte Test-DB, Schema und Zaehlungen | Konsistenter Snapshot; falsche/nichtleere Ziele vor Schreibzugriff abgewiesen | Offen |
+| Backup und Restore | Manifestversion 2 mit zentraler DB und Wissens-DB samt pgvector, beiden Dumps/Pruefsummen, zwei getrennten leeren Testzielen sowie beiden Schema-/Alembic-Pruefungen und Zaehlungen | Konsistenter Snapshot je DB; fehlende/ungueltige Archive und nichtleere Ziele vor Eingriff abgewiesen; Teilfehler bleiben fehlgeschlagen ohne Erfolgsnachweis; Timer ist nur Trockenlauf-Erinnerung | Offen |
 | Aufbewahrung | 14-/90-Tage-Grenzen, aktive Aufgaben, unbestaetigte Abbrueche, Teilfehler | Aktive Aufgaben geschuetzt; nur vorgesehene Daten entfernt; wiederaufnehmbarer und auditierter Ablauf | Offen |
 | Audit und Gesundheit | Geschuetzte Ansichten, Auth-Fehler im selben Lauf, CSV und Filter | Sichere Metadaten; Zugriffsschutz; unbekannte Anbieter-Kontingente bleiben unbekannt | Offen |
 

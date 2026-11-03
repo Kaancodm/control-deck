@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import AwareDatetime, TypeAdapter
@@ -15,6 +15,8 @@ from app.db.models import Event, Result, Task
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import TransitionActor, transition_task
 from app.privacy.gate import PrivacyInputUnavailable, inspect_stored_task, validate_submission
+
+_GATE_ERROR_COOLDOWN = timedelta(seconds=60)
 
 
 def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
@@ -128,18 +130,46 @@ def record_gate_error(
     error: PrivacyInputUnavailable,
     actor: TransitionActor = TransitionActor.SYSTEM,
 ) -> None:
-    """Audit a deferred gate check without inventing a lifecycle transition."""
-    session.add(
-        Event(
-            task_id=task.id,
-            event_type="task.gate_error",
-            from_status=task.status,
-            to_status=task.status,
-            actor=actor.value,
-            attempt=task.attempt,
-            detail={"reason": "privacy_gate", "code": error.code, "source": error.source},
+    """Audit owner actions individually and rate-limit identical lease-poll errors."""
+    now = None
+    if actor == TransitionActor.SYSTEM:
+        # Queue polling already holds this lock. Acquiring it here also protects
+        # callers that record repeated errors directly in separate sessions.
+        session.execute(select(Task.id).where(Task.id == task.id).with_for_update()).scalar_one()
+        now = session.scalar(select(func.clock_timestamp()))
+        assert now is not None
+        recent = session.scalar(
+            select(Event.id)
+            .where(
+                Event.task_id == task.id,
+                Event.event_type == "task.gate_error",
+                Event.actor == TransitionActor.SYSTEM.value,
+                Event.created_at > now - _GATE_ERROR_COOLDOWN,
+                Event.detail["code"].astext == error.code,
+                Event.detail["source"].astext == error.source,
+            )
+            .limit(1)
         )
+        if recent is not None:
+            return
+    event = Event(
+        task_id=task.id,
+        event_type="task.gate_error",
+        from_status=task.status,
+        to_status=task.status,
+        actor=actor.value,
+        attempt=task.attempt,
+        detail={"reason": "privacy_gate", "code": error.code, "source": error.source},
     )
+    if now is not None:
+        # The event default uses transaction-start time, which may be stale in a
+        # long-lived transaction. Keep the cooldown on the current database clock.
+        event.created_at = now
+    session.add(event)
+    if actor == TransitionActor.SYSTEM:
+        # Sessions disable autoflush. Make this insert visible to another poll
+        # within the same transaction without committing it.
+        session.flush()
 
 
 def result_payload_for_storage(result_v1: ResultV1) -> dict[str, Any]:

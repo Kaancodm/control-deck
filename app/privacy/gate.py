@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.core.schemas import DataClass, InputType, TaskV1
 from app.privacy.config import PrivacyConfigurationError, PrivacySettings, get_privacy_settings
 from app.privacy.files import FileInputError, read_text_input
+from app.privacy.normalization import NormalizationError
 from app.privacy.scanner import Finding, FindingKind, scan_text
 
 _MAX_TASK_BYTES = 5 * 1024 * 1024
@@ -134,7 +135,10 @@ def inspect_task(task: TaskV1, *, settings: PrivacySettings | None = None) -> Ga
             total_bytes += size
         if total_bytes > _MAX_TASK_BYTES:
             raise PrivacyInputError("task_too_large")
-        findings.extend(scan_text(content, source=source, blocklist=settings.blocklist))
+        try:
+            findings.extend(scan_text(content, source=source, blocklist=settings.blocklist))
+        except NormalizationError:
+            raise PrivacyInputError("unicode_too_complex", source=source) from None
         # Preserve secret findings even when earlier fields filled the metadata cap.
         findings.sort(key=lambda item: (item.kind != FindingKind.SECRET, item.source, item.start))
         del findings[_MAX_FINDINGS:]

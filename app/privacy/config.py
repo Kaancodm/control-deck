@@ -7,6 +7,8 @@ import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.privacy.normalization import NormalizationError, normalize_text
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _MAX_BLOCKLIST_BYTES = 65536
 
@@ -57,6 +59,12 @@ def _load_blocklist(path: Path) -> tuple[str, ...]:
         if not literal or literal.startswith("#"):
             continue
         if len(literal) > 256 or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in literal):
+            raise PrivacyConfigurationError()
+        try:
+            literal = normalize_text(literal).strip()
+        except NormalizationError:
+            raise PrivacyConfigurationError() from None
+        if not literal or len(literal) > 256:
             raise PrivacyConfigurationError()
         entries.append(literal)
         if len(entries) > 1000:

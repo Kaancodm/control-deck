@@ -40,9 +40,18 @@ def _template_path(path: Path) -> str:
     return absolute
 
 
-def render_units(repository: Path, environment_file: Path) -> dict[str, bytes]:
+def default_runner_environment_file(environment_file: Path) -> Path:
+    """Runner configuration sits beside the API file but is a separate, smaller file."""
+    return environment_file.with_name(environment_file.name + ".runner")
+
+
+def render_units(
+    repository: Path, environment_file: Path, runner_environment_file: Path | None = None
+) -> dict[str, bytes]:
     """Render fixed templates without shell expansion or untrusted systemd directives."""
+    runner_file = runner_environment_file or default_runner_environment_file(environment_file)
     replacements = {
+        "@RUNNER_ENVIRONMENT@": _template_path(runner_file),
         "@REPOSITORY@": _template_path(repository),
         "@ENVIRONMENT@": _template_path(environment_file),
         "@PYTHON@": _template_path(repository / ".venv" / "bin" / "python"),
@@ -59,11 +68,18 @@ def render_units(repository: Path, environment_file: Path) -> dict[str, bytes]:
     return result
 
 
-def install_units(repository: Path, environment_file: Path, destination: Path) -> None:
+def install_units(
+    repository: Path,
+    environment_file: Path,
+    destination: Path,
+    runner_environment_file: Path | None = None,
+) -> None:
     """Create units without replacing existing user files, and never start services."""
-    rendered = render_units(repository, environment_file)
-    with private_root(environment_file.parent) as configuration:
-        read_file(configuration, environment_file.name, maximum=65536)
+    runner_file = runner_environment_file or default_runner_environment_file(environment_file)
+    rendered = render_units(repository, environment_file, runner_file)
+    for configured in (environment_file, runner_file):
+        with private_root(configured.parent) as configuration:
+            read_file(configuration, configured.name, maximum=65536)
     with private_root(destination, create=True) as directory:
         for name, expected in rendered.items():
             try:
@@ -176,6 +192,11 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--environment-file", type=Path)
+    parser.add_argument(
+        "--runner-environment-file",
+        type=Path,
+        help="Runner-only settings (default: <environment-file>.runner); no API secrets",
+    )
     parser.add_argument("--unit-directory", type=Path)
     arguments = parser.parse_args()
     if not arguments.apply:
@@ -186,7 +207,10 @@ def main() -> int:
             if arguments.environment_file is None or arguments.unit_directory is None:
                 raise OperationError("installation_paths_required")
             install_units(
-                arguments.repository, arguments.environment_file, arguments.unit_directory
+                arguments.repository,
+                arguments.environment_file,
+                arguments.unit_directory,
+                arguments.runner_environment_file,
             )
             run_command(service_command("reload"), env=service_environment(), maximum_output=65536)
             run_command(

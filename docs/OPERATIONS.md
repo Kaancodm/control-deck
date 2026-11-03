@@ -42,6 +42,13 @@ Die Umgebungsdatei bleibt ausserhalb des Repos, gehoert dem Dienstnutzer und hat
 `deploy/env.example` enthaelt ausschliesslich leere Konfigurationsfelder und relative
 Standardverzeichnisse. Die Authentisierungsvorgaben aus `SECURITY.md` gelten zusaetzlich.
 
+Die Runner-Units laden nie die API-Umgebungsdatei (Owner-Token, Secret Key). Sie lesen eine
+eigene, kleinere Datei (Standard `<environment-file>.runner`, oder `--runner-environment-file`)
+mit denselben Schutzvorgaben (`0600`, privates Verzeichnis). Sie enthaelt nur die Variablen,
+die `app/workers/daemon.py` weiterreicht; Vorlage: `deploy/runner.env.example`.
+Der Akzeptanz-Evaluator startet seinen Kindprozess ausserdem mit einer Allowlist-Umgebung
+(`PATH`, `LANG`, `LC_ALL`, `PYTHONPATH`), in einer eigenen Session und in einem Temp-Verzeichnis.
+
 Eine spaetere ausdrueckliche Installation hat folgende Form:
 
 ```text

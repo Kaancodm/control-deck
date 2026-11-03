@@ -5,7 +5,7 @@
 Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.
 Migration `0016` zaehlt ausschliesslich endgueltig angenommene Ergebnisse, atomar mit
 Ergebnis und Statuswechsel. Zaehler beginnen bei dieser Migration; positive Vorpruefungen
-bleiben getrennt. Zehn neue SQL-Integrationstests pruefen Konkurrenz, verworfene Ergebnisse,
+bleiben getrennt. Elf neue SQL-Integrationstests pruefen Konkurrenz, verworfene Ergebnisse,
 Rollback, Acceptance und Migrationsschutz.
 
 Audit zeigt begrenzte sichere Metadaten aus Auftrags-, Betriebs- und Auth-Ereignissen;
@@ -19,7 +19,10 @@ werden beim Setzen und Abmelden entfernt. Schreib-APIs erhalten keine Session-Re
 27 UI-/Health-/Browser-Tests einschliesslich unklassifiziertem Fehlerzustand und echten
 Chromium-Smokes: Audit-Filter, Seitenwechsel, CSV, Warnband, Session-Health und Logout
 bei 390 Pixeln mit JavaScript sowie 1024 Pixeln ohne JavaScript. `make lint` ist gruen.
-Das sind keine Gesamt-Testzahlen. Finaler Eltern-Rebase und vollstaendige Pflichtchecks/CI
+Weitere 13 Zaehler-/Browser-Tests und 27 Health-/UI-Tests bestaetigen getrennte konkurrierende
+Ergebnisse, Schemaabweichungen und ungueltige Steuerung. Zentrale und KB-Migrationspruefung
+sowie beide Referenzmodi mit je 4/4 bestehen. Das sind keine Gesamt-Testzahlen.
+Finaler Eltern-Rebase und vollstaendige Pflichtchecks/CI
 stehen noch aus. Der Abnahme-Entwurf aus Checkpoint `a2e6ff3` liegt unveraendert unter
 `docs/ABNAHME_CHECKLISTE_ENTWURF.md`; Etappe 18 wird damit nicht gestartet.
 

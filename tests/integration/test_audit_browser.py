@@ -59,6 +59,7 @@ def test_audit_and_health_browser_flow(browser_app, monkeypatch, width, javascri
         page.get_by_label("Passwort", exact=True).fill(password)
         page.get_by_role("button", name="Anmelden", exact=True).click()
         page.locator('[data-lane-warning="auth_required"]').wait_for()
+        assert "Pausenzustand und Anmeldeverfahren pruefen" in page.content()
         page.get_by_role("link", name="Audit", exact=True).click()
         page.get_by_label("Quelle", exact=True).select_option("operation")
         page.get_by_label("Je Seite", exact=True).fill("2")

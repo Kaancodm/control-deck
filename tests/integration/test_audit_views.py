@@ -7,14 +7,14 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event, select
+from sqlalchemy import event, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from app.api.app import create_app
 from app.audit.service import read_lane_health
 from app.core.schemas import Worker
-from app.db.models import Event, LaneStatus
+from app.db.models import Event, LaneStatus, Setting
 from app.db.ui_auth import UiSession
 from app.operations.models import OperationEvent
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
@@ -140,6 +140,36 @@ def test_health_errors_are_redacted(health_client, monkeypatch):
     )
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
+
+
+def test_invalid_runner_controls_fail_as_safe_unavailable_health(health_client, db_session):
+    db_session.add(Setting(key="private-invalid-control", value=True))
+    db_session.commit()
+    response = health_client.get(
+        "/api/v1/health", headers={"Authorization": "Bearer synthetic-health-owner"}
+    )
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
+
+
+def test_outdated_schema_prevents_lane_projection(health_client, db_session, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.health.read_lane_health", lambda _session: pytest.fail("No lane query")
+    )
+    db_session.execute(text("UPDATE alembic_version SET version_num='20251103_0015'"))
+    db_session.commit()
+    try:
+        response = health_client.get(
+            "/api/v1/health", headers={"Authorization": "Bearer synthetic-health-owner"}
+        )
+        assert response.status_code == 503
+        assert response.json() == {
+            "status": "unavailable",
+            "db": {"connected": True, "schema": "outdated"},
+        }
+    finally:
+        db_session.execute(text("UPDATE alembic_version SET version_num='20251103_0016'"))
+        db_session.commit()
 
 
 def test_health_read_does_not_touch_activity_or_queue(health_client, db_session):

@@ -151,6 +151,32 @@ def test_concurrent_duplicate_acceptance_counts_exactly_once(api_client, db_sess
     assert db_session.get(LaneStatus, "ollama").completed_attempts == 1
 
 
+def test_concurrent_distinct_results_on_same_lane_do_not_lose_counts(api_client, db_session):
+    assert (
+        api_client.patch(
+            "/api/v1/control/settings", json={"changes": {"max_parallel": 2}}, headers=_owner()
+        ).status_code
+        == 200
+    )
+    envelopes = [running(api_client), running(api_client)]
+    engine = db_session.get_bind()
+
+    def accept(envelope):
+        with Session(engine) as writer:
+            submit_worker_result(
+                writer,
+                lease_id=UUID(envelope["lease"]["lease_id"]),
+                result_payload=_result(envelope),
+            )
+            writer.commit()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(accept, envelopes))
+    row = db_session.get(LaneStatus, "ollama")
+    assert row.completed_attempts == 2 and row.consecutive_failures == 0
+    assert row.last_attempt_at == row.last_attempt_success_at
+
+
 def test_counter_migration_preserves_observations_and_guards_evidence(db_session):
     config = Config("alembic.ini")
     config.cmd_opts = argparse.Namespace(x=["target=test"])

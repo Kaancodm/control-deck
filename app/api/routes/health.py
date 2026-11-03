@@ -13,7 +13,7 @@ from app.api.schemas import HealthResponse, ReadyResponse
 from app.audit.service import read_lane_health
 from app.db.config import DatabaseConfigurationError, get_database_url, get_engine_kwargs
 from app.db.session import get_session_factory
-from app.db.settings import read_settings
+from app.db.settings import RunnerSettingsError, read_settings
 from app.db.ui_auth import get_ui_session
 from app.routing.config import RouterConfigurationError
 from app.ui.auth import SESSION_COOKIE, AuthConfigurationError, token_digest
@@ -66,6 +66,7 @@ def owner_health(request: Request) -> JSONResponse:
         DatabaseConfigurationError,
         SQLAlchemyError,
         RouterConfigurationError,
+        RunnerSettingsError,
         AuthConfigurationError,
     ):
         return JSONResponse({"status": "unavailable"}, status_code=503)

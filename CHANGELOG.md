@@ -5,6 +5,12 @@
 Die Eintraege beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unveraendert.
 
+### Etappe 15 – Anmeldung und HTTP-Haertung (#30)
+
+- Passwortgebundene Sessions mit Inaktivitaets- und absoluter Ablaufgrenze.
+- Dauerhafte Login-Sperre, explizite lokale Entsperrung und CSRF-geschuetzte globale Abmeldung.
+- Validierte Host-/Origin-Grenzen, begrenzte Requests und sichere Auth-Metadaten.
+
 ### Etappe 14 – Wissen (#29)
 
 - Separater versionierter Wissens-Testvertrag mit pgvector und Fake-Embeddings.

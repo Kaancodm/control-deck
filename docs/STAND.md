@@ -317,3 +317,9 @@ Echte Logins, CLI-/Modellaufrufe, Anbieter-Kontingente und Serverinstallation we
 getestet oder ausgefuehrt. Dafuer erforderliche Pruefungen bleiben in jedem Etappen-PR
 explizit als Inbetriebnahme offen. Die lokalen Pflichtchecks verwenden nur Simulationen
 und isolierte Testdatenbanken.
+
+## Etappe 14: Wissens-DB in Arbeit
+
+Gestapelt auf Etappe 13. Versionierter Testvertrag, lokale Fake-Embeddings, expliziter
+Owner-Export und freigabegebundene Kontext-Snapshots werden umgesetzt. Noch nicht reviewbereit.
+Echte Schema-Kompatibilitaet und Schreibrechte bleiben Inbetriebnahme; keine Live-Zugriffe.

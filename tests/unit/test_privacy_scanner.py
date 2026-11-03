@@ -1,6 +1,7 @@
 """Synthetic scanner examples, independent from owner-authored reference cases."""
 
 from dataclasses import asdict
+from random import Random
 
 import pytest
 
@@ -173,3 +174,31 @@ def test_large_text_with_many_literals_finds_supported_end_marker() -> None:
     findings = scan_text(text, source="inputs[0].content", blocklist=blocklist)
     assert len(findings) == 1
     assert text[findings[0].start : findings[0].end] == "SYNTHETIC-LITERAL-0999"
+
+
+def test_diverse_literal_prefixes_preserve_longest_case_insensitive_match() -> None:
+    random = Random(5)
+    blocklist = tuple(
+        "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=16)) for _ in range(1000)
+    )
+    marker = blocklist[500].upper()
+    findings = scan_text(
+        "ordinary harmless prose. " * 1000 + marker, source="title", blocklist=blocklist
+    )
+    assert len(findings) == 1
+    assert findings[0].end - findings[0].start == len(marker)
+
+
+def test_nested_literal_prefixes_do_not_exceed_regex_recursion_depth() -> None:
+    blocklist = tuple("X" * length for length in range(1, 257))
+    findings = scan_text("X" * 256, source="title", blocklist=blocklist)
+    assert len(findings) == 1
+    assert (findings[0].start, findings[0].end) == (0, 256)
+
+
+def test_prefix_factoring_preserves_unicode_case_and_longest_order() -> None:
+    text = "İSTANBUL PROJECT and STRASSE and ΣΥΝΘ PROJECT"
+    blocklist = ("istanbul", "İSTANBUL PROJECT", "straße", "ΣΥΝΘ", "συνθ PROJECT")
+    assert [
+        text[item.start : item.end] for item in scan_text(text, source="title", blocklist=blocklist)
+    ] == ["İSTANBUL PROJECT", "ΣΥΝΘ PROJECT"]

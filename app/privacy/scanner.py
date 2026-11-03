@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
 from ipaddress import IPv6Address
+from itertools import groupby
 
 
 class FindingKind(StrEnum):
@@ -239,6 +240,24 @@ def _matches(text: str, *, source: str, kind: FindingKind) -> Iterator[Finding]:
                 break
 
 
+def _literal_alternation(literals: Sequence[str], depth: int = 8) -> str:
+    """Factor consecutive prefixes without changing case or alternative order."""
+    if len(literals) == 1:
+        return re.escape(literals[0])
+    if depth == 0:
+        return "(?:" + "|".join(re.escape(literal) for literal in literals) + ")"
+    branches = []
+    for first, group in groupby(literals, key=lambda literal: literal[:1]):
+        if first:
+            branches.append(
+                re.escape(first)
+                + _literal_alternation([literal[1:] for literal in group], depth - 1)
+            )
+        else:
+            branches.append("")
+    return "(?:" + "|".join(branches) + ")"
+
+
 @lru_cache(maxsize=4)
 def _blocklist_patterns(entries: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
     groups: dict[tuple[bool, bool], list[str]] = {}
@@ -248,16 +267,15 @@ def _blocklist_patterns(entries: tuple[str, ...]) -> tuple[re.Pattern[str], ...]
                 entry[0].isalnum() or entry[0] == "_",
                 entry[-1].isalnum() or entry[-1] == "_",
             )
-            groups.setdefault(bounds, []).append(re.escape(entry))
+            groups.setdefault(bounds, []).append(entry)
     patterns = []
     for (start_word, end_word), literals in groups.items():
         prefix = r"(?<!\w)" if start_word else ""
         suffix = r"(?!\w)" if end_word else ""
-        # Share boundary checks across all literals, rather than scanning a large
-        # document once per blocklist entry. Escaping prevents regex injection.
-        patterns.append(
-            re.compile(prefix + "(?:" + "|".join(literals) + ")" + suffix, re.IGNORECASE)
-        )
+        # Prefix factoring avoids testing every literal at each word boundary.
+        # Bound the nesting depth even for 256 successive configured prefixes.
+        # Literal escaping and original branch order preserve matching semantics.
+        patterns.append(re.compile(prefix + _literal_alternation(literals) + suffix, re.IGNORECASE))
     return tuple(patterns)
 
 

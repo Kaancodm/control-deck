@@ -1,9 +1,8 @@
 # Wissens-DB: Etappe 14
 
-Status: Kernvertrag, Kontext-/Export-Anbindung und Oberflaeche sind umgesetzt. Auf Owner-Wunsch
-ist ein Zwischenstand gesichert; keine Pruefung laeuft weiter. Der Branch ist auf Etappe 13
-gestapelt. Finaler Eltern-Rebase, Gesamtchecks und CI-Abschluss stehen noch aus.
-**Noch nicht reviewbereit.**
+Status: Kernvertrag, Kontext-/Export-Anbindung und Oberflaeche sind umgesetzt. Der Branch
+ist auf den finalen Etappe-13-Head rebased. Gesamtvalidierung und CI werden im Draft-PR #29
+und in [STAND.md](STAND.md) dokumentiert. Externes Review und Inbetriebnahme bleiben offen.
 
 Der vorgeschlagene Vertrag `deck_kb.v1` wird ausschliesslich gegen isolierte Testdatenbanken
 entwickelt. Er ist kein Nachweis fuer die Kompatibilitaet einer bestehenden Wissens-DB.

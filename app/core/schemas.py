@@ -9,8 +9,10 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.paths import DECK_RELATIVE_PATH, validate_deck_relative_path
+
 SHA256_HEX = re.compile(r"^[a-f0-9]{64}$")
-RELATIVE_FILE_PATH = re.compile(r"^(?!/)(?!.*\.\.).+$")
+RELATIVE_FILE_PATH = DECK_RELATIVE_PATH
 
 
 class RequestedBy(StrEnum):
@@ -93,11 +95,12 @@ class TaskInput(StrictModel):
         if self.type == InputType.TEXT:
             if self.value is None:
                 raise ValueError("text inputs require value")
+            if self.path is not None:
+                raise ValueError("text inputs must not include path")
         elif self.type == InputType.FILE:
             if self.path is None:
                 raise ValueError("file inputs require path")
-            if not RELATIVE_FILE_PATH.match(self.path):
-                raise ValueError("file path must be relative and must not contain '..'")
+            validate_deck_relative_path(self.path, field="inputs[].path")
         return self
 
 
@@ -113,6 +116,24 @@ class Policy(StrictModel):
     timeout_s: int = Field(default=900, ge=30, le=7200)
     require_review: bool = True
 
+    @field_validator("allowed_workers")
+    @classmethod
+    def allowed_workers_unique(cls, value: list[Worker] | None) -> list[Worker] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("allowed_workers entries must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def validate_worker_sets(self) -> Policy:
+        allowed = set(self.allowed_workers or [])
+        forbidden = set(self.forbidden_workers)
+        overlap = allowed & forbidden
+        if overlap:
+            raise ValueError(
+                f"allowed_workers and forbidden_workers overlap: {sorted(w.value for w in overlap)}"
+            )
+        return self
+
 
 class AcceptanceRule(StrictModel):
     type: AcceptanceType
@@ -126,7 +147,7 @@ class TaskV1(StrictModel):
     created_at: AwareDatetime
     requested_by: RequestedBy
     kind: TaskKind
-    title: str = Field(max_length=120)
+    title: str = Field(min_length=1, max_length=120)
     instructions: str = Field(min_length=1)
     inputs: list[TaskInput]
     context_refs: list[ContextRef]
@@ -145,11 +166,27 @@ class TaskV1(StrictModel):
             raise ValueError("fallback_chain entries must be unique")
         return value
 
+    @model_validator(mode="after")
+    def validate_fallback_vs_forbidden(self) -> TaskV1:
+        forbidden = set(self.policy.forbidden_workers)
+        blocked = [worker for worker in self.fallback_chain if worker in forbidden]
+        if blocked:
+            raise ValueError(
+                "fallback_chain must not include forbidden workers: "
+                + ", ".join(worker.value for worker in blocked)
+            )
+        return self
+
 
 class OutputFile(StrictModel):
     name: str = Field(min_length=1)
     path: str = Field(min_length=1)
     sha256: str
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        return validate_deck_relative_path(value, field="output.files[].path")
 
     @field_validator("sha256")
     @classmethod
@@ -187,6 +224,12 @@ class ResultTiming(StrictModel):
     started_at: AwareDatetime
     finished_at: AwareDatetime
 
+    @model_validator(mode="after")
+    def validate_order(self) -> ResultTiming:
+        if self.finished_at < self.started_at:
+            raise ValueError("timing.finished_at must not be before timing.started_at")
+        return self
+
 
 class ResultError(StrictModel):
     code: ErrorCode
@@ -196,6 +239,12 @@ class ResultError(StrictModel):
 class RedactionInfo(StrictModel):
     applied: bool
     placeholders: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_placeholders(self) -> RedactionInfo:
+        if not self.applied and self.placeholders > 0:
+            raise ValueError("redaction.placeholders must be 0 when redaction.applied is false")
+        return self
 
 
 class ResultV1(StrictModel):
@@ -212,6 +261,11 @@ class ResultV1(StrictModel):
     redaction: RedactionInfo
     payload_hash: str
     log_ref: str = Field(min_length=1)
+
+    @field_validator("log_ref")
+    @classmethod
+    def validate_log_ref(cls, value: str) -> str:
+        return validate_deck_relative_path(value, field="log_ref")
 
     @field_validator("payload_hash")
     @classmethod

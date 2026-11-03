@@ -26,6 +26,7 @@ from app.db.state_machine import (
         (TaskState.QUEUED, TaskTransition.CANCEL, TaskState.CANCELLED),
         (TaskState.LEASED, TaskTransition.START, TaskState.RUNNING),
         (TaskState.LEASED, TaskTransition.LEASE_EXPIRED, TaskState.QUEUED),
+        (TaskState.LEASED, TaskTransition.FAIL, TaskState.FAILED),
         (TaskState.LEASED, TaskTransition.CANCEL, TaskState.CANCELLED),
         (TaskState.RUNNING, TaskTransition.SUCCEED, TaskState.SUCCEEDED),
         (TaskState.RUNNING, TaskTransition.FAIL, TaskState.FAILED),

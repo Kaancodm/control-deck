@@ -28,19 +28,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cases directory not found: {cases_dir}", file=sys.stderr)
         return 1
 
-    try:
-        cases = load_all_cases(cases_dir)
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+    cases, load_issues = load_all_cases(cases_dir)
+    for issue in load_issues:
+        print(f"LOAD FAIL {issue.path.name}: {issue.message}", file=sys.stderr)
 
     if not cases:
-        print(f"no cases found in {cases_dir}", file=sys.stderr)
+        print(f"no runnable cases found in {cases_dir}", file=sys.stderr)
         return 1
 
     summary = run_cases(cases, FakeExecutor())
     print(format_summary(summary))
-    return 0 if summary.failed == 0 else 1
+    failed = summary.failed + len(load_issues)
+    return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":

@@ -12,9 +12,9 @@ from app.api.config import get_worker_token, worker_token_configured
 from app.db.session import get_session_factory
 
 
-def get_db(*, for_tests: bool = False) -> Generator[Session, None, None]:
+def get_db() -> Generator[Session, None, None]:
     """Yield a SQLAlchemy session (commit on success, rollback on error)."""
-    factory = get_session_factory(for_tests=for_tests)
+    factory = get_session_factory()
     session = factory()
     try:
         yield session

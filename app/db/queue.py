@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Lease, Task
 from app.db.state_machine import TaskState, TaskTransition
-from app.db.transitions import transition_task, upsert_lease
+from app.db.transitions import TransitionActor, transition_task, upsert_lease
 
 
 def dequeue_next_queued_task(
@@ -43,7 +43,6 @@ def dequeue_next_queued_task(
         task=task,
         trigger=TaskTransition.ACQUIRE,
         detail={"holder": holder} if holder else None,
-        skip_lease_check=True,
     )
 
     now = datetime.now(tz=UTC)
@@ -82,6 +81,16 @@ def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
     leases = list(session.scalars(stmt).all())
     for lease in leases:
         task = lease.task
+        if task.cancel_requested:
+            transition_task(
+                session,
+                task=task,
+                trigger=TaskTransition.CANCEL,
+                lease_id=lease.lease_id,
+                actor=TransitionActor.SYSTEM,
+                detail={"reaper": True, "reason": "cancel_requested"},
+            )
+            continue
         transition_task(
             session,
             task=task,

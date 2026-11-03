@@ -33,6 +33,16 @@ def upgrade() -> None:
         "tasks",
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
     )
+    # Backfill pre-approval rows (0001 only created queued/… tasks; no awaiting_approval yet).
+    op.execute(
+        sa.text(
+            """
+            UPDATE tasks
+            SET requires_approval = false,
+                approved_at = COALESCE(approved_at, NOW())
+            """
+        )
+    )
 
 
 def downgrade() -> None:

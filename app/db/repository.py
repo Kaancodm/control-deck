@@ -7,15 +7,18 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.schemas import DataClass, TaskV1
-from app.core.validate import validate_task
+from app.core.schemas import DataClass, ResultV1, TaskV1
+from app.core.validate import validate_result, validate_task
 from app.db.models import Result, Task
 from app.db.state_machine import TaskState, TaskTransition
-from app.db.transitions import transition_task
+from app.db.transitions import TransitionActor, transition_task
 
 
 def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
     """Insert a queued task row derived from a validated ``TaskV1`` model."""
+    existing = session.get(Task, task_v1.task_id)
+    if existing is not None:
+        return existing
     payload = task_v1.model_dump(mode="json")
     task = Task(
         id=task_v1.task_id,
@@ -32,7 +35,6 @@ def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
         task=task,
         trigger=TaskTransition.ENQUEUE,
         detail={"source": "create_task_from_v1"},
-        skip_lease_check=True,
     )
     return task
 
@@ -74,7 +76,6 @@ def create_task_from_api_payload(
         task=row,
         trigger=trigger,
         detail={"source": "api"},
-        skip_lease_check=True,
     )
     return row
 
@@ -89,12 +90,27 @@ def approve_task(session: Session, task: Task) -> None:
         task=task,
         trigger=TaskTransition.APPROVE,
         detail={"source": "api"},
-        skip_lease_check=True,
+        actor=TransitionActor.OPERATOR,
     )
+
+
+def result_payload_for_storage(result_v1: ResultV1) -> dict[str, Any]:
+    """Serialize ``result.v1`` for JSONB without explicit null token fields."""
+    data = result_v1.model_dump(mode="json")
+    usage = data.get("usage", {})
+    if isinstance(usage, dict):
+        for key in ("input_tokens", "output_tokens"):
+            if usage.get(key) is None:
+                usage.pop(key, None)
+        data["usage"] = usage
+    return data
 
 
 def persist_result_v1(session: Session, *, task: Task, result_payload: dict[str, Any]) -> Result:
     """Append a validated ``result.v1`` row for ``task``."""
+    issues = validate_result(result_payload)
+    if issues:
+        raise ValueError(issues)
     attempt = int(result_payload["attempt"])
     row = Result(
         task_id=task.id,

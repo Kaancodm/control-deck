@@ -59,8 +59,6 @@ class Task(Base):
     data_class: Mapped[DataClass] = mapped_column(
         _data_class_enum,
         nullable=False,
-        default=DataClass.LOCAL_ONLY,
-        server_default=DataClass.LOCAL_ONLY.value,
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -71,6 +69,15 @@ class Task(Base):
         server_default=text("true"),
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    lane: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -92,11 +99,15 @@ class Task(Base):
         Index("ix_tasks_status_created_at", "status", "created_at"),
         Index("ix_tasks_data_class", "data_class"),
         CheckConstraint(
-            "(payload->>'data_class') = data_class::text",
+            "payload->>'schema_version' = 'task.v1'",
+            name="ck_tasks_payload_schema_version",
+        ),
+        CheckConstraint(
+            "payload->>'data_class' IS NOT NULL AND (payload->>'data_class') = data_class::text",
             name="ck_tasks_payload_data_class",
         ),
         CheckConstraint(
-            "(payload->>'task_id')::uuid = id",
+            "payload->>'task_id' IS NOT NULL AND (payload->>'task_id')::uuid = id",
             name="ck_tasks_payload_task_id",
         ),
     )
@@ -122,6 +133,18 @@ class Result(Base):
     __table_args__ = (
         Index("ix_results_task_id_attempt", "task_id", "attempt", unique=True),
         CheckConstraint("attempt >= 1", name="ck_results_attempt_min"),
+        CheckConstraint(
+            "payload->>'schema_version' = 'result.v1'",
+            name="ck_results_payload_schema_version",
+        ),
+        CheckConstraint(
+            "payload->>'task_id' IS NOT NULL AND (payload->>'task_id')::uuid = task_id",
+            name="ck_results_payload_task_id",
+        ),
+        CheckConstraint(
+            "payload->>'attempt' IS NOT NULL AND (payload->>'attempt')::int = attempt",
+            name="ck_results_payload_attempt",
+        ),
     )
 
 
@@ -132,9 +155,12 @@ class Event(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     task_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False
     )
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    lease_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     from_status: Mapped[TaskState | None] = mapped_column(_task_state_enum, nullable=True)
     to_status: Mapped[TaskState] = mapped_column(_task_state_enum, nullable=False)
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

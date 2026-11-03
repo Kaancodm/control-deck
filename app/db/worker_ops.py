@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.schemas import ResultStatus, ResultV1
 from app.core.validate import validate_result
 from app.db.models import Lease, Task
-from app.db.repository import persist_result_v1
+from app.db.repository import persist_result_v1, result_payload_for_storage
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import LeaseOwnershipError, fenced_transition_task
 
@@ -105,7 +105,8 @@ def submit_worker_result(
     if trigger is None:
         raise WorkerOperationError(f"unsupported result status {result_v1.status.value}")
 
-    persist_result_v1(session, task=task, result_payload=result_v1.model_dump(mode="json"))
+    stored_payload = result_payload_for_storage(result_v1)
+    persist_result_v1(session, task=task, result_payload=stored_payload)
 
     updated = fenced_transition_task(
         session,

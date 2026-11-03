@@ -64,6 +64,7 @@ _TRANSITION_TABLE: dict[TaskState | None, dict[TaskTransition, TaskState]] = {
     TaskState.LEASED: {
         TaskTransition.START: TaskState.RUNNING,
         TaskTransition.LEASE_EXPIRED: TaskState.QUEUED,
+        TaskTransition.FAIL: TaskState.FAILED,
         TaskTransition.CANCEL: TaskState.CANCELLED,
     },
     TaskState.RUNNING: {

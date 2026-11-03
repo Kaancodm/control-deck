@@ -17,8 +17,8 @@ from app.api.serializers import task_detail, task_summary
 from app.core.schemas import DataClass
 from app.db.models import Task
 from app.db.repository import approve_task, create_task_from_api_payload
-from app.db.state_machine import InvalidTaskTransitionError, TaskState, TaskTransition
-from app.db.transitions import transition_task
+from app.db.state_machine import InvalidTaskTransitionError, TaskState
+from app.db.transitions import request_operator_cancel
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -126,15 +126,10 @@ def cancel_task(
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     try:
-        transition_task(
-            session,
-            task=task,
-            trigger=TaskTransition.CANCEL,
-            skip_lease_check=True,
-        )
+        request_operator_cancel(session, task=task, reason="api")
     except InvalidTaskTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    session.refresh(task, attribute_names=["events", "results"])
+    session.refresh(task)
     return task_detail(task)
 
 

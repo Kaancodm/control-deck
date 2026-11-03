@@ -90,7 +90,7 @@ def test_pause_or_stop_prevents_new_claims(db_session: Session, control: str) ->
     task = _insert_task(db_session)
     update_settings(db_session, {control: True})
     db_session.commit()
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
     db_session.refresh(task)
     assert task.status == TaskState.QUEUED and task.attempt == 0
 
@@ -99,16 +99,16 @@ def test_pause_of_another_lane_does_not_prevent_local_claim(db_session: Session)
     _insert_task(db_session)
     update_settings(db_session, {"lanes.claude.paused": True})
     db_session.commit()
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is not None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is not None
 
 
 def test_default_capacity_counts_leased_attempts_until_released(db_session: Session) -> None:
     _insert_task(db_session)
     second = _insert_task(db_session)
     db_session.commit()
-    first = dequeue_next_queued_task(db_session, lease_ttl=_TTL)
+    first = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA)
     assert first is not None
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
     db_session.commit()
     transition_task(
         db_session,
@@ -118,7 +118,7 @@ def test_default_capacity_counts_leased_attempts_until_released(db_session: Sess
         actor=TransitionActor.RUNNER,
     )
     db_session.commit()
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL)
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA)
     assert claimed is not None and claimed.id == second.id
 
 
@@ -128,11 +128,11 @@ def test_explicit_capacity_allows_multiple_committed_claims(db_session: Session)
     _insert_task(db_session)
     update_settings(db_session, {"max_parallel": 2})
     db_session.commit()
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is not None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is not None
     db_session.commit()
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is not None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is not None
     db_session.commit()
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
     assert (
         db_session.scalar(
             select(func.count()).select_from(Task).where(Task.status == TaskState.LEASED)
@@ -150,12 +150,12 @@ def test_simultaneous_claims_cannot_exceed_capacity(db_session: Session) -> None
     def poll():
         with factory() as session:
             session.execute(text("SET LOCAL statement_timeout='2s'"))
-            task = dequeue_next_queued_task(session, lease_ttl=_TTL)
+            task = dequeue_next_queued_task(session, lease_ttl=_TTL, worker=Worker.OLLAMA)
             session.commit()
             return task.id if task else None
 
     with factory() as first:
-        claimed = dequeue_next_queued_task(first, lease_ttl=_TTL)
+        claimed = dequeue_next_queued_task(first, lease_ttl=_TTL, worker=Worker.OLLAMA)
         assert claimed is not None
         with ThreadPoolExecutor(max_workers=1) as executor:
             assert executor.submit(poll).result(timeout=5) is None
@@ -170,10 +170,10 @@ def test_uncommitted_stop_blocks_poll_and_rollback_restores_admission(db_session
     with factory() as owner:
         update_settings(owner, {"stop_requested": True})
         with factory() as runner:
-            assert dequeue_next_queued_task(runner, lease_ttl=_TTL) is None
+            assert dequeue_next_queued_task(runner, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
             runner.commit()
         owner.rollback()
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is not None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is not None
 
 
 def test_stop_waits_for_claim_then_marks_it_before_returning(db_session: Session) -> None:
@@ -193,7 +193,7 @@ def test_stop_waits_for_claim_then_marks_it_before_returning(db_session: Session
             return settings.stop_requested
 
     with factory() as runner, ThreadPoolExecutor(max_workers=1) as executor:
-        claimed = dequeue_next_queued_task(runner, lease_ttl=_TTL)
+        claimed = dequeue_next_queued_task(runner, lease_ttl=_TTL, worker=Worker.OLLAMA)
         assert claimed is not None
         task_id = claimed.id
         future = executor.submit(stop)
@@ -204,14 +204,14 @@ def test_stop_waits_for_claim_then_marks_it_before_returning(db_session: Session
     task = db_session.get(Task, task_id)
     assert task.cancel_requested
     assert read_settings(db_session).stop_requested
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
 
 
 def test_queued_task_at_attempt_limit_cannot_get_another_claim(db_session: Session) -> None:
     task = _insert_task(db_session, max_attempts=1)
     task.attempt = 1
     db_session.commit()
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
     db_session.refresh(task)
     assert task.attempt == 1 and task.status == TaskState.QUEUED
 
@@ -220,7 +220,7 @@ def test_claim_lease_uses_current_database_time(db_session: Session) -> None:
     _insert_task(db_session)
     db_session.commit()
     before = db_session.scalar(select(func.clock_timestamp()))
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL)
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA)
     assert claimed is not None and claimed.lease is not None
     assert claimed.lease.heartbeat_at >= before
     assert claimed.lease.expires_at - claimed.lease.heartbeat_at == _TTL

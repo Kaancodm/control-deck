@@ -61,7 +61,7 @@ def test_creation_and_claim_persist_route_without_mutating_task(db_session: Sess
     assert task.lane == "ollama"
     approve_task(db_session, task)
     db_session.commit()
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL)
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA)
     assert claimed is not None and claimed.id == task.id
     assert claimed.plan["chain"][claimed.plan["cursor"]] == claimed.lane == "ollama"
     assert claimed.payload == original == task_v1.model_dump(mode="json")
@@ -89,13 +89,13 @@ def test_zero_budget_defers_approved_task_without_terminal_block(
     task = _insert_task(db_session)
     db_session.commit()
     assert task.status == TaskState.QUEUED
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
     assert task.status == TaskState.QUEUED and task.attempt == 0
     assert task.plan["status"] == "deferred" and task.lane is None
     assert routing_snapshot(db_session).usage[Worker.OLLAMA] == 0
     db_session.commit()
     _configure(monkeypatch, ollama=1)
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL)
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA)
     assert claimed is not None and claimed.id == task.id
 
 
@@ -106,11 +106,11 @@ def test_last_budget_slot_counts_inflight_claim_and_defers_next(
     first = _insert_task(db_session)
     second = _insert_task(db_session)
     db_session.commit()
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL)
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA)
     assert claimed is not None
     db_session.commit()
     assert claimed.status == TaskState.LEASED
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
     unclaimed = second if claimed.id == first.id else first
     db_session.refresh(unclaimed)
     assert unclaimed.status == TaskState.QUEUED and unclaimed.attempt == 0
@@ -125,7 +125,7 @@ def test_claim_rollback_restores_budget_and_attempt(
     task_id = _insert_task(db_session).id
     db_session.commit()
     with _factory()() as worker:
-        claimed = dequeue_next_queued_task(worker, lease_ttl=_TTL)
+        claimed = dequeue_next_queued_task(worker, lease_ttl=_TTL, worker=Worker.OLLAMA)
         assert claimed is not None and claimed.attempt == 1
         assert routing_snapshot(worker).usage[Worker.OLLAMA] == 1
         worker.rollback()
@@ -133,7 +133,7 @@ def test_claim_rollback_restores_budget_and_attempt(
     task = db_session.get(Task, task_id)
     db_session.refresh(task)
     assert task.attempt == 0 and task.status == TaskState.QUEUED
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL)
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA)
     assert claimed is not None and claimed.attempt == 1
 
 
@@ -149,12 +149,12 @@ def test_concurrent_last_slot_never_exceeds_limit(
     def poll():
         with factory() as other:
             other.execute(text("SET LOCAL statement_timeout = '2s'"))
-            result = dequeue_next_queued_task(other, lease_ttl=_TTL)
+            result = dequeue_next_queued_task(other, lease_ttl=_TTL, worker=Worker.OLLAMA)
             other.commit()
             return result.id if result is not None else None
 
     with factory() as first:
-        claimed = dequeue_next_queued_task(first, lease_ttl=_TTL)
+        claimed = dequeue_next_queued_task(first, lease_ttl=_TTL, worker=Worker.OLLAMA)
         assert claimed is not None
         with ThreadPoolExecutor(max_workers=1) as pool:
             assert pool.submit(poll).result(timeout=5) is None
@@ -189,7 +189,7 @@ def test_previous_day_claim_does_not_consume_current_budget(
     )
     db_session.commit()
     assert routing_snapshot(db_session).usage[Worker.OLLAMA] == 0
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is not None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is not None
     assert routing_snapshot(db_session).usage[Worker.OLLAMA] == 1
 
 
@@ -222,7 +222,7 @@ def test_claim_audit_timestamp_uses_database_clock_not_transaction_start(
     db_session.commit()
     db_session.scalar(select(func.now()))
     before = db_session.scalar(select(func.clock_timestamp()))
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is not None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is not None
     event = db_session.scalar(
         select(Event).where(Event.task_id == task.id, Event.event_type == "task.acquire")
     )
@@ -261,7 +261,7 @@ def test_disabled_lane_preserves_queued_task_until_reenabled(
         }
     )
     monkeypatch.setattr("app.db.queue.get_router_config", lambda: disabled)
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
     db_session.refresh(task)
     assert task.status == TaskState.QUEUED and task.attempt == 0
     assert task.lane is None and task.plan["status"] == "deferred"
@@ -292,13 +292,13 @@ def test_new_limit_waits_for_previously_unlimited_claim(
     db_session.commit()
     factory = _factory()
     with factory() as unlimited:
-        claimed = dequeue_next_queued_task(unlimited, lease_ttl=_TTL)
+        claimed = dequeue_next_queued_task(unlimited, lease_ttl=_TTL, worker=Worker.OLLAMA)
         assert claimed is not None
         _configure(monkeypatch, ollama=1)
         with factory() as limited:
             limited.execute(text("SET LOCAL statement_timeout = '2s'"))
-            assert dequeue_next_queued_task(limited, lease_ttl=_TTL) is None
+            assert dequeue_next_queued_task(limited, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
             limited.commit()
         unlimited.commit()
-    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
+    assert dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA) is None
     assert routing_snapshot(db_session).usage[Worker.OLLAMA] == 1

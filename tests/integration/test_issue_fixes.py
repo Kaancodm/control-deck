@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
-from app.core.schemas import TaskV1
+from app.core.schemas import TaskV1, Worker
 from app.db.models import Lease, Task
 from app.db.queue import dequeue_next_queued_task, reap_expired_leases
 from app.db.repository import approve_task, create_task_from_api_payload, create_task_from_v1
@@ -57,7 +57,9 @@ def test_stale_lease_cannot_succeed_after_reaper_and_second_worker(db_session: S
     worker_a = factory()
     worker_b = factory()
     try:
-        claimed_a = dequeue_next_queued_task(worker_a, lease_ttl=timedelta(seconds=1))
+        claimed_a = dequeue_next_queued_task(
+            worker_a, lease_ttl=timedelta(seconds=1), worker=Worker.OLLAMA
+        )
         assert claimed_a is not None
         lease_a = claimed_a.lease.lease_id if claimed_a.lease else None
         assert lease_a is not None
@@ -84,7 +86,9 @@ def test_stale_lease_cannot_succeed_after_reaper_and_second_worker(db_session: S
         worker_reap.close()
 
     try:
-        claimed_b = dequeue_next_queued_task(worker_b, lease_ttl=timedelta(seconds=30))
+        claimed_b = dequeue_next_queued_task(
+            worker_b, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+        )
         assert claimed_b is not None
         lease_b = claimed_b.lease.lease_id if claimed_b.lease else None
         assert lease_b is not None
@@ -123,7 +127,9 @@ def test_reaper_respects_max_attempts(db_session: Session) -> None:
     for _ in range(2):
         worker = factory()
         try:
-            claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(hours=1))
+            claimed = dequeue_next_queued_task(
+                worker, lease_ttl=timedelta(hours=1), worker=Worker.OLLAMA
+            )
             assert claimed is not None
             lease_id = claimed.lease.lease_id if claimed.lease else None
             assert lease_id is not None
@@ -156,7 +162,9 @@ def test_operator_cancel_paths(db_session: Session) -> None:
     db_session.commit()
     worker = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)()
     try:
-        claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
+        claimed = dequeue_next_queued_task(
+            worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+        )
         assert claimed is not None
         lease_id = claimed.lease.lease_id if claimed.lease else None
         assert lease_id is not None
@@ -240,7 +248,9 @@ def test_local_only_dequeue_claimable_despite_cloud_fallback_chain(
     db_session.commit()
     worker = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)()
     try:
-        claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
+        claimed = dequeue_next_queued_task(
+            worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+        )
         assert claimed is not None
         assert claimed.id == task.id
     finally:
@@ -264,7 +274,10 @@ def test_create_task_from_v1_starts_awaiting_approval(db_session: Session) -> No
     assert task.requires_approval is True
     worker = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)()
     try:
-        assert dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30)) is None
+        assert (
+            dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA)
+            is None
+        )
     finally:
         worker.close()
 
@@ -274,14 +287,19 @@ def test_approve_task_required_before_dequeue(db_session: Session) -> None:
     db_session.commit()
     worker = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)()
     try:
-        assert dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30)) is None
+        assert (
+            dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA)
+            is None
+        )
     finally:
         worker.close()
     approve_task(db_session, task)
     db_session.commit()
     worker = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)()
     try:
-        claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
+        claimed = dequeue_next_queued_task(
+            worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+        )
         assert claimed is not None
         assert claimed.id == task.id
     finally:
@@ -293,7 +311,9 @@ def test_expired_lease_heartbeat_rejected(db_session: Session) -> None:
     db_session.commit()
     worker = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)()
     try:
-        claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
+        claimed = dequeue_next_queued_task(
+            worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+        )
         assert claimed is not None and claimed.lease is not None
         lease_id = claimed.lease.lease_id
         claimed.lease.expires_at = datetime.now(tz=UTC) - timedelta(seconds=1)
@@ -315,7 +335,9 @@ def test_heartbeat_and_reaper_concurrent(db_session: Session) -> None:
     factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)
     setup = factory()
     try:
-        claimed = dequeue_next_queued_task(setup, lease_ttl=timedelta(seconds=60))
+        claimed = dequeue_next_queued_task(
+            setup, lease_ttl=timedelta(seconds=60), worker=Worker.OLLAMA
+        )
         assert claimed is not None and claimed.lease is not None
         lease_id = claimed.lease.lease_id
         claimed.lease.expires_at = datetime.now(tz=UTC) - timedelta(seconds=5)
@@ -798,7 +820,9 @@ def test_migration_0006_legacy_create_task_v1_requeue_path_from_0003() -> None:
     try:
         reap_expired_leases(worker)
         worker.commit()
-        claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
+        claimed = dequeue_next_queued_task(
+            worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+        )
         assert claimed is None
     finally:
         worker.close()
@@ -852,7 +876,9 @@ def test_migration_0006_preserves_owner_approved_tasks_from_0003() -> None:
     factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)
     worker = factory()
     try:
-        claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
+        claimed = dequeue_next_queued_task(
+            worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+        )
         assert claimed is not None
         assert claimed.id == approved_id
     finally:

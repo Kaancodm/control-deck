@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.schemas import Worker
 from app.db.models import Event, Task
 from app.db.queue import dequeue_next_queued_task
 from app.db.repository import record_gate_error
@@ -152,11 +153,19 @@ def test_concurrent_pollers_and_later_transaction_do_not_duplicate_events(
     def poll() -> None:
         with factory() as worker:
             worker.execute(text("SET LOCAL statement_timeout = '2s'"))
-            assert dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30)) is None
+            assert (
+                dequeue_next_queued_task(
+                    worker, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+                )
+                is None
+            )
             worker.commit()
 
     with factory() as first:
-        assert dequeue_next_queued_task(first, lease_ttl=timedelta(seconds=30)) is None
+        assert (
+            dequeue_next_queued_task(first, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA)
+            is None
+        )
         with ThreadPoolExecutor(max_workers=1) as pool:
             # The first poll still holds the task lock and its event is uncommitted.
             pool.submit(poll).result(timeout=5)

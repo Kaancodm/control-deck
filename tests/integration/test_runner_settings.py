@@ -79,13 +79,15 @@ def test_corrupt_stored_settings_fail_closed(db_session: Session, key: str, valu
     with pytest.raises(RunnerSettingsError):
         read_settings(db_session)
     with pytest.raises(RunnerSettingsError):
-        dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=30))
+        dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA)
 
 
 def test_pause_leaves_active_attempt_running_and_stop_latches_cancel(db_session: Session) -> None:
     task = _insert_task(db_session)
     db_session.commit()
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=30))
+    claimed = dequeue_next_queued_task(
+        db_session, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA
+    )
     assert claimed is not None
     db_session.commit()
     update_settings(db_session, {"paused": True})
@@ -107,7 +109,10 @@ def test_pause_leaves_active_attempt_running_and_stop_latches_cancel(db_session:
 def test_settings_change_and_stop_requests_rollback_together(db_session: Session) -> None:
     task = _insert_task(db_session)
     db_session.commit()
-    assert dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=30)) is not None
+    assert (
+        dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=30), worker=Worker.OLLAMA)
+        is not None
+    )
     db_session.commit()
     update_settings(db_session, {"stop_requested": True})
     db_session.rollback()

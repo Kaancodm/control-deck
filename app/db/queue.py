@@ -36,7 +36,7 @@ def dequeue_next_queued_task(
     *,
     lease_ttl: timedelta,
     holder: str | None = None,
-    worker: Worker = Worker.OLLAMA,
+    worker: Worker,
 ) -> Task | None:
     """
     Atomically claim the oldest ``queued`` task and move it to ``leased``.

@@ -15,6 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from alembic import command
+from app.core.schemas import Worker
 from app.db.models import Event, Lease, Result
 from app.db.queue import dequeue_next_queued_task
 from app.db.session import get_engine, reset_engine_for_tests
@@ -222,7 +223,9 @@ def test_direct_fenced_success_cannot_bypass_due_deadline_without_a_sweep(
     task = _insert_task(db_session)
     task.deadline_at = datetime.now(tz=UTC) + timedelta(hours=1)
     db_session.commit()
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=timedelta(minutes=1))
+    claimed = dequeue_next_queued_task(
+        db_session, lease_ttl=timedelta(minutes=1), worker=Worker.OLLAMA
+    )
     assert claimed is not None and claimed.lease is not None
     lease_id = claimed.lease.lease_id
     transition_task(

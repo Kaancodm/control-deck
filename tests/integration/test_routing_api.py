@@ -134,9 +134,10 @@ def test_preview_reports_current_cloud_gate_without_allocating_map(
     before = _counts(db_session)
     response = gate_client.post("/api/v1/tasks/dry-run", json=payload, headers=_OWNER)
     assert response.status_code == 200, response.text
-    assert response.json()["status"] == "blocked"
-    assert response.json()["gate_status"] == "blocked"
-    assert response.json()["reason"] == "privacy_gate"
+    blocked = data_class == "cloud_ok"
+    assert response.json()["status"] == ("blocked" if blocked else "ready")
+    assert response.json()["gate_status"] == ("blocked" if blocked else "clear")
+    assert response.json()["reason"] == ("privacy_gate" if blocked else None)
     assert response.json()["findings"]
     assert marker not in response.text
     assert _counts(db_session) == before

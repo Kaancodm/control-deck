@@ -75,7 +75,7 @@ def test_post_task_awaiting_approval_and_approve_flow(api_client: TestClient) ->
 
     lease = api_client.post(
         "/api/v1/worker/lease",
-        json={},
+        json={"worker": "ollama"},
         headers=_auth_headers(os.environ["DECK_WORKER_TOKEN"]),
     )
     assert lease.status_code == 404
@@ -86,7 +86,7 @@ def test_post_task_awaiting_approval_and_approve_flow(api_client: TestClient) ->
 
     lease = api_client.post(
         "/api/v1/worker/lease",
-        json={"holder": "itest"},
+        json={"worker": "ollama", "holder": "itest"},
         headers=_auth_headers(os.environ["DECK_WORKER_TOKEN"]),
     )
     assert lease.status_code == 200
@@ -125,11 +125,21 @@ def test_worker_result_fenced(api_client: TestClient, db_session: Session) -> No
     )
     api_client.post(f"/api/v1/tasks/{task_id}/approve", headers=_owner_headers())
 
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=60))
-    assert claimed is not None
-    db_session.commit()
-    lease_id = claimed.lease.lease_id if claimed.lease else None
-    assert lease_id is not None
+    lease_response = api_client.post(
+        "/api/v1/worker/lease",
+        json={"worker": "ollama"},
+        headers=_auth_headers(os.environ["DECK_WORKER_TOKEN"]),
+    )
+    assert lease_response.status_code == 200, lease_response.text
+    envelope = lease_response.json()
+    lease_id = uuid.UUID(envelope["lease"]["lease_id"])
+    started = api_client.post(
+        "/api/v1/worker/start",
+        json={"task_id": str(task_id), "lease_id": str(lease_id), "attempt": 1, "worker": "ollama"},
+        headers=_auth_headers(os.environ["DECK_WORKER_TOKEN"]),
+    )
+    assert started.status_code == 200, started.text
+    assert started.json()["action"] == "continue"
 
     result_payload = {
         "schema_version": "result.v1",
@@ -146,7 +156,7 @@ def test_worker_result_fenced(api_client: TestClient, db_session: Session) -> No
         },
         "error": None,
         "redaction": {"applied": False, "placeholders": 0},
-        "payload_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "payload_hash": envelope["payload_sha256"],
         "log_ref": "run/test.log",
     }
 
@@ -194,7 +204,7 @@ def test_post_task_missing_data_class_returns_422(api_client: TestClient) -> Non
 
 
 def test_worker_token_required(api_client: TestClient) -> None:
-    response = api_client.post("/api/v1/worker/lease", json={})
+    response = api_client.post("/api/v1/worker/lease", json={"worker": "ollama"})
     assert response.status_code == 401
 
 

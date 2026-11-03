@@ -4,8 +4,8 @@ Lokale Steuerzentrale fuer KI-gestuetzte Aufgaben — ohne bezahlte APIs zur Lau
 Dieses Repository enthaelt API, PostgreSQL-Queue, Uebergabe-Schemas (`task.v1`, `result.v1`),
 Abnahme, Datenschranke und lokale Pseudonymisierung.
 
-**Status:** Etappe 07 ergaenzt den reinen Router, lokale Regeln, Modellkonfiguration,
-Tagesbudgets und Dry-run. Der Host-Runner folgt in Etappe 8. Aktueller Arbeitsstand: [docs/STAND.md](docs/STAND.md).
+**Status:** Etappe 08 verbindet den Router mit lanegebundenem Host-Runner, sicherer
+Payload-Uebergabe, explizitem Start sowie Pause/Not-Aus. Die Ausfuehrung ist lokal simuliert. Aktueller Arbeitsstand: [docs/STAND.md](docs/STAND.md).
 
 ## Zweck
 
@@ -23,7 +23,8 @@ standardisierten Format. Menschliche Freigabe ist standardmaessig vorgesehen.
 | `app/privacy` | Scanner, lokale Blockliste und sichere Textdateien |
 | `app/routing` | Reiner Router, lokale Regeln und Modellkonfiguration |
 | `app/redaction` | Pseudonymisierung, lokale Maps, Payload-Bau und Versand-Artefakte |
-| `app/ui`, `app/workers` | Oberflaeche und Worker-Laufzeit (Platzhalter) |
+| `app/workers` | Host-Runner, sichere Vorbereitung, Steuerung und Simulation |
+| `app/ui` | Oberflaeche (spaetere Etappe) |
 | `schemas/` | JSON Schema Draft 2020-12 fuer `task.v1` und `result.v1` |
 | `config/` | Router-Konfiguration ohne echte Modellnamen oder Zugangsdaten |
 | `tests/` | Unit-, Integrations- und Referenztests |
@@ -46,8 +47,8 @@ Cloud-Auftraege benoetigen eine ausdruecklich konfigurierte lokale Blockliste au
 Repositories. Geheimnisse werden in jeder Datenklasse vor der Speicherung abgewiesen.
 Konfiguration und Grenzen: [docs/DATENSCHRANKE.md](docs/DATENSCHRANKE.md).
 Der lokale Payload-Builder fuer `cloud_redacted` ist in [docs/REDAKTION.md](docs/REDAKTION.md)
-beschrieben. Bis zur sicheren Runner-Anbindung bleiben Cloud-Treffer an den bestehenden
-HTTP-/Queue-Grenzen gesperrt.
+beschrieben. Der Runner liefert ausschliesslich geprueften Versandtext aus; unterstuetzte Treffer werden
+bei `cloud_redacted` lokal ersetzt. Details: [docs/RUNNER.md](docs/RUNNER.md).
 
 Routing und Tagesbudgets: [docs/ROUTING.md](docs/ROUTING.md).
 

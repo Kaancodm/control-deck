@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -18,6 +19,7 @@ from app.db.models import Event, Lease, Task
 from app.db.queue import dequeue_next_queued_task, reap_expired_leases
 from app.db.repository import approve_task, create_task_from_v1
 from app.db.session import get_engine, reset_engine_for_tests
+from app.db.settings import update_settings
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import (
     LeaseOwnershipError,
@@ -74,7 +76,8 @@ def test_alembic_upgrade_and_downgrade_roundtrip() -> None:
 
 
 def test_dequeue_skip_locked_two_sessions(db_session: Session) -> None:
-    """Two workers dequeue distinct queued tasks under concurrent locks."""
+    """Admission serializes claims; committed leases remain distinct within capacity."""
+    update_settings(db_session, {"max_parallel": 2})
     id_a = uuid.uuid4()
     id_b = uuid.uuid4()
     _insert_task(db_session, id_a)
@@ -86,8 +89,11 @@ def test_dequeue_skip_locked_two_sessions(db_session: Session) -> None:
     worker_b = factory()
     try:
         first = dequeue_next_queued_task(worker_a, lease_ttl=timedelta(seconds=30))
-        second = dequeue_next_queued_task(worker_b, lease_ttl=timedelta(seconds=30))
         assert first is not None
+        assert dequeue_next_queued_task(worker_b, lease_ttl=timedelta(seconds=30)) is None
+        worker_b.commit()
+        worker_a.commit()
+        second = dequeue_next_queued_task(worker_b, lease_ttl=timedelta(seconds=30))
         assert second is not None
         assert first.id != second.id
         assert {first.id, second.id} == {id_a, id_b}
@@ -101,7 +107,8 @@ def test_dequeue_skip_locked_two_sessions(db_session: Session) -> None:
 
 
 def test_dequeue_flush_allows_second_claim_in_same_session(db_session: Session) -> None:
-    """After flush, a second dequeue in the same transaction does not re-select the leased row."""
+    """Within explicit capacity, a second claim never re-selects the leased row."""
+    update_settings(db_session, {"max_parallel": 2})
     _insert_task(db_session)
     _insert_task(db_session)
     db_session.commit()
@@ -274,6 +281,7 @@ def test_fencing_rejects_stale_lease_id(db_session: Session) -> None:
 
 
 def test_parallel_dequeue_threads(db_session: Session) -> None:
+    update_settings(db_session, {"max_parallel": 4})
     task_ids = [uuid.uuid4() for _ in range(4)]
     for task_id in task_ids:
         _insert_task(db_session, task_id)
@@ -287,11 +295,16 @@ def test_parallel_dequeue_threads(db_session: Session) -> None:
         session = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)()
         try:
             barrier.wait(timeout=10)
-            task = dequeue_next_queued_task(session, lease_ttl=timedelta(seconds=30))
-            if task is not None:
-                with lock:
-                    claimed_ids.append(task.id)
-            session.commit()
+            for _ in range(100):
+                task = dequeue_next_queued_task(session, lease_ttl=timedelta(seconds=30))
+                task_id = task.id if task is not None else None
+                session.commit()
+                if task_id is not None:
+                    with lock:
+                        claimed_ids.append(task_id)
+                    break
+                # A competing admission holds the global transaction lock briefly.
+                time.sleep(0.005)
         finally:
             session.close()
 

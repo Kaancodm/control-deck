@@ -8,9 +8,11 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.schemas import DataClass, Worker
 from app.db.models import Lease, Task
 from app.db.repository import record_gate_error
-from app.db.routing import persist_task_route, routing_snapshot, try_lock_budget_admission
+from app.db.routing import persist_task_route, routing_snapshot
+from app.db.settings import read_settings, try_lock_admission
 from app.db.state_machine import (
     TERMINAL_STATES,
     InvalidTaskTransitionError,
@@ -21,6 +23,7 @@ from app.db.transitions import (
     LeaseOwnershipError,
     TransitionActor,
     TransitionFencingError,
+    max_attempts_for_task,
     transition_task,
     upsert_lease,
 )
@@ -33,16 +36,34 @@ def dequeue_next_queued_task(
     *,
     lease_ttl: timedelta,
     holder: str | None = None,
+    worker: Worker = Worker.OLLAMA,
 ) -> Task | None:
     """
     Atomically claim the oldest ``queued`` task and move it to ``leased``.
 
     Uses ``FOR UPDATE SKIP LOCKED`` so concurrent workers receive distinct rows.
     """
+    if not isinstance(worker, Worker):
+        raise ValueError("A known worker is required.")
+    if lease_ttl.total_seconds() <= 0:
+        raise ValueError("Lease duration must be positive.")
     config = get_router_config()
-    if not try_lock_budget_admission(session, config):
+    if not try_lock_admission(session):
+        return None
+    controls = read_settings(session)
+    if controls.paused or controls.stop_requested or controls.lane_paused[worker]:
         return None
     expire_overdue_tasks(session)
+    active = (
+        session.scalar(
+            select(func.count())
+            .select_from(Task)
+            .where(Task.status.in_((TaskState.LEASED, TaskState.RUNNING)))
+        )
+        or 0
+    )
+    if active >= controls.max_parallel:
+        return None
     stmt = (
         select(Task)
         .where(
@@ -60,6 +81,12 @@ def dequeue_next_queued_task(
         task = session.scalars(candidate).first()
         if task is None:
             return None
+        if task.attempt >= max_attempts_for_task(task):
+            unavailable_ids.add(task.id)
+            continue
+        if task.data_class == DataClass.LOCAL_ONLY and worker != Worker.OLLAMA:
+            unavailable_ids.add(task.id)
+            continue
         try:
             inspection = inspect_stored_task(task.payload)
         except PrivacyInputUnavailable as exc:
@@ -96,6 +123,9 @@ def dequeue_next_queued_task(
             # A daily ceiling is temporary, unlike a terminal policy block.
             unavailable_ids.add(task.id)
             continue
+        if task.lane != worker.value:
+            unavailable_ids.add(task.id)
+            continue
         detail = {"lane": task.lane, "budget_date": snapshot.budget_date.isoformat()}
         if holder:
             detail["holder"] = holder
@@ -112,7 +142,8 @@ def dequeue_next_queued_task(
             if not expire_task_if_due(session, task=task):
                 raise
 
-    now = datetime.now(tz=UTC)
+    now = session.scalar(select(func.clock_timestamp()))
+    assert isinstance(now, datetime)
     lease_id = uuid.uuid4()
     upsert_lease(
         session,

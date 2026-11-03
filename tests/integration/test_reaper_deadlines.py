@@ -10,12 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.db import queue
 from app.db.models import Task
+from app.db.settings import update_settings
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import LeaseOwnershipError, TransitionFencingError
 from tests.integration.test_database import _insert_task
 
 
 def _claim_task(session: Session) -> Task:
+    update_settings(session, {"max_parallel": 2})
     _insert_task(session)
     task = queue.dequeue_next_queued_task(session, lease_ttl=timedelta(minutes=5))
     assert task is not None

@@ -246,3 +246,15 @@ class RedactionMap(Base):
             name="ck_redaction_maps_placeholder_scope",
         ),
     )
+
+
+class Setting(Base):
+    """Local runner controls; values are validated before use or mutation."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

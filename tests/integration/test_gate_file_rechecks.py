@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.db.models import Task
+from app.db.settings import update_settings
 from app.db.state_machine import TaskState
 from app.privacy import gate
 from tests.integration.test_data_gate import _OWNER, _WORKER, _create, _payload
@@ -96,6 +97,8 @@ def test_missing_file_during_approval_keeps_task_retryable(
 def test_missing_file_in_queue_skips_to_clean_task_then_can_be_retried(
     gate_client: TestClient, db_session: Session, privacy_paths: tuple[Path, Path]
 ) -> None:
+    update_settings(db_session, {"max_parallel": 2})
+    db_session.commit()
     path = privacy_paths[0] / "input.txt"
     path.write_bytes(b"ordinary input")
     unavailable = _file_payload()
@@ -105,7 +108,7 @@ def test_missing_file_in_queue_skips_to_clean_task_then_can_be_retried(
         assert _approve(gate_client, payload["task_id"]).status_code == 200
     path.unlink()
 
-    response = gate_client.post("/api/v1/worker/lease", json={}, headers=_WORKER)
+    response = gate_client.post("/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER)
 
     assert response.status_code == 200, response.text
     assert response.json()["task"]["id"] == clean["task_id"]
@@ -119,7 +122,7 @@ def test_missing_file_in_queue_skips_to_clean_task_then_can_be_retried(
     assert str(path) not in json.dumps(failures[0].detail)
 
     path.write_bytes(b"ordinary input")
-    retried = gate_client.post("/api/v1/worker/lease", json={}, headers=_WORKER)
+    retried = gate_client.post("/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER)
     assert retried.status_code == 200, retried.text
     assert retried.json()["task"]["id"] == unavailable["task_id"]
 
@@ -135,7 +138,9 @@ def test_only_missing_file_in_queue_returns_without_rechecking_forever(
     path.unlink()
 
     for _attempt in range(2):
-        response = gate_client.post("/api/v1/worker/lease", json={}, headers=_WORKER)
+        response = gate_client.post(
+            "/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER
+        )
         assert response.status_code == 404, response.text
         db_session.expire_all()
         task = db_session.get(Task, uuid.UUID(payload["task_id"]))

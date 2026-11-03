@@ -13,7 +13,7 @@ from app.db.models import Event, Task
 from app.routing.config import RouterConfig, get_router_config
 from app.routing.router import RoutingPlan, route_task
 
-_BUDGET_ADMISSION_LOCK = 0x43445254
+ADMISSION_LOCK = 0x43445254
 
 
 @dataclass(frozen=True)
@@ -68,10 +68,8 @@ def try_lock_budget_admission(session: Session, config: RouterConfig) -> bool:
     claims while preventing a limited admission from racing uncommitted usage.
     """
     if all(lane.daily_attempt_limit is None for lane in config.lanes.values()):
-        return bool(
-            session.scalar(select(func.pg_try_advisory_xact_lock_shared(_BUDGET_ADMISSION_LOCK)))
-        )
-    return bool(session.scalar(select(func.pg_try_advisory_xact_lock(_BUDGET_ADMISSION_LOCK))))
+        return bool(session.scalar(select(func.pg_try_advisory_xact_lock_shared(ADMISSION_LOCK))))
+    return bool(session.scalar(select(func.pg_try_advisory_xact_lock(ADMISSION_LOCK))))
 
 
 def persist_task_route(

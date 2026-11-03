@@ -19,7 +19,7 @@ from app.db.models import Lease, Result, Task
 from app.db.queue import dequeue_next_queued_task, reap_expired_leases
 from app.db.session import get_engine
 from app.db.state_machine import TaskTransition
-from app.db.transitions import TransitionActor, transition_task
+from app.db.transitions import transition_task
 from tests.integration.test_database import _minimal_task_payload
 
 _OWNER_HEADERS = {"Authorization": "Bearer test-review-owner"}
@@ -33,6 +33,7 @@ def review_client(
     monkeypatch.setenv("DECK_OWNER_TOKEN", "test-review-owner")
     monkeypatch.setenv("DECK_WORKER_TOKEN", "test-review-worker")
     app = create_app()
+    app.state.prepared_attempts = {}
 
     def override_db() -> Generator[Session, None, None]:
         try:
@@ -67,22 +68,41 @@ def _create(
     return task_id
 
 
-def _claim(client: TestClient, task_id: uuid.UUID) -> uuid.UUID:
+def _claim(client: TestClient, task_id: uuid.UUID, *, start: bool = True) -> uuid.UUID:
     approved = client.post(f"/api/v1/tasks/{task_id}/approve", headers=_OWNER_HEADERS)
     assert approved.status_code == 200, approved.text
-    return _next_lease(client, task_id)
+    return _next_lease(client, task_id, start=start)
 
 
-def _next_lease(client: TestClient, task_id: uuid.UUID) -> uuid.UUID:
-    response = client.post("/api/v1/worker/lease", json={}, headers=_WORKER_HEADERS)
+def _next_lease(client: TestClient, task_id: uuid.UUID, *, start: bool = True) -> uuid.UUID:
+    response = client.post(
+        "/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER_HEADERS
+    )
     assert response.status_code == 200, response.text
-    assert response.json()["task"]["id"] == str(task_id)
-    return uuid.UUID(response.json()["lease"]["lease_id"])
+    envelope = response.json()
+    assert envelope["task"]["id"] == str(task_id)
+    client.app.state.prepared_attempts[(task_id, envelope["task"]["attempt"])] = envelope
+    lease_id = uuid.UUID(envelope["lease"]["lease_id"])
+    if start:
+        response = client.post(
+            "/api/v1/worker/start",
+            json={
+                "task_id": str(task_id),
+                "lease_id": str(lease_id),
+                "attempt": envelope["task"]["attempt"],
+                "worker": "ollama",
+            },
+            headers=_WORKER_HEADERS,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["action"] == "continue"
+    return lease_id
 
 
 def _result(
-    task_id: uuid.UUID, *, attempt: int = 1, text: str = "accepted output"
+    client: TestClient, task_id: uuid.UUID, *, attempt: int = 1, text: str = "accepted output"
 ) -> dict[str, Any]:
+    envelope = client.app.state.prepared_attempts[(task_id, attempt)]
     return {
         "schema_version": "result.v1",
         "task_id": str(task_id),
@@ -98,7 +118,7 @@ def _result(
         },
         "error": None,
         "redaction": {"applied": False, "placeholders": 0},
-        "payload_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "payload_hash": envelope["payload_sha256"],
         "log_ref": "runs/test-review.log",
     }
 
@@ -108,7 +128,7 @@ def _submit(
 ) -> dict[str, Any]:
     response = client.post(
         "/api/v1/worker/result",
-        json={"lease_id": str(lease_id), "result": _result(task_id, attempt=attempt)},
+        json={"lease_id": str(lease_id), "result": _result(client, task_id, attempt=attempt)},
         headers=_WORKER_HEADERS,
     )
     assert response.status_code == 200, response.text
@@ -139,7 +159,7 @@ def test_deadline_crossing_during_result_commits_expiry(
     from app.db import worker_ops
 
     task_id = _create(review_client, deadline_at=datetime.now(tz=UTC) + timedelta(hours=1))
-    lease_id = _claim(review_client, task_id)
+    lease_id = _claim(review_client, task_id, start=boundary != "start")
 
     def advance_deadline() -> None:
         task = db_session.get(Task, task_id)
@@ -165,12 +185,26 @@ def test_deadline_crossing_during_result_commits_expiry(
 
         monkeypatch.setattr(worker_ops, "evaluate_acceptance", cross_during_acceptance)
 
-    response = review_client.post(
-        "/api/v1/worker/result",
-        json={"lease_id": str(lease_id), "result": _result(task_id)},
-        headers=_WORKER_HEADERS,
-    )
-    assert response.status_code == 409, response.text
+    if boundary == "start":
+        response = review_client.post(
+            "/api/v1/worker/start",
+            json={
+                "task_id": str(task_id),
+                "lease_id": str(lease_id),
+                "attempt": 1,
+                "worker": "ollama",
+            },
+            headers=_WORKER_HEADERS,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["action"] == "expired"
+    else:
+        response = review_client.post(
+            "/api/v1/worker/result",
+            json={"lease_id": str(lease_id), "result": _result(review_client, task_id)},
+            headers=_WORKER_HEADERS,
+        )
+        assert response.status_code == 409, response.text
     # Inspect storage before GET can run another expiry check.
     db_session.expire_all()
     task = db_session.get(Task, task_id)
@@ -203,7 +237,9 @@ def test_deadline_crossing_during_acquire_skips_to_next_task(
         return original_transition(*args, **kwargs)
 
     monkeypatch.setattr(queue, "transition_task", cross_after_selection)
-    claimed = review_client.post("/api/v1/worker/lease", json={}, headers=_WORKER_HEADERS)
+    claimed = review_client.post(
+        "/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER_HEADERS
+    )
     assert claimed.status_code == 200, claimed.text
     assert claimed.json()["task"]["id"] == str(second_id)
     db_session.expire_all()
@@ -286,7 +322,7 @@ def test_core_acceptance_overrides_worker_claims_and_retries_to_limit(
     )
     lease_id = _claim(review_client, task_id)
     for attempt, expected in [(1, "queued"), (2, "failed")]:
-        payload = _result(task_id, attempt=attempt)
+        payload = _result(review_client, task_id, attempt=attempt)
         payload["checks"] = [{"type": "must_contain", "passed": True, "detail": "Worker claim"}]
         response = review_client.post(
             "/api/v1/worker/result",
@@ -316,7 +352,7 @@ def test_worker_cannot_falsely_fail_trusted_acceptance(review_client: TestClient
         acceptance=[{"type": "must_contain", "value": "accepted"}],
     )
     lease_id = _claim(review_client, task_id)
-    payload = _result(task_id)
+    payload = _result(review_client, task_id)
     payload["checks"] = [{"type": "must_contain", "passed": False, "detail": "Worker claim"}]
     response = review_client.post(
         "/api/v1/worker/result",
@@ -415,19 +451,8 @@ def test_only_due_owner_deadlines_expire_nonterminal_tasks(
             == 200
         )
     elif state in {"leased", "running", "review"}:
-        lease_id = _claim(review_client, task_id)
-        if state == "running":
-            task = db_session.get(Task, task_id)
-            assert task is not None
-            transition_task(
-                db_session,
-                task=task,
-                trigger=TaskTransition.START,
-                lease_id=lease_id,
-                actor=TransitionActor.RUNNER,
-            )
-            db_session.commit()
-        elif state == "review":
+        lease_id = _claim(review_client, task_id, start=state != "leased")
+        if state == "review":
             _submit(review_client, task_id, lease_id)
     _make_deadline_due(db_session, task_id)
     detail = _detail(review_client, task_id)
@@ -447,7 +472,9 @@ def test_overdue_queued_task_is_not_leased(review_client: TestClient, db_session
         == 200
     )
     _make_deadline_due(db_session, task_id)
-    response = review_client.post("/api/v1/worker/lease", json={}, headers=_WORKER_HEADERS)
+    response = review_client.post(
+        "/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER_HEADERS
+    )
     assert response.status_code == 404
     assert _detail(review_client, task_id)["status"] == "expired"
 
@@ -460,12 +487,22 @@ def test_worker_cannot_extend_or_complete_an_overdue_task(
     lease_id = _claim(review_client, task_id)
     _make_deadline_due(db_session, task_id)
     body = (
-        {"lease_id": str(lease_id), "result": _result(task_id)}
+        {"lease_id": str(lease_id), "result": _result(review_client, task_id)}
         if action == "result"
-        else {"lease_id": str(lease_id), "task_id": str(task_id), "extend_seconds": 60}
+        else {
+            "lease_id": str(lease_id),
+            "task_id": str(task_id),
+            "extend_seconds": 60,
+            "worker": "ollama",
+            "attempt": 1,
+        }
     )
     response = review_client.post(f"/api/v1/worker/{action}", json=body, headers=_WORKER_HEADERS)
-    assert 400 <= response.status_code < 500, response.text
+    if action == "heartbeat":
+        assert response.status_code == 200, response.text
+        assert response.json()["action"] == "expired"
+    else:
+        assert response.status_code == 409, response.text
     assert db_session.scalar(select(func.count()).select_from(Result)) == 0
     assert _detail(review_client, task_id)["status"] == "expired"
 
@@ -575,7 +612,7 @@ def test_acceptance_allows_concurrent_control_and_rechecks_fencing(
     monkeypatch.setattr(worker_ops, "evaluate_acceptance", control_during_acceptance)
     response = review_client.post(
         "/api/v1/worker/result",
-        json={"lease_id": str(lease_id), "result": _result(task_id)},
+        json={"lease_id": str(lease_id), "result": _result(review_client, task_id)},
         headers=_WORKER_HEADERS,
     )
     expected_status = {"heartbeat": 200, "cancel": 403, "expire": 409, "reassign": 422}

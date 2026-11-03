@@ -51,14 +51,12 @@ Zaehlerprotokoll: Lane und UTC-Budgettag stehen in den Metadaten. Die Event-Zeit
 die aktuelle Datenbankuhr. Historische Claims ohne eindeutige Lane werden fuer ihren
 UTC-Tag vorsorglich gegen jede Lane gezaehlt.
 
-Sobald eine Tagesgrenze konfiguriert ist, schuetzt ein transaktionsgebundener PostgreSQL-
-Advisory-Lock die gemeinsame Pruefung und den Claim. Er wird vor Task-Locks versucht;
-ist er belegt, erhaelt der Poll keinen Claim. Ein Rollback verwirft Versuch und Verbrauch
-zusammen. Ohne konfigurierte Grenzen verwendet der Claim einen geteilten Advisory-Lock; dadurch
-bleibt die parallele `SKIP LOCKED`-Auswahl erhalten. Ein Wechsel auf eine konfigurierte
-Grenze kann laufende unbegrenzte Claims nicht ueberholen.
-Massgeblich fuer die Zaehlung ist der UTC-Tag des aktuellen DB-Event-Zeitstempels,
-nicht der Zeitpunkt der Vorschau oder des Transaktionsbeginns.
+Seit Etappe 8 schuetzt ein exklusiver transaktionsgebundener PostgreSQL-Advisory-Lock
+alle Claims und Steuerungs-Aenderungen gemeinsam. Er wird vor Task-Locks versucht; ist er
+belegt, erhaelt der Poll keinen Claim. Die Auswahl verwendet weiterhin `SKIP LOCKED`.
+Ein Rollback verwirft Versuch und Verbrauch zusammen. Tagesbudgets und globale
+Parallelitaetsgrenze werden damit auch bei gleichzeitigen Runnern eingehalten.
+Der Tageswechsel richtet sich ausschliesslich nach UTC und der Datenbankuhr.
 
 ## Dry-run
 
@@ -73,9 +71,9 @@ kein Budget und startet keinen Worker. Die Anzeige ist eine Momentaufnahme; beim
 wird erneut geprueft. Secrets oder ungueltige Eingaben ergeben 422, fehlende erforderliche
 Konfiguration 503.
 
-Die bisherige Datenschranke bleibt bei Cloud-Auftraegen mit Treffern aktiv. Ein moeglicher
-Routing-Plan hebt diese Sperre nicht auf. Sichere Redaction und Versand werden mit dem
-Host-Runner verbunden.
+Ein moeglicher Routing-Plan hebt keine Datenschutzsperre auf. Etappe 8 erlaubt unterstuetzte
+Treffer bei `cloud_redacted` nur ueber die sichere Host-Vorbereitung; Secrets und nicht
+unterstuetzte Treffer bleiben blockiert.
 
 ## Referenzlauf und Grenzen
 
@@ -83,8 +81,8 @@ Der Fake-Worker verwendet denselben reinen Router mit einer festen Testkonfigura
 Der bestehende Fall `004` prueft gemaess Owner-Vorgabe nun den Ollama-Override und verbietet
 Cloud-Worker als Ergebnis. Neue inhaltliche Referenzfaelle bleiben Owner-Aufgabe.
 
-Lane-spezifische Claims, verifizierte Worker-Zuordnung, Pause/Not-Aus und die Verbindung
-mit dem Payload-Builder folgen in Etappe 8. Adapter und zentrale Fehler-/Fallback-Regeln
+Etappe 8 verbindet lane-spezifische Claims, Worker-Zuordnung, Pause/Not-Aus und den
+Payload-Builder. Details: [RUNNER.md](RUNNER.md). Adapter und zentrale Fehler-/Fallback-Regeln
 folgen in den weiteren Etappen. Diese Etappe fuehrt keine Anbieter- oder Modellaufrufe aus.
 
 ## Inbetriebnahme

@@ -17,12 +17,20 @@ from app.db.queue import dequeue_next_queued_task
 from app.db.repository import approve_task, create_task_from_v1
 from app.db.routing import routing_snapshot
 from app.db.session import get_engine
+from app.db.settings import update_settings
 from app.db.state_machine import TaskState
 from app.routing.config import RouterConfig
 from tests.integration.test_data_gate import privacy_paths as privacy_paths
 from tests.integration.test_database import _insert_task, _minimal_task_payload
 
 _TTL = timedelta(seconds=60)
+
+
+@pytest.fixture(autouse=True)
+def independent_budget_capacity(db_session: Session) -> None:
+    """These tests exercise lane budgets without the separate global-capacity limit."""
+    update_settings(db_session, {"max_parallel": 16})
+    db_session.commit()
 
 
 def _configure(monkeypatch: pytest.MonkeyPatch, **limits: int) -> None:
@@ -231,7 +239,7 @@ def test_exhausted_lane_uses_next_authorised_fallback(
     task = create_task_from_v1(db_session, TaskV1.model_validate(payload))
     approve_task(db_session, task)
     db_session.commit()
-    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL)
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.CODEX)
     assert claimed is not None and claimed.lane == "codex"
     assert claimed.plan["chain"] == ["codex"]
     assert routing_snapshot(db_session).usage == {

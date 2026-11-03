@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import signal
 import sys
 import time
@@ -12,6 +13,11 @@ from pathlib import Path
 import pytest
 
 from app.workers.process import run_process
+
+# Hang guard for tests whose stop is driven by an event, never by this deadline.
+_SAFETY_TIMEOUT_S = 10.0
+# How long the fake descendant gets to publish a complete, valid pid before the test fails.
+_CHILD_START_TIMEOUT_S = 5.0
 
 
 def _run(tmp_path: Path, source: str, **overrides):
@@ -26,24 +32,82 @@ def _run(tmp_path: Path, source: str, **overrides):
     return run_process([sys.executable, "-c", source], **arguments)
 
 
-def _running(pid: int) -> bool:
-    """A terminated orphan may briefly remain a zombie under a container's init."""
+def _read_valid_pid(pid_path: Path) -> int | None:
+    """Return the pid once ``pid_path`` holds a complete pid of a live process, else None."""
     try:
-        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        text = pid_path.read_text()
     except FileNotFoundError:
-        return False
-    return fields[0] != "Z"
+        return None
+    if not text.strip().isdigit():
+        return None
+    pid = int(text)
+    if pid <= 1:
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    return pid
 
 
-def _assert_child_stopped(pid_path: Path) -> None:
-    assert pid_path.exists(), "The fake child must start before cleanup is exercised"
-    pid = int(pid_path.read_text())
-    until = time.monotonic() + 2
-    while _running(pid) and time.monotonic() < until:
-        time.sleep(0.01)
-    if _running(pid):
+class _DescendantProbe:
+    """``cancel_requested`` hook that confirms the fake descendant before any cleanup.
+
+    ``run_process`` polls the hook on every loop iteration. The probe waits for a complete
+    pid file naming a live process, records that pid, then releases the leader through the
+    ``go`` file. Only after that confirmation may cleanup start: either the released leader
+    exits, or the probe requests cancellation. If no valid pid appears within ``timeout_s``
+    the probe cancels the run so the test fails with a clear message instead of waiting for
+    the deadline of ``run_process``.
+    """
+
+    def __init__(self, cwd: Path, *, cancel_after_confirmation: bool, timeout_s: float):
+        self.pid_path = cwd / "child.pid"
+        self.go_path = cwd / "go"
+        self.cancel_after_confirmation = cancel_after_confirmation
+        self.deadline = time.monotonic() + timeout_s
+        self.pid: int | None = None
+        self.timed_out = False
+
+    def __call__(self) -> bool:
+        if self.pid is None:
+            self.pid = _read_valid_pid(self.pid_path)
+            if self.pid is None:
+                if time.monotonic() >= self.deadline:
+                    self.timed_out = True
+                    return True
+                return False
+            self.go_path.write_text("go")
+        return self.cancel_after_confirmation
+
+
+def _wait_for_exit(pid: int, timeout_s: float) -> bool:
+    """Return True once ``pid`` has terminated; False if it is still alive after ``timeout_s``.
+
+    The descendant is reparented to the container's init after the leader dies, so it
+    cannot be reaped with ``waitpid`` here. A pidfd becomes readable on termination,
+    including while the process is still a zombie awaiting its new parent. Probing
+    ``/proc/<pid>/stat`` instead raced that reaping: the entry can open and then
+    fail with ``ESRCH`` once init collects the zombie.
+    """
+    try:
+        pidfd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        return True
+    try:
+        readable, _, _ = select.select([pidfd], [], [], timeout_s)
+    finally:
+        os.close(pidfd)
+    return bool(readable)
+
+
+def _assert_child_stopped(pid: int) -> None:
+    if not _wait_for_exit(pid, timeout_s=_SAFETY_TIMEOUT_S):
         # A failed regression must not itself leave a synthetic orphan behind.
-        os.kill(pid, signal.SIGKILL)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         pytest.fail("The subprocess group left a running descendant")
 
 
@@ -198,21 +262,47 @@ def test_missing_executable_has_a_safe_failure_result(tmp_path):
     assert str(path) not in repr(result)
 
 
+@pytest.mark.parametrize("child_start_delay_s", [0.0, 0.5], ids=["prompt-start", "delayed-start"])
 @pytest.mark.parametrize("leader_exits", [False, True])
-def test_descendants_holding_pipes_are_terminated_with_the_group(tmp_path, leader_exits):
+def test_descendants_holding_pipes_are_terminated_with_the_group(
+    tmp_path, leader_exits, child_start_delay_s
+):
+    # Ordering is enforced by files in cwd, never by sleeps or deadlines:
+    #   1. the descendant publishes its pid atomically (child.pid.tmp -> child.pid),
+    #   2. the probe confirms a complete pid of a live process and writes ``go``,
+    #   3. only then does cleanup start: the leader exits (leader_exits) or the probe cancels.
+    # ``delayed-start`` stands in for a slow interpreter start under CI load; it must pass too.
     child = (
         "import os, time; from pathlib import Path; "
-        "Path('child.pid').write_text(str(os.getpid())); time.sleep(30)"
+        f"time.sleep({child_start_delay_s!r}); "
+        "Path('child.pid.tmp').write_text(str(os.getpid())); "
+        "os.replace('child.pid.tmp', 'child.pid'); time.sleep(30)"
     )
     source = (
         "import subprocess, sys, time\n"
+        "from pathlib import Path\n"
         f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
-        + ("time.sleep(0.1)\n" if leader_exits else "time.sleep(30)\n")
+        "while not Path('go').exists():\n"
+        "    time.sleep(0.01)\n" + ("" if leader_exits else "time.sleep(30)\n")
     )
-    result = _run(tmp_path, source, timeout_s=0.5)
-    assert result.status in ("completed", "timeout")
-    assert result.wall_seconds < 3
-    _assert_child_stopped(tmp_path / "child.pid")
+    probe = _DescendantProbe(
+        tmp_path, cancel_after_confirmation=not leader_exits, timeout_s=_CHILD_START_TIMEOUT_S
+    )
+    result = _run(tmp_path, source, timeout_s=_SAFETY_TIMEOUT_S, cancel_requested=probe)
+    if probe.timed_out:
+        pytest.fail(
+            f"The fake descendant published no valid pid within {_CHILD_START_TIMEOUT_S} s; "
+            "cleanup was not exercised"
+        )
+    assert probe.pid is not None
+    if leader_exits:
+        # The released leader exited; cleanup must follow from that exit alone.
+        assert result.status == "completed"
+        assert result.returncode == 0
+    else:
+        assert result.status == "cancelled"
+        assert result.returncode is not None
+    _assert_child_stopped(probe.pid)
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("nan"), float("inf")])

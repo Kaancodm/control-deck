@@ -151,25 +151,52 @@ def test_rate_limits_backoff_then_fallback_survives_new_sessions(db_session):
     assert task.next_attempt_at is None
 
 
-def test_core_acceptance_retries_same_worker_until_global_budget(db_session):
+@pytest.mark.parametrize("source", ["core_acceptance", "worker_reported"])
+@pytest.mark.parametrize("max_attempts", [1, 3])
+def test_acceptance_failure_ends_in_review_without_new_attempt(db_session, source, max_attempts):
+    """Contract: ``acceptance_failed`` -> ``review``; no retry, fallback or lane pause."""
     task_id = _queued(
-        db_session, max_attempts=3, acceptance=[{"type": "must_contain", "value": "required"}]
+        db_session,
+        max_attempts=max_attempts,
+        acceptance=[{"type": "must_contain", "value": "required"}],
     )
-    for attempt in range(1, 4):
-        task, lease_id, result = _claim(db_session, Worker.CLAUDE)
+    task, lease_id, result = _claim(db_session, Worker.CLAUDE)
+    if source == "core_acceptance":
         # Claimed worker checks do not override the host acceptance result.
         result["checks"] = [{"type": "must_contain", "passed": True, "detail": "claimed"}]
         task = submit_worker_result(db_session, lease_id=lease_id, result_payload=result)
         db_session.commit()
-        assert task.attempt == attempt
-        assert task.status == (TaskState.FAILED if attempt == 3 else TaskState.QUEUED)
-        assert task.retry_state["pinned_worker"] == "claude"
-        event = db_session.scalar(
-            select(Event).where(Event.task_id == task_id).order_by(Event.id.desc()).limit(1)
+    else:
+        task = _fail(db_session, lease_id, result, "acceptance_failed")
+    assert task.status == TaskState.REVIEW
+    assert task.attempt == 1
+    assert task.next_attempt_at is None
+    assert task.lease is None
+    assert task.retry_state["cursor"] == 0
+    assert task.retry_state["pinned_worker"] == "claude"
+    stored = db_session.scalar(select(Result).where(Result.task_id == task_id))
+    assert stored.payload["status"] == "failed"
+    assert stored.payload["error"]["code"] == "acceptance_failed"
+    assert db_session.scalar(select(func.count()).select_from(Result)) == 1
+    event = db_session.scalar(
+        select(Event).where(Event.task_id == task_id).order_by(Event.id.desc()).limit(1)
+    )
+    assert event.event_type == "task.review"
+    assert event.from_status == "running" and event.to_status == "review"
+    assert event.detail["actor"] == "runner"
+    assert event.detail["reason"] == "acceptance_failed"
+    assert event.detail["retry_action"] == "fail"
+    assert event.detail["result_status"] == "failed"
+    assert event.detail["lane_paused"] is False
+    assert not any(read_settings(db_session).lane_paused.values())
+    for worker in Worker:
+        assert (
+            dequeue_next_queued_task(db_session, worker=worker, lease_ttl=timedelta(minutes=5))
+            is None
         )
-        assert event.detail["reason"] == "acceptance_failed"
-        assert event.detail["result_status"] == "failed"
-    assert db_session.scalar(select(func.count()).select_from(Result)) == 3
+        db_session.commit()
+    db_session.refresh(task)
+    assert task.status == TaskState.REVIEW and task.attempt == 1
 
 
 def test_internal_retry_is_task_wide_not_reset_by_other_failures(db_session):

@@ -25,6 +25,7 @@ RUNNER_FENCED_TRIGGERS: frozenset[TaskTransition] = frozenset(
     {
         TaskTransition.START,
         TaskTransition.SUCCEED,
+        TaskTransition.REVIEW,
         TaskTransition.FAIL,
         TaskTransition.RETRY,
         TaskTransition.POLICY_BLOCK,
@@ -38,6 +39,7 @@ RELEASE_LEASE_TRIGGERS: frozenset[TaskTransition] = frozenset(
         TaskTransition.RETRY,
         TaskTransition.FAIL,
         TaskTransition.SUCCEED,
+        TaskTransition.REVIEW,
         TaskTransition.POLICY_BLOCK,
         TaskTransition.CANCEL,
         TaskTransition.BLOCK,

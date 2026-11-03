@@ -312,8 +312,8 @@ def test_human_acceptance_requires_review_even_when_policy_disables_it(
     assert checks[0]["passed"] is False
 
 
-def test_core_acceptance_overrides_worker_claims_and_retries_to_limit(
-    review_client: TestClient,
+def test_core_acceptance_overrides_worker_claims_and_ends_in_review(
+    review_client: TestClient, db_session: Session
 ) -> None:
     task_id = _create(
         review_client,
@@ -321,28 +321,43 @@ def test_core_acceptance_overrides_worker_claims_and_retries_to_limit(
         max_attempts=2,
     )
     lease_id = _claim(review_client, task_id)
-    for attempt, expected in [(1, "queued"), (2, "failed")]:
-        payload = _result(review_client, task_id, attempt=attempt)
-        payload["checks"] = [{"type": "must_contain", "passed": True, "detail": "Worker claim"}]
-        response = review_client.post(
-            "/api/v1/worker/result",
-            json={"lease_id": str(lease_id), "result": payload},
-            headers=_WORKER_HEADERS,
-        )
-        assert response.status_code == 200, response.text
-        assert response.json()["task"]["status"] == expected
-        detail = _detail(review_client, task_id)
-        stored = detail["results"][-1]["payload"]
-        assert stored["status"] == "failed"
-        assert stored["error"]["code"] == "acceptance_failed"
-        assert stored["checks"][0]["passed"] is False
-        assert len(detail["results"]) == attempt
-        event = detail["events"][-1]
-        assert event["event_type"] == ("task.retry" if attempt == 1 else "task.fail")
-        assert event["detail"]["result_status"] == "failed"
-        assert event["detail"]["reason"] == "acceptance_failed"
-        if attempt == 1:
-            lease_id = _next_lease(review_client, task_id)
+    payload = _result(review_client, task_id)
+    payload["checks"] = [{"type": "must_contain", "passed": True, "detail": "Worker claim"}]
+    response = review_client.post(
+        "/api/v1/worker/result",
+        json={"lease_id": str(lease_id), "result": payload},
+        headers=_WORKER_HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["task"]["status"] == "review"
+    assert response.json()["task"]["attempt"] == 1
+    detail = _detail(review_client, task_id)
+    stored = detail["results"][-1]["payload"]
+    assert stored["status"] == "failed"
+    assert stored["error"]["code"] == "acceptance_failed"
+    assert stored["checks"][0]["passed"] is False
+    assert len(detail["results"]) == 1
+    event = detail["events"][-1]
+    assert event["event_type"] == "task.review"
+    assert event["from_status"] == "running" and event["to_status"] == "review"
+    assert event["detail"]["actor"] == "runner"
+    assert event["detail"]["result_status"] == "failed"
+    assert event["detail"]["reason"] == "acceptance_failed"
+    assert event["detail"]["retry_action"] == "fail"
+    assert db_session.scalar(select(func.count()).select_from(Lease)) == 0
+    # No second attempt is offered despite the remaining budget.
+    idle = review_client.post(
+        "/api/v1/worker/lease", json={"worker": "ollama"}, headers=_WORKER_HEADERS
+    )
+    assert idle.status_code == 404, idle.text
+    rejected = review_client.post(
+        f"/api/v1/tasks/{task_id}/review",
+        json={"approved": False, "reason": "Acceptance rule not met"},
+        headers=_OWNER_HEADERS,
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["status"] == "failed"
+    assert len(_detail(review_client, task_id)["results"]) == 1
 
 
 def test_worker_cannot_falsely_fail_trusted_acceptance(review_client: TestClient) -> None:

@@ -26,7 +26,7 @@ Pflichtfeld gemaess ADR 0005, ohne Default in Schema oder Datenbank. Revision `2
 | `queued` | Freigegeben, wartet auf Lease |
 | `leased` | Runner haelt Lease, Start steht aus |
 | `running` | Ausfuehrung aktiv |
-| `review` | Automatische Abnahme bestanden, wartet auf Owner-Entscheid |
+| `review` | Automatische Abnahme bestanden oder mit `acceptance_failed` abgelehnt, wartet auf Owner-Entscheid |
 | `done` | Erfolgreich abgeschlossen und gegebenenfalls vom Owner geprueft |
 | `expired` | Explizite Owner-Deadline erreicht |
 | `succeeded` | Historischer terminaler Status; bleibt fuer bestehende Zeilen erhalten |

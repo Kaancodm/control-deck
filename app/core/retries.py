@@ -112,6 +112,8 @@ def decide_failure(
     ``attempt`` already includes the current claim. Rate-limit counts represent
     earlier failures on each worker; the internal retry allowance is task-wide.
     A provider refusal pauses its lane even when this attempt exhausts the task.
+    An acceptance failure never retries: the caller hands the stored result to
+    the owner review while the actually executing lane stays recorded.
     Local privacy blocks and cancellation are handled outside this error policy.
     """
     validate_retry_state(state, chain)
@@ -147,10 +149,12 @@ def decide_failure(
     def fail(reason: str, *, next_state: RetryState = current) -> RetryDecision:
         return RetryDecision(action="fail", pause_lane=pause_lane, reason=reason, state=next_state)
 
+    if error_code == ErrorCode.ACCEPTANCE_FAILED:
+        # Contract: acceptance_failed -> review. No retry, fallback or lane pause,
+        # independent of the remaining attempt budget.
+        return fail(error_code.value)
     if attempt == max_attempts:
         return fail("max_attempts_exhausted")
-    if error_code == ErrorCode.ACCEPTANCE_FAILED:
-        return RetryDecision(action="retry", reason=error_code.value, state=current)
     if error_code == ErrorCode.RATE_LIMITED and counts[worker] <= 2:
         return RetryDecision(
             action="retry",

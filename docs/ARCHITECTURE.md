@@ -27,7 +27,7 @@ Details: `docs/DECISIONS/0001-*.md` bis `0008-*.md`.
 6. **Ausfuehrung** — Reinraum-Container (rootless Docker) oder Ollama-HTTP je nach Worker und `data_class`. Keine bezahlten APIs zur Laufzeit.
 7. **Heartbeat / Timeout / Abbruch** — Runner meldet Fortschritt; Ueberschreitung von `timeout_s` oder Operator-Abbruch (`cancel_requested`) beendet den Versuch.
 8. **Ergebnis einsammeln** — stdout/stderr, Artefakte und Metriken werden zu `result.v1` zusammengefuehrt. Der lokale Rueckabbildungsbaustein aus Etappe 6 loest nur bekannte Platzhalter desselben Tasks auf. Der Host bildet Ergebnisse vor Abnahme lokal zurueck und prueft Identitaet und Vorbereitung erneut.
-9. **Validierung und Abnahme** — `result.v1` wird validiert; `app/core/acceptance.py` wertet die Regeln gegen `output.text` aus und ersetzt unbestaetigte Worker-Checks. Automatische Fehlschlaege fuehren zu Retry bis `max_attempts`, danach `failed`.
+9. **Validierung und Abnahme** — `result.v1` wird validiert; `app/core/acceptance.py` wertet die Regeln gegen `output.text` aus und ersetzt unbestaetigte Worker-Checks. Automatische Fehlschlaege (`acceptance_failed`) fuehren ohne Retry nach `review`; der Owner entscheidet.
 10. **Freigabe und Review** — Owner-Freigabe vor Ausfuehrung (`awaiting_approval` → `queued`). Nach erfolgreicher Abnahme folgt `review`, dann Owner-Entscheid nach `done` oder `failed`. Nur `policy.require_review = false` ohne `human`-Regel erlaubt direkt `done`. Export in die Wissens-DB bleibt eine spaetere Etappe (ADR 0007).
 
 ## Task-Zustaende
@@ -41,7 +41,7 @@ Massgeblich ist die Implementierung in `app/db/state_machine.py` (PostgreSQL-Enu
 | `blocked` | Datenschranke oder Policy |
 | `leased` | Runner haelt Lease, Start steht aus |
 | `running` | Ausfuehrung aktiv (Heartbeat) |
-| `review` | Automatische Abnahme bestanden; wartet auf Owner-Entscheid |
+| `review` | Automatische Abnahme bestanden oder mit `acceptance_failed` abgelehnt; wartet auf Owner-Entscheid |
 | `done` | Erfolgreich abgeschlossen, gegebenenfalls nach menschlicher Abnahme |
 | `expired` | Explizite Owner-Deadline erreicht; terminal |
 | `succeeded` | Historischer terminaler Status; kein Ziel neuer erfolgreicher Versuche |
@@ -62,6 +62,7 @@ Massgeblich ist die Implementierung in `app/db/state_machine.py` (PostgreSQL-Enu
 | `leased` | `queued` | Lease abgelaufen (solange `attempt < max_attempts`) |
 | `leased` | `failed` | Lease abgelaufen bei erschoepften Versuchen |
 | `running` | `review` | Erfolgreiche automatische Abnahme; Review-Pflicht oder `human`-Regel |
+| `running` | `review` | `acceptance_failed` (Event `task.review`), kein Retry |
 | `running` | `done` | Erfolgreiche Abnahme, `require_review = false`, keine `human`-Regel |
 | `running` | `failed` / `queued` | Fehler / Retry, begrenzt durch `max_attempts` |
 | `review` | `done` / `failed` | Owner `review_approve` / `review_reject` |

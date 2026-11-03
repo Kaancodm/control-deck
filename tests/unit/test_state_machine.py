@@ -30,6 +30,7 @@ from app.db.state_machine import (
         (TaskState.LEASED, TaskTransition.FAIL, TaskState.FAILED),
         (TaskState.LEASED, TaskTransition.CANCEL, TaskState.CANCELLED),
         (TaskState.RUNNING, TaskTransition.SUCCEED, TaskState.REVIEW),
+        (TaskState.RUNNING, TaskTransition.REVIEW, TaskState.REVIEW),
         (TaskState.RUNNING, TaskTransition.FAIL, TaskState.FAILED),
         (TaskState.RUNNING, TaskTransition.RETRY, TaskState.QUEUED),
         (TaskState.RUNNING, TaskTransition.POLICY_BLOCK, TaskState.BLOCKED),
@@ -103,3 +104,18 @@ def test_allowed_triggers_initial() -> None:
 def test_review_decisions_only_apply_to_review(state: TaskState, trigger: TaskTransition) -> None:
     with pytest.raises(InvalidTaskTransitionError):
         apply_transition(state, trigger)
+
+
+def test_running_to_review_is_allowed_and_emits_audit_event() -> None:
+    """An acceptance failure hands a running attempt to the owner review."""
+    result = apply_transition(TaskState.RUNNING, TaskTransition.REVIEW)
+    assert result.from_state == TaskState.RUNNING
+    assert result.to_state == TaskState.REVIEW
+    assert result.event_type == "task.review"
+    assert TaskTransition.REVIEW in allowed_triggers(TaskState.RUNNING)
+    for state in (None, TaskState.AWAITING_APPROVAL, TaskState.QUEUED, TaskState.LEASED):
+        assert TaskTransition.REVIEW not in allowed_triggers(state)
+        with pytest.raises(InvalidTaskTransitionError):
+            apply_transition(state, TaskTransition.REVIEW)
+    with pytest.raises(InvalidTaskTransitionError):
+        apply_transition(TaskState.REVIEW, TaskTransition.REVIEW)

@@ -347,7 +347,6 @@ def submit_worker_result(
         }
         stored_payload["checks"] = []
         event_detail["reason"] = "acceptance_failed"
-        trigger = TaskTransition.RETRY
     elif result_v1.status == ResultStatus.SUCCEEDED:
         rules = [AcceptanceRule.model_validate(rule) for rule in task.payload["acceptance"]]
         acceptance = evaluate_acceptance(rules, stored_payload["output"]["text"])
@@ -359,7 +358,6 @@ def submit_worker_result(
                 "message": "Core acceptance checks failed.",
             }
             event_detail["reason"] = "acceptance_failed"
-            trigger = TaskTransition.RETRY
     event_detail["result_status"] = stored_payload["status"]
     normalized = ResultV1.model_validate(stored_payload)
     failure_code: ErrorCode | None = None
@@ -410,7 +408,14 @@ def submit_worker_result(
                 decision = decision.model_copy(
                     update={"action": "fail", "reason": "fallback_exhausted"}
                 )
-        trigger = TaskTransition.FAIL if decision.action == "fail" else TaskTransition.RETRY
+        if failure_code == ErrorCode.ACCEPTANCE_FAILED:
+            # Contract: acceptance_failed -> review. The result stays stored as
+            # failed with the effective code; the owner decides, nobody retries.
+            trigger = TaskTransition.REVIEW
+        elif decision.action == "fail":
+            trigger = TaskTransition.FAIL
+        else:
+            trigger = TaskTransition.RETRY
         if decision.action != "fail":
             now = session.scalar(select(func.clock_timestamp()))
             assert isinstance(now, datetime)

@@ -65,9 +65,17 @@ def test_listing_uses_effective_core_acceptance_error_and_never_revives(gate_cli
     )
     _, lease_id, result = _claim(db_session, Worker.CLAUDE)
     assert result["status"] == "succeeded" and result["error"] is None
-    submit_worker_result(db_session, lease_id=lease_id, result_payload=result)
+    task = submit_worker_result(db_session, lease_id=lease_id, result_payload=result)
     db_session.commit()
+    # Contract: the acceptance failure waits in review and is not listed as failed yet.
+    assert task.status == TaskState.REVIEW
+    assert gate_client.get("/api/v1/tasks/failed", headers=_OWNER).json()["total"] == 0
+    rejected = gate_client.post(
+        f"/api/v1/tasks/{task_id}/review", json={"approved": False}, headers=_OWNER
+    )
+    assert rejected.status_code == 200, rejected.text
     response = gate_client.get("/api/v1/tasks/failed", headers=_OWNER)
+    assert response.json()["total"] == 1
     assert response.json()["items"][0]["last_error_code"] == "acceptance_failed"
     assert gate_client.post(f"/api/v1/tasks/{task_id}/approve", headers=_OWNER).status_code == 409
     assert gate_client.post(f"/api/v1/tasks/{task_id}/retry", headers=_OWNER).status_code == 404

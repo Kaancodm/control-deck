@@ -23,7 +23,7 @@ und melden dessen Ergebnis; sie starten keine versteckten Wiederholungen.
 
 | Ereignis | Reaktion |
 |----------|----------|
-| `acceptance_failed` | Gleiche tatsaechlich ausfuehrende Lane bis zur globalen Versuchsgrenze |
+| `acceptance_failed` | `review`, kein Retry: Ergebnis bleibt als `failed` gespeichert, der Owner entscheidet (`done` oder `failed`); kein Fallback, keine Lane-Pause |
 | `rate_limited` | Gleiche Lane nach 60, danach 240 Sekunden; beim dritten Rate-Limit naechste zulaessige Lane |
 | `timeout`, `worker_unavailable` | Naechste zulaessige Lane; ohne verbleibende Lane `failed` |
 | `auth_required` | Aktuelle Lane pausieren, Gesundheit `auth_required`, dann Fallback |
@@ -34,15 +34,20 @@ und melden dessen Ergebnis; sie starten keine versteckten Wiederholungen.
 | Owner-Abbruch | `cancelled`, kein Retry |
 | Explizite Owner-Deadline abgelaufen | `expired`, auch waehrend eines Backoffs |
 
-`policy.max_attempts` begrenzt alle Pfade gemeinsam. Bei der letzten erlaubten Ausfuehrung
-wird `failed` gespeichert; ein Anbieterproblem pausiert die Lane trotzdem. Die zwei
-Rate-Limit-Wartezeiten sind keine zusaetzlichen Freiversuche. Fehlermeldungen von Providern
-steuern keine SQL-Abfrage; nur validierte Fehlercodes gehen in den Entscheid ein.
+`policy.max_attempts` begrenzt alle Retry- und Fallback-Pfade gemeinsam. Bei der letzten
+erlaubten Ausfuehrung wird `failed` gespeichert; ein Anbieterproblem pausiert die Lane
+trotzdem. Die zwei Rate-Limit-Wartezeiten sind keine zusaetzlichen Freiversuche.
+Fehlermeldungen von Providern steuern keine SQL-Abfrage; nur validierte Fehlercodes gehen
+in den Entscheid ein.
 
 Die lokalen Acceptance-Pruefungen laufen vor den Ergebnis-Locks. Ein vom Worker als
 erfolgreich gemeldetes, lokal abgelehntes Ergebnis wird als `failed` mit
-`acceptance_failed` gespeichert. Auch die Retry-Events und Fehlerliste verwenden diesen
-effektiven Fehlercode. Eine misslungene lokale Rueckabbildung folgt demselben begrenzten Pfad.
+`acceptance_failed` gespeichert. Der Task wechselt mit dem Event `task.review`
+(`reason = acceptance_failed`, `retry_action = fail`) von `running` nach `review`;
+`attempt`, Cursor und festgehaltene Lane bleiben unveraendert, es gibt keinen weiteren
+Versuch und keine Lane-Pause. Dasselbe gilt fuer ein vom Worker selbst gemeldetes
+`acceptance_failed` und fuer eine misslungene lokale Rueckabbildung. Die Fehlerliste zeigt
+den Task erst nach einer Owner-Ablehnung, dann mit dem effektiven Fehlercode.
 
 ## Dauerhafte Steuerung und Atomaritaet
 

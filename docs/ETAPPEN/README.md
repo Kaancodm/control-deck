@@ -82,7 +82,7 @@ Die Etappe links liefert, die Etappe rechts verlaesst sich darauf. Abweichungen 
 | `settings` | 8 → 9, 11 | Tabelle `settings(key text primary key, value jsonb, updated_at)`; Schluessel `paused` (globaler Not-Aus) und `lanes.<lane>.paused`. Pull liest beide; `true` stoppt den Pull. |
 | `lane_status` | 9 → 12, 13, 17 | Tabelle `lane_status(lane text primary key, status text, reason text, updated_at, last_success_at)`; `status` in `ok`, `unavailable`, `auth_required`, `paused`. |
 | Service-Schicht | 4 → 11 | UI ruft dieselben Funktionen wie `app/api/routes/*` (Anlegen, Freigeben, Abbrechen, Lesen), nie HTTP gegen sich selbst, keine Geschaeftslogik in Templates. |
-| Fehlerreaktion | 10 → 9, 12, 13 | Lanes melden einen Versuch; zentrale Reaktion gemaess freigegebenem Plan: `rate_limited` gleiche Lane nach 1/4 min, dann Fallback; `timeout`/`worker_unavailable` naechste Lane; `auth_required`/Anbieter-`policy_blocked` Lane pausieren und Fallback; `acceptance_failed` gleiche Lane bis global `max_attempts`; `internal` ein taskweiter Retry, dann `failed`. Lokale Datenschranke bleibt `blocked`. [Verbindlicher Vertrag](10-fehlerpfade.md). |
+| Fehlerreaktion | 10 → 9, 12, 13 | Lanes melden einen Versuch; zentrale Reaktion gemaess freigegebenem Plan: `rate_limited` gleiche Lane nach 1/4 min, dann Fallback; `timeout`/`worker_unavailable` naechste Lane; `auth_required`/Anbieter-`policy_blocked` Lane pausieren und Fallback; `acceptance_failed` nach `review`, kein Retry (Owner-Entscheid); `internal` ein taskweiter Retry, dann `failed`. Lokale Datenschranke bleibt `blocked`. [Verbindlicher Vertrag](10-fehlerpfade.md). |
 
 ## Vorbedingungen (VB)
 

@@ -43,6 +43,7 @@ class TaskTransition(StrEnum):
     START = "start"
     LEASE_EXPIRED = "lease_expired"
     SUCCEED = "succeed"
+    REVIEW = "review"  # Acceptance failure handed to the owner review without a retry.
     FAIL = "fail"
     RETRY = "retry"
     POLICY_BLOCK = "policy_block"
@@ -83,6 +84,7 @@ _TRANSITION_TABLE: dict[TaskState | None, dict[TaskTransition, TaskState]] = {
     },
     TaskState.RUNNING: {
         TaskTransition.SUCCEED: TaskState.REVIEW,
+        TaskTransition.REVIEW: TaskState.REVIEW,
         TaskTransition.EXPIRE: TaskState.EXPIRED,
         TaskTransition.FAIL: TaskState.FAILED,
         TaskTransition.RETRY: TaskState.QUEUED,

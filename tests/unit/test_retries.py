@@ -24,6 +24,16 @@ FALLBACK_ERRORS = (
     ErrorCode.WORKER_UNAVAILABLE,
     *PAUSE_ERRORS,
 )
+# Contract: acceptance failures hand the task to the owner review without a retry.
+REVIEW_ERRORS = (ErrorCode.ACCEPTANCE_FAILED,)
+
+
+def _first_action(error_code: ErrorCode) -> str:
+    if error_code in FALLBACK_ERRORS:
+        return "fallback"
+    if error_code in REVIEW_ERRORS:
+        return "fail"
+    return "retry"
 
 
 def _task(**changes: object) -> TaskV1:
@@ -46,7 +56,7 @@ def test_first_failure_matrix(worker: Worker, error_code: ErrorCode) -> None:
         chain=chain,
         state=state,
     )
-    assert decision.action == ("fallback" if error_code in FALLBACK_ERRORS else "retry")
+    assert decision.action == _first_action(error_code)
     assert decision.pause_lane == (error_code in PAUSE_ERRORS)
     assert decision.delay_seconds == (60 if error_code == ErrorCode.RATE_LIMITED else 0)
     assert decision.reason == error_code.value
@@ -73,7 +83,9 @@ def test_global_attempt_limit_wins_without_losing_provider_pause(
         state=RetryState(pinned_worker=Worker.CLAUDE),
     )
     assert decision.action == "fail"
-    assert decision.reason == "max_attempts_exhausted"
+    assert decision.reason == (
+        "acceptance_failed" if error_code in REVIEW_ERRORS else "max_attempts_exhausted"
+    )
     assert decision.delay_seconds == 0
     assert decision.pause_lane == (error_code in PAUSE_ERRORS)
     assert decision.state.internal_retries == 0
@@ -113,22 +125,35 @@ def test_rate_limit_retries_after_one_and_four_minutes_then_advances() -> None:
     assert dict(next_worker.state.rate_limits) == {Worker.CLAUDE: 3, Worker.CODEX: 1}
 
 
-def test_acceptance_failure_keeps_actual_worker_until_global_limit() -> None:
-    state = RetryState()
-    for attempt in range(1, 6):
-        decision = decide_failure(
-            error_code=ErrorCode.ACCEPTANCE_FAILED,
-            worker=Worker.CODEX,
-            attempt=attempt,
-            max_attempts=5,
-            chain=CHAIN,
-            state=state,
-        )
-        assert decision.action == ("retry" if attempt < 5 else "fail")
-        assert decision.state.cursor == 1
-        assert decision.state.pinned_worker == Worker.CODEX
-        assert decision.delay_seconds == 0
-        state = decision.state
+@pytest.mark.parametrize("attempt", range(2, 6))
+@pytest.mark.parametrize(
+    "state",
+    [
+        RetryState(cursor=1),
+        RetryState(cursor=1, pinned_worker=Worker.CODEX),
+        RetryState(cursor=1, pinned_worker=Worker.CODEX, rate_limits={Worker.CODEX: 1}),
+        RetryState(cursor=1, pinned_worker=Worker.CODEX, internal_retries=1),
+    ],
+)
+def test_acceptance_failure_targets_review_without_retry(attempt: int, state: RetryState) -> None:
+    """``acceptance_failed`` ends the attempt loop: no retry, no fallback, no lane pause."""
+    decision = decide_failure(
+        error_code=ErrorCode.ACCEPTANCE_FAILED,
+        worker=Worker.CODEX,
+        attempt=attempt,
+        max_attempts=5,
+        chain=CHAIN,
+        state=state,
+    )
+    assert decision.action == "fail"
+    assert decision.reason == "acceptance_failed"
+    assert decision.pause_lane is False
+    assert decision.delay_seconds == 0
+    # The actually executing lane stays recorded; the cursor never advances.
+    assert decision.state.cursor == state.cursor == 1
+    assert decision.state.pinned_worker == Worker.CODEX
+    assert dict(decision.state.rate_limits) == dict(state.rate_limits)
+    assert decision.state.internal_retries == state.internal_retries
 
 
 def test_internal_retry_allowance_is_global_across_worker_fallback() -> None:
@@ -196,7 +221,9 @@ def test_local_only_failures_cannot_fall_back_to_cloud(error_code: ErrorCode) ->
         state=RetryState(),
     )
     assert chain == (Worker.OLLAMA,)
-    assert decision.action == ("fail" if error_code in FALLBACK_ERRORS else "retry")
+    assert decision.action == (
+        "fail" if error_code in (*FALLBACK_ERRORS, *REVIEW_ERRORS) else "retry"
+    )
     assert decision.state.pinned_worker in (None, Worker.OLLAMA)
     assert all(worker == Worker.OLLAMA for worker in decision.state.rate_limits)
 

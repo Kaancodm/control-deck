@@ -14,6 +14,7 @@ def task_summary(task: Task) -> TaskSummaryOut:
         attempt=task.attempt,
         requires_approval=task.requires_approval,
         approved_at=task.approved_at,
+        deadline_at=task.deadline_at,
         created_at=task.created_at,
         updated_at=task.updated_at,
     )

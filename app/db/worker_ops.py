@@ -9,9 +9,11 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.core.schemas import ResultStatus, ResultV1
+from app.core.acceptance import evaluate_acceptance
+from app.core.schemas import AcceptanceRule, ResultStatus, ResultV1
 from app.core.validate import validate_result
 from app.db.models import Lease, Task
+from app.db.queue import expire_task_if_due
 from app.db.repository import persist_result_v1, result_payload_for_storage
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import LeaseOwnershipError, fenced_transition_task
@@ -28,6 +30,10 @@ class WorkerOperationError(ValueError):
     """Worker request could not be applied."""
 
 
+class TaskDeadlineElapsed(WorkerOperationError):
+    """The owner's deadline expired; the expiry event must be committed."""
+
+
 def refresh_lease_heartbeat(
     session: Session,
     *,
@@ -36,6 +42,11 @@ def refresh_lease_heartbeat(
     extend_by: timedelta,
 ) -> Lease:
     """Extend ``expires_at`` after row lock when the lease is still valid (DB clock)."""
+    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
+    if task is None:
+        raise WorkerOperationError("task not found")
+    if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
+        raise TaskDeadlineElapsed("owner deadline elapsed")
     stmt = (
         select(Lease)
         .join(Task, Task.id == Lease.task_id)
@@ -63,13 +74,19 @@ def refresh_lease_heartbeat(
         )
 
     extend_seconds = extend_by.total_seconds()
-    session.execute(
+    refreshed = session.execute(
         text(
             """
             UPDATE leases
             SET heartbeat_at = clock_timestamp(),
                 expires_at = clock_timestamp() + CAST(:extend AS interval)
             WHERE lease_id = :lease_id AND task_id = :task_id
+              AND EXISTS (
+                  SELECT 1 FROM tasks AS t
+                  WHERE t.id = :task_id
+                    AND (t.deadline_at IS NULL OR t.deadline_at > clock_timestamp())
+              )
+            RETURNING lease_id
             """
         ),
         {
@@ -77,7 +94,10 @@ def refresh_lease_heartbeat(
             "task_id": task_id,
             "extend": f"{extend_seconds} seconds",
         },
-    )
+    ).first()
+    if refreshed is None:
+        expire_task_if_due(session, task=task)
+        raise TaskDeadlineElapsed("owner deadline elapsed")
     session.refresh(lease)
     session.flush()
     return lease
@@ -101,9 +121,17 @@ def submit_worker_result(
     result_v1 = ResultV1.model_validate(result_payload)
     task_id = result_v1.task_id
 
-    task = session.get(Task, task_id)
+    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
     if task is None:
         raise WorkerOperationError(f"task {task_id} not found")
+
+    if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
+        raise TaskDeadlineElapsed("owner deadline elapsed")
+
+    if result_v1.attempt != task.attempt:
+        raise WorkerOperationError(
+            f"result attempt {result_v1.attempt} does not match task attempt {task.attempt}"
+        )
 
     if task.status == TaskState.LEASED:
         started = fenced_transition_task(
@@ -114,6 +142,8 @@ def submit_worker_result(
             trigger=TaskTransition.START,
         )
         if started is None:
+            if expire_task_if_due(session, task=task):
+                raise TaskDeadlineElapsed("owner deadline elapsed")
             raise LeaseOwnershipError("lease_id does not match the active task lease")
         task = started
 
@@ -122,17 +152,22 @@ def submit_worker_result(
             f"task {task_id} must be running to accept a result (status={task.status.value})"
         )
 
-    if result_v1.attempt != task.attempt:
-        raise WorkerOperationError(
-            f"result attempt {result_v1.attempt} does not match task attempt {task.attempt}"
-        )
-
     trigger = _RESULT_STATUS_TO_TRIGGER.get(result_v1.status)
     if trigger is None:
         raise WorkerOperationError(f"unsupported result status {result_v1.status.value}")
 
     stored_payload = result_payload_for_storage(result_v1)
-    persist_result_v1(session, task=task, result_payload=stored_payload)
+    if result_v1.status == ResultStatus.SUCCEEDED:
+        rules = [AcceptanceRule.model_validate(rule) for rule in task.payload["acceptance"]]
+        acceptance = evaluate_acceptance(rules, result_v1.output.text)
+        stored_payload["checks"] = [check.model_dump() for check in acceptance.checks]
+        if not acceptance.passed:
+            stored_payload["status"] = ResultStatus.FAILED.value
+            stored_payload["error"] = {
+                "code": "acceptance_failed",
+                "message": "Core acceptance checks failed",
+            }
+            trigger = TaskTransition.RETRY
 
     updated = fenced_transition_task(
         session,
@@ -143,7 +178,10 @@ def submit_worker_result(
         detail={"worker": result_v1.worker.value, "result_status": result_v1.status.value},
     )
     if updated is None:
+        if expire_task_if_due(session, task=task):
+            raise TaskDeadlineElapsed("owner deadline elapsed")
         raise LeaseOwnershipError("result rejected: stale lease or task state")
 
+    persist_result_v1(session, task=updated, result_payload=stored_payload)
     session.refresh(updated)
     return updated

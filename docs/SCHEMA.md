@@ -14,6 +14,8 @@ Spiegel in Python: `app/core/schemas.py`.
 
 `additionalProperties: false` gilt auf allen Objektebenen.
 
+Die Task-Status `review`, `done`, `expired` und die API-/DB-Metadaten `deadline_at` erweitern **nicht** die eingefrorenen v1-Schemas. `deadline_at` wird nur beim Owner-Create neben dem vollstaendigen `task.v1` angenommen, separat gespeichert und in der Task-Antwort ausgegeben. Direktes Validieren als `task.v1` lehnt dieses Zusatzfeld weiterhin ab. `data_class` bleibt in jedem Task-Payload Pflicht, ohne impliziten Default.
+
 ---
 
 ## task.v1
@@ -70,6 +72,21 @@ Spiegel in Python: `app/core/schemas.py`.
 | `type` | enum | must_contain, must_not_contain, regex, json_schema, max_chars, human |
 | `value` | string | Optional, abhaengig vom Typ |
 
+Die verbindliche Ergebnispruefung liegt in `app/core/acceptance.py`. Sie prueft `result.output.text` und berechnet die gespeicherten Checks selbst; ein vom Worker gemeldetes `passed: true` ersetzt keine Pruefung.
+
+| Regel | Bedeutung von `value` |
+|-------|----------------------|
+| `must_contain` | Teiltext, der enthalten sein muss |
+| `must_not_contain` | Teiltext, der nicht vorkommen darf |
+| `regex` | Regulaerer Ausdruck gegen den Ausgabetext |
+| `json_schema` | JSON-Schema als JSON-String; der Ausgabetext muss gueltiges JSON sein und das Schema erfuellen |
+| `max_chars` | Nichtnegative maximale Zeichenzahl als String |
+| `human` | Optionaler Hinweis fuer die menschliche Abnahme; erzwingt `review` |
+
+Fehlende oder ungueltige Werte automatischer Regeln schlagen fehl. Regex- und JSON-Schema-Pruefungen laufen isoliert mit einem Zeitlimit von zwei Sekunden; ein Abbruch gilt als Fehlschlag. JSON-Schemas duerfen lokale Referenzen verwenden; externe Referenzen werden nicht nachgeladen. Es gibt dabei weder Dateizugriffe auf Ergebnis-Artefakte noch Netzwerkzugriffe.
+
+Eine `human`-Regel bleibt bis zum Owner-Entscheid als ausstehende Abnahme sichtbar. Sie ist kein automatischer Fehlschlag, verhindert aber direktes `done` auch bei `policy.require_review = false`. Ein automatischer Fehlschlag erzeugt `acceptance_failed` und einen begrenzten Retry; erst bestandene automatische Regeln erlauben `review` beziehungsweise `done`.
+
 ---
 
 ## result.v1
@@ -89,6 +106,8 @@ Spiegel in Python: `app/core/schemas.py`.
 | `redaction` | object | ja | Pseudonymisierung |
 | `payload_hash` | string | ja | SHA-256 hex (64 Zeichen) |
 | `log_ref` | string | ja | Relativer Pfad zum Laufzeitlog |
+
+Der Ergebnisstatus beschreibt den Versuch, nicht den Task-Lebenszyklus: Ein akzeptiertes `succeeded`-Ergebnis fuehrt je nach Review-Pflicht zum Task-Status `review` oder `done`. Historische Tasks mit Status `succeeded` bleiben lesbar. Owner-Review schreibt Audit-Events und veraendert den gespeicherten Versuch nicht.
 
 ### output
 

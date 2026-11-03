@@ -13,13 +13,14 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession, OwnerAuth
 from app.api.errors import problem_response
-from app.api.schemas import TaskCreateOut, TaskDetailOut, TaskListOut
+from app.api.schemas import TaskCreateOut, TaskDetailOut, TaskListOut, TaskReviewRequest
 from app.api.serializers import task_detail, task_summary
 from app.core.schemas import DataClass
 from app.db.models import Task
+from app.db.queue import expire_overdue_tasks, expire_task_if_due
 from app.db.repository import approve_task, create_task_from_api_payload
-from app.db.state_machine import InvalidTaskTransitionError, TaskState
-from app.db.transitions import request_operator_cancel
+from app.db.state_machine import InvalidTaskTransitionError, TaskState, TaskTransition
+from app.db.transitions import TransitionActor, request_operator_cancel, transition_task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -54,6 +55,7 @@ def create_task(
                 else [{"message": str(exc)}]
             ),
         )
+    expire_task_if_due(session, task=task)
     session.refresh(task, attribute_names=["events", "results"])
     return TaskCreateOut(task=task_detail(task))
 
@@ -68,6 +70,7 @@ def list_tasks(
     offset: int = Query(default=0, ge=0),
 ) -> TaskListOut:
     """List tasks with optional filters and offset pagination."""
+    expire_overdue_tasks(session, limit=200)
     stmt = select(Task).order_by(Task.created_at.desc())
     count_stmt = select(func.count()).select_from(Task)
 
@@ -114,9 +117,12 @@ def get_task(
         select(Task)
         .where(Task.id == task_id)
         .options(selectinload(Task.events), selectinload(Task.results))
+        .with_for_update(of=Task)
     )
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    expire_task_if_due(session, task=task)
+    session.refresh(task, attribute_names=["events", "results"])
     return task_detail(task)
 
 
@@ -125,11 +131,13 @@ def cancel_task(
     task_id: uuid.UUID,
     session: DbSession,
     _owner: OwnerAuth,
-) -> TaskDetailOut:
+) -> TaskDetailOut | JSONResponse:
     """Cancel a task (owner override, no lease required)."""
     task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
+        return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")
     try:
         request_operator_cancel(session, task=task, reason="api")
     except InvalidTaskTransitionError as exc:
@@ -143,15 +151,46 @@ def approve_task_endpoint(
     task_id: uuid.UUID,
     session: DbSession,
     _owner: OwnerAuth,
-) -> TaskDetailOut:
+) -> TaskDetailOut | JSONResponse:
     """Owner approval: move task from ``awaiting_approval`` into the queue."""
     task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
+        return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")
     try:
         approve_task(session, task)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except InvalidTaskTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.refresh(task, attribute_names=["events", "results"])
+    return task_detail(task)
+
+
+@router.post("/{task_id}/review", response_model=TaskDetailOut)
+def review_task_endpoint(
+    task_id: uuid.UUID,
+    body: TaskReviewRequest,
+    session: DbSession,
+    _owner: OwnerAuth,
+) -> TaskDetailOut | JSONResponse:
+    """Record the owner's acceptance or rejection of a completed result."""
+    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if expire_task_if_due(session, task=task) or task.status == TaskState.EXPIRED:
+        return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")
+    try:
+        transition_task(
+            session,
+            task=task,
+            trigger=(
+                TaskTransition.REVIEW_APPROVE if body.approved else TaskTransition.REVIEW_REJECT
+            ),
+            actor=TransitionActor.OPERATOR,
+            detail={"approved": body.approved, "reason": body.reason},
+        )
     except InvalidTaskTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     session.refresh(task, attribute_names=["events", "results"])

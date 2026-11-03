@@ -48,6 +48,7 @@ OPERATOR_CANCEL_WITHOUT_LEASE: frozenset[TaskState] = frozenset(
     {
         TaskState.AWAITING_APPROVAL,
         TaskState.QUEUED,
+        TaskState.REVIEW,
         TaskState.BLOCKED,
     }
 )
@@ -72,6 +73,17 @@ def max_attempts_for_task(task: Task) -> int:
     if isinstance(policy, dict) and "max_attempts" in policy:
         return int(policy["max_attempts"])
     return 3
+
+
+def task_requires_review(task: Task) -> bool:
+    """Only an explicit opt-out without human rules permits automatic completion."""
+    policy = task.payload.get("policy")
+    if not isinstance(policy, dict) or policy.get("require_review") is not False:
+        return True
+    acceptance = task.payload.get("acceptance", [])
+    if not isinstance(acceptance, list):
+        return True
+    return any(isinstance(rule, dict) and rule.get("type") == "human" for rule in acceptance)
 
 
 def resolve_trigger(task: Task, trigger: TaskTransition) -> TaskTransition:
@@ -144,6 +156,7 @@ def _atomic_acquire(session: Session, *, task_id: uuid.UUID, now: datetime) -> T
               AND t.status = 'queued'
               AND t.cancel_requested = false
               AND t.approved_at IS NOT NULL
+              AND (t.deadline_at IS NULL OR t.deadline_at > clock_timestamp())
             RETURNING t.id
             """
         ),
@@ -186,6 +199,7 @@ def _atomic_runner_transition(
               AND l.lease_id = :lease_id
               AND {expiry_clause}
               AND ({cancel_clause})
+              AND (t.deadline_at IS NULL OR t.deadline_at > clock_timestamp())
             RETURNING t.id
             """
         ),
@@ -213,15 +227,22 @@ def _atomic_simple_transition(
     from_state: TaskState,
     to_state: TaskState,
     now: datetime,
+    deadline_due: bool = False,
 ) -> Task | None:
+    deadline_clause = (
+        "deadline_at IS NOT NULL AND deadline_at <= clock_timestamp()"
+        if deadline_due
+        else "(deadline_at IS NULL OR deadline_at > clock_timestamp())"
+    )
     row = session.execute(
         text(
-            """
+            f"""
             UPDATE tasks
             SET status = CAST(:to_status AS task_state),
                 updated_at = :now
             WHERE id = :task_id
               AND status = CAST(:from_status AS task_state)
+              AND {deadline_clause}
             RETURNING id
             """
         ),
@@ -251,6 +272,15 @@ def transition_task(
 
     Runner transitions with an active lease use atomic SQL fencing (status + lease_id + expiry).
     """
+    if trigger in (TaskTransition.REVIEW_APPROVE, TaskTransition.REVIEW_REJECT):
+        if actor != TransitionActor.OPERATOR:
+            raise InvalidTaskTransitionError("review decisions require the owner")
+    if trigger == TaskTransition.EXPIRE and actor not in (
+        TransitionActor.SYSTEM,
+        TransitionActor.OPERATOR,
+    ):
+        raise InvalidTaskTransitionError("deadline expiry requires system or owner authority")
+
     effective_trigger = resolve_trigger(task, trigger)
     if effective_trigger != trigger:
         mapped_detail = dict(detail or {})
@@ -298,6 +328,8 @@ def transition_task(
 
     result = apply_transition(current, effective_trigger)
     target_state = _resolve_requeue_target(task, effective_trigger, result.to_state)
+    if effective_trigger == TaskTransition.SUCCEED and not task_requires_review(task):
+        target_state = TaskState.DONE
     if target_state != result.to_state:
         result = TaskTransitionResult(
             transition=result.transition,
@@ -355,7 +387,26 @@ def transition_task(
         session.flush()
         return result
 
-    if _requires_active_lease(current, effective_trigger):
+    if effective_trigger in (
+        TaskTransition.EXPIRE,
+        TaskTransition.REVIEW_APPROVE,
+        TaskTransition.REVIEW_REJECT,
+    ):
+        updated = _atomic_simple_transition(
+            session,
+            task_id=task.id,
+            from_state=current,
+            to_state=result.to_state,
+            now=now,
+            deadline_due=effective_trigger == TaskTransition.EXPIRE,
+        )
+        if updated is None:
+            raise InvalidTaskTransitionError(
+                "transition rejected: state changed or deadline condition is not satisfied"
+            )
+        task.status = result.to_state
+        _touch_updated_at(task, now=now)
+    elif _requires_active_lease(current, effective_trigger):
         if lease_id is None:
             raise LeaseOwnershipError(f"{effective_trigger.value} requires lease_id")
         allow_expired = trigger in (
@@ -379,6 +430,17 @@ def transition_task(
         task.attempt = updated.attempt
         _touch_updated_at(task, now=now)
     else:
+        updated = _atomic_simple_transition(
+            session,
+            task_id=task.id,
+            from_state=current,
+            to_state=result.to_state,
+            now=now,
+        )
+        if updated is None:
+            raise InvalidTaskTransitionError(
+                "transition rejected: state changed or deadline elapsed"
+            )
         task.status = result.to_state
         _touch_updated_at(task, now=now)
 
@@ -386,7 +448,7 @@ def transition_task(
         release_lease_for_task(session, task.id)
         task.lease = None
 
-    if result.to_state == TaskState.CANCELLED:
+    if result.to_state in (TaskState.CANCELLED, TaskState.EXPIRED):
         task.cancel_requested = False
         task.cancel_reason = None
 

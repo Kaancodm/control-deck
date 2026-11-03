@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy.orm import Session
 
 from app.core.schemas import ResultV1, TaskV1
@@ -46,6 +47,12 @@ def create_task_from_api_payload(
 ) -> Task:
     """Validate ``task.v1``, persist a task awaiting owner approval, and audit."""
     data = dict(payload)
+    raw_deadline = data.pop("deadline_at", None)
+    if raw_deadline is not None and not isinstance(raw_deadline, str):
+        raise ValueError("deadline_at must be an ISO 8601 datetime with timezone or null")
+    deadline_at = TypeAdapter(AwareDatetime | None).validate_python(
+        datetime.fromisoformat(raw_deadline) if raw_deadline is not None else None
+    )
     issues = validate_task(data)
     if issues:
         raise ValueError(issues)
@@ -59,6 +66,7 @@ def create_task_from_api_payload(
         attempt=0,
         requires_approval=True,
         approved_at=None,
+        deadline_at=deadline_at,
     )
     session.add(row)
     session.flush()

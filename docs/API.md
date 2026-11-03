@@ -26,9 +26,30 @@ Fehlerantworten verwenden **RFC 7807** (`Content-Type: application/problem+json`
 | `GET` | `/tasks` | Liste mit Query `status`, `data_class`, Pagination `limit` (1–200, Default 50), `offset`. |
 | `GET` | `/tasks/{id}` | Detail inkl. `events` und `results`. |
 | `POST` | `/tasks/{id}/approve` | Owner-Freigabe: `awaiting_approval` → `queued`, setzt `approved_at`. |
+| `POST` | `/tasks/{id}/review` | Owner-Entscheid fuer einen Task in `review`: Zustimmung → `done`, Ablehnung → `failed`. |
 | `POST` | `/tasks/{id}/cancel` | Abbruch (Owner-Override ohne Lease). Laufende Tasks (`running`): `cancel_requested` gesetzt; Worker bemerkt Abbruch erst beim naechsten Heartbeat/Lease-Check (404). |
 
 Interne Persistenz (`create_task_from_v1`, `POST /tasks`) legt Tasks immer in **`awaiting_approval`** an; **`queued`** ist nur nach Owner-Freigabe (`POST /tasks/{id}/approve` mit Bearer-Token) erreichbar.
+
+### Owner-Deadline
+
+`POST /tasks` akzeptiert neben den bisherigen `task.v1`-Feldern optional `deadline_at` als ISO-8601-Zeitpunkt **mit Zeitzone** oder `null`. Beispiel fuer diese zusaetzlichen API-Metadaten:
+
+```json
+{"deadline_at": "2030-01-01T12:00:00Z"}
+```
+
+Das Beispiel ergaenzt einen vollstaendigen `task.v1`-Body; `data_class` bleibt Pflicht. Die API entfernt `deadline_at` vor der Schema-Validierung und speichert den Wert als separate Task-Spalte. Der unveraenderliche `task.v1`-Payload enthaelt ihn nicht. Task-Listen und Task-Details geben `deadline_at` separat zurueck. Es gibt in dieser Etappe keinen Endpunkt zum nachtraeglichen Aendern der Deadline.
+
+Ohne explizite Owner-Deadline laeuft ein Task **nicht** ab. Weder `policy.timeout_s` noch Lease-TTL oder Heartbeats erzeugen eine Deadline. Erst wenn das gesetzte `deadline_at` erreicht ist, kann ein nichtterminaler Task nach `expired` wechseln. Die Ablaufpruefung erfolgt bei API-/Queue-Zugriffen; SQL-Fencing verhindert auch vor dem naechsten Sweep, dass ueberfaellige Arbeit neu geleast oder mit einem spaeten Ergebnis abgeschlossen wird. Ein Ablauf entfernt die Lease und erzeugt `task.expire`.
+
+### Ergebnis-Review
+
+```json
+{"approved": true, "reason": "Abnahme erfuellt"}
+```
+
+`approved` ist ein Pflichtfeld vom Typ Boolean; `reason` ist optional (maximal 2000 Zeichen). `false` lehnt das Ergebnis ab und beendet den Task mit `failed`. Eine Entscheidung ist ausschliesslich aus `review` erlaubt; ein wiederholter Entscheid oder ein anderer Ausgangsstatus ergibt **409**. Der Worker-Token berechtigt nicht zum Review. Entscheide erzeugen `task.review_approve` beziehungsweise `task.review_reject` und veraendern den gespeicherten Ergebnis-Snapshot nicht. Ein Export in die Wissens-DB ist hier nicht enthalten.
 
 ## Worker-Endpunkte (`/api/v1/worker`)
 
@@ -38,9 +59,15 @@ Authentifizierung ueber `DECK_WORKER_TOKEN` (Pflicht).
 |---------|------|--------------|
 | `POST` | `/worker/lease` | Pull aeltester freigegebener `queued`-Task (`FOR UPDATE SKIP LOCKED`), Transition `acquire`, Lease-Zeile. |
 | `POST` | `/worker/heartbeat` | Lease verlaengern (`lease_id`, `task_id`, optional `extend_seconds`). |
-| `POST` | `/worker/result` | `result.v1` validieren, speichern, Transition fenced per `lease_id` (auto-`start` aus `leased`). |
+| `POST` | `/worker/result` | `result.v1` validieren, Acceptance im Core pruefen, Ergebnis speichern und fenced per `lease_id` wechseln (auto-`start` aus `leased`). |
 
 Dequeue verlangt ein gesetztes **`approved_at`** (Owner-Freigabe); Tasks in `queued` ohne Freigabe werden nicht gezogen.
+
+Bei `result.v1.status = succeeded` berechnet `app/core/acceptance.py` die Checks aus `task.acceptance` und `result.output.text` selbst; vom Worker gemeldete Checks ersetzen diese Pruefung nicht. Ein automatischer Fehlschlag wird als Ergebnis mit `status = failed` und `error.code = acceptance_failed` gespeichert. Der Task geht bei verbleibenden Versuchen zurueck in die Queue, sonst nach `failed`.
+
+Sind alle automatischen Regeln erfuellt, folgt standardmaessig `review`. Nur `policy.require_review = false` **ohne** `human`-Regel erlaubt direkt `done`. Eine `human`-Regel verlangt immer den Owner-Entscheid. `result.v1.status` bleibt dabei unveraendert das Worker-Ergebnisformat (`succeeded`, `failed`, `blocked`, `cancelled`); `review`, `done` und `expired` sind Task-Status.
+
+Ein reiner Lease-Ablauf fuehrt weiterhin zu Retry, gegebenenfalls `awaiting_approval` ohne bestehende Freigabe oder `failed` bei erschoepften Versuchen. Er ist kein Grund fuer `expired`.
 
 ## Health
 
@@ -54,8 +81,14 @@ Dequeue verlangt ein gesetztes **`approved_at`** (Owner-Freigabe); Tasks in `que
 | Status | Bedeutung |
 |--------|-----------|
 | `awaiting_approval` | Validiert, wartet auf Owner-Freigabe |
+| `review` | Automatische Abnahme bestanden, wartet auf Owner-Entscheid |
+| `done` | Abgeschlossen nach Review oder explizit ohne Review-Pflicht |
+| `expired` | Explizite Owner-Deadline erreicht; terminal |
+| `succeeded` | Historischer terminaler Task-Status; neue Erfolge verwenden `review` oder `done` |
 
 Erlaubte Uebergaenge: siehe `app/db/state_machine.py` (`submit`, `approve`). Migration `20251103_0002` ergaenzt den Enum-Wert sowie Spalten `requires_approval` (Default `true`) und `approved_at`; **Bestand** aus Revision 0001 mit Status `queued` wird ohne Auto-Freigabe nach `awaiting_approval` verschoben.
+
+Migration `20251103_0007` ergaenzt `review`, `done`, `expired` und die optionale Spalte `deadline_at`. Bestehende `succeeded`-Tasks behalten ihren historischen Status.
 
 Doppelte `task_id` bei `POST /tasks` → **409** (`application/problem+json`).
 

@@ -69,6 +69,7 @@ class Task(Base):
         server_default=text("true"),
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

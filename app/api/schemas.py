@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 
 class EventOut(BaseModel):
@@ -32,6 +32,7 @@ class TaskSummaryOut(BaseModel):
     attempt: int
     requires_approval: bool
     approved_at: datetime | None
+    deadline_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -51,6 +52,13 @@ class TaskListOut(BaseModel):
 
 class TaskCreateOut(BaseModel):
     task: TaskDetailOut
+
+
+class TaskReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approved: StrictBool
+    reason: str | None = Field(default=None, max_length=2000)
 
 
 class LeaseOut(BaseModel):

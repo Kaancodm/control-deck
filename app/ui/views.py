@@ -90,6 +90,8 @@ def page(request: Request, name: str, *, status: int = 200, **context: Any) -> R
             "csrf": request.cookies.get(CSRF_COOKIE, ""),
             "owner": True,
             "controls": getattr(request.state, "controls", None),
+            "lane_health": getattr(request.state, "lane_health", []),
+            "health_unavailable": getattr(request.state, "health_unavailable", False),
             **context,
         },
         status_code=status,

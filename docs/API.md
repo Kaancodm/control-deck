@@ -236,3 +236,23 @@ wiederaufnehmbaren Entscheid bestehen; derselbe Request erzeugt kein zweites Dok
 Aktuell ist nur das ausdrueckliche KB-Simulationsprofil auf einer isolierten Test-DB verfuegbar.
 Echter KB-Vertrag, Schreibrechte und lokales Embedding-Modell bleiben **Inbetriebnahme**.
 Details und Limits: [WISSENS_DB.md](WISSENS_DB.md).
+
+## Lokale Gesundheitsdaten (Etappe 17)
+
+`GET /api/v1/health` liefert ohne Credentials ausschliesslich `{"status":"ok"}` und
+benoetigt dafuer keine DB. Mit Owner-Bearer oder gueltiger Browser-Session enthaelt die
+Antwort `db`, `paused`, `stop_requested`, `ollama`, `lanes` und
+`counter_scope: "since_migration_0016"`. Worker-Tokens sind unzulaessig; ein ungueltiger
+Authorization-Header faellt nicht auf eine daneben vorhandene Session zurueck.
+
+`db` zeigt nur Verbindung und den Vergleich des Schemas mit Migration `0016`.
+Lane-Felder unterscheiden `last_observation_success_at` von `last_attempt_success_at`;
+Ausfuehrungszaehler beginnen bei dieser Migration. `claims_today`, `daily_attempt_limit`
+und `configured_attempts_remaining` sind lokale Einstellungen und Claim-Zaehlungen.
+`provider_quota` bleibt `unknown`, `live_available` bleibt `false`.
+Gesundheitsdaten entstehen aus gespeicherten Beobachtungen; kein HTTP- oder CLI-Probeaufruf.
+
+DB-/Konfigurationsfehler liefern redigierte 503-Antworten, ungueltige Credentials 401.
+Veraltetes Schema wird vor Lane-Abfragen erkannt. Die lesende Session-Ausnahme gilt
+ausschliesslich fuer diese Route; andere APIs behalten ihre bisherigen Auth-Grenzen.
+Alle Antworten bleiben `no-store`. Echte Lane-Gesundheit bleibt **Inbetriebnahme**.

@@ -1,5 +1,52 @@
 # Stand des Repositorys
 
+## Etappe 17 implementiert und lokal geprueft
+
+Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.
+Migration `0016` zaehlt ausschliesslich endgueltig angenommene Ergebnisse, atomar mit
+Ergebnis und Statuswechsel. Zaehler beginnen bei dieser Migration; positive Vorpruefungen
+bleiben getrennt. 15 SQL-Integrationstests pruefen Konkurrenz, verworfene Ergebnisse,
+Rollback, Acceptance und Migrationsschutz.
+
+Audit zeigt begrenzte sichere Metadaten aus Auftrags-, Betriebs- und Auth-Ereignissen;
+CSV entspricht einer sichtbaren Seite. Geschuetzte Lane-Ansicht, Warnband und
+`/api/v1/health` nutzen lokale Beobachtungen ohne Anbieterpruefung. Owner-Token oder eine
+gueltige Session erlauben Gesundheitsdetails; anonym bleibt nur der Minimalstatus.
+Die Session gilt nun fuer den Root-Pfad, CSRF bleibt auf `/ui`; alte Session-Cookies
+werden beim Setzen und Abmelden entfernt. Schreib-APIs erhalten keine Session-Rechte.
+
+Nachgebesserte Zaehlernachweise pruefen Einmalzaehlung, drei angenommene Fehler und
+danach Erfolg mit Gesamtzaehler 4 und
+Fehlerserie 0; unveraenderte Zaehler, Fehler- und Erfolgszeitpunkte bei Doppelabgabe,
+abgelaufener Lease oder Deadline. Rollback- und Konkurrenznachweise bleiben erhalten.
+Die Produktionslogik der Zaehler benoetigt keine Korrektur. Audit und CSV erhalten die bekannten Codes
+`restore_failed` und `restore_partial_failure`, damit Teilfehler sichtbar bleiben.
+Rohdetails und unbekannte Restore-Gruende bleiben ausgeblendet. `CHANGELOG.md` enthaelt
+den Etappe-17-Eintrag.
+
+Pflichtchecks auf isolierten PostgreSQL-17-Testdatenbanken: **2335 Tests bestanden**,
+keine xfail oder Skips. Darin enthalten sind **125 Etappe-17-Tests** (57 Integration,
+68 Unit), einschliesslich echter Chromium-Smokes bei 390 Pixeln mit JavaScript und
+1024 Pixeln ohne JavaScript. Geprueft sind Audit-Filter, Seitenwechsel, CSV, Warnband,
+Session-Health, Logout, unklassifizierte Fehler, konkurrierende Ergebnisse und sichere
+Fehlerantworten. `make lint`, zentrale und KB-Alembic-Pruefung, beide Referenzmodi mit
+je **4/4** sowie beide Hook-Suites sind gruen. Eine bestehende Starlette/httpx-Warnung.
+
+Die Vollsuite lief auf `98e3ec4`. Der finale Eltern-Rebase auf den
+Etappe-16-Head `ef5c669` aenderte ausschliesslich `docs/STAND.md` und `CHANGELOG.md`;
+Anwendung, Migrationen und Tests sind identisch. CI des finalen Heads steht im PR.
+Der Abnahme-Entwurf aus
+Checkpoint `a2e6ff3` liegt unter `docs/ABNAHME_CHECKLISTE_ENTWURF.md`; sein Backup-Kriterium
+verlangt nun ausdruecklich beide Datenbanken, zwei leere Ziele und fehlgeschlagene Teil-Restores.
+Etappe 18 wird damit nicht gestartet. Externes Review durch einen anderen Anbieter
+und Owner-Merge bleiben ausstehend.
+
+### Inbetriebnahme
+
+Anbieter-Kontingente bleiben unbekannt, Live-Profile gesperrt. Echte Anmeldungen,
+Lane-Verfuegbarkeit, Betriebsrechte und Serveraenderungen wurden nicht geprueft oder
+vorgenommen. Die Gesamt-Abnahme bleibt offen.
+
 ## Etappe 13 implementiert und lokal geprueft
 
 Die Codex-Lane ist im gestapelten [Draft-PR #28](https://github.com/Kaancodm/control-deck/pull/28)

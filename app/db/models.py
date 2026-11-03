@@ -282,6 +282,16 @@ class LaneStatus(Base):
         DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
     )
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    consecutive_failures: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
+    last_error_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_attempt_success_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint("lane IN ('ollama', 'claude', 'codex')", name="ck_lane_status_lane"),
@@ -290,4 +300,14 @@ class LaneStatus(Base):
             name="ck_lane_status_status",
         ),
         CheckConstraint("reason ~ '^[a-z][a-z0-9_]{0,63}$'", name="ck_lane_status_reason"),
+        CheckConstraint(
+            "completed_attempts >= 0 AND consecutive_failures >= 0 "
+            "AND consecutive_failures <= completed_attempts",
+            name="ck_lane_status_counters",
+        ),
+        CheckConstraint(
+            "last_error_code IN ('worker_unavailable', 'auth_required', 'rate_limited', "
+            "'timeout', 'policy_blocked', 'acceptance_failed', 'internal')",
+            name="ck_lane_status_error_code",
+        ),
     )

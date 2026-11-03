@@ -5,6 +5,19 @@
 Die Eintraege beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unveraendert.
 
+### Etappe 17 – Audit und lokale Lane-Gesundheit (#32)
+
+- Geschuetzte Audit-Ansicht fuer sichere Auftrags-, Betriebs- und Auth-Metadaten;
+  Filter, stabile Seiten und begrenzter CSV-Export ohne Rohdetails.
+- Migration 0016 zaehlt ausschliesslich endgueltig angenommene Ergebnisse. Vorpruefungen,
+  tatsaechliche Erfolge und Anbieter-Kontingente bleiben getrennt; keine historische Rueckfuellung.
+- Explizite Nachweise fuer Einmalzaehlung, drei Fehler und anschliessenden Erfolg mit
+  Fehlerserie null sowie unveraenderte Zaehler/Zeitpunkte bei doppelten oder spaeten Ergebnissen.
+  Die vorhandene Produktionslogik erfuellt diese Faelle unveraendert.
+- Lane-Ansicht, Warnband und geschuetzter lesender Gesundheitsendpunkt mit Session-Anbindung.
+  Audit und CSV unterscheiden bekannte Restore-Fehler von Teilfehlern ohne Prozessdiagnosen.
+- Abnahme-Checkliste fuer beide Backup-/Restore-Datenbanken praezisiert; kein Abnahmelauf.
+
 ### Etappe 16 – Betrieb und vollstaendige Wiederherstellung (#31)
 
 - Atomarer Backup-Satz mit separaten Dumps fuer zentrale DB und Wissens-DB samt pgvector;

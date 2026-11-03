@@ -33,7 +33,7 @@ from app.db.transitions import LeaseOwnershipError, fenced_transition_task
 from app.redaction.engine import RedactionError
 from app.redaction.repository import rehydrate_for_task
 from app.workers.contracts import ControlAction, ControlDecision
-from app.workers.lane_status import LaneHealthState, update_lane_status
+from app.workers.lane_status import LaneHealthState, record_completed_attempt, update_lane_status
 
 _RESULT_STATUS_TO_TRIGGER: dict[ResultStatus, TaskTransition] = {
     ResultStatus.SUCCEEDED: TaskTransition.SUCCEED,
@@ -459,6 +459,9 @@ def submit_worker_result(
             )
     else:
         updated.next_attempt_at = None
+    record_completed_attempt(
+        session, lane=normalized.worker, status=normalized.status, error_code=failure_code
+    )
     session.flush()
     session.refresh(updated)
     return updated

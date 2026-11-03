@@ -1,4 +1,4 @@
-.PHONY: lint test validate reference set-password unlock-login
+.PHONY: lint test validate reference set-password unlock-login install start stop status update backup retention restore-probe
 
 set-password:
 	uv run python scripts/set_password.py
@@ -20,3 +20,9 @@ reference:
 validate:
 	uv run python scripts/validate.py task tests/unit/examples/task_valid_01.json
 	uv run python scripts/validate.py result tests/unit/examples/result_valid_01.json
+
+install start stop status update:
+	uv run python -m app.operations.service $@ $(ARGS)
+
+backup retention restore-probe:
+	uv run python -m app.operations.main $@ $(ARGS)

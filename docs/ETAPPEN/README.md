@@ -65,7 +65,8 @@ ihr implementierter Fehlervertrag ersetzt abweichende historische Entwurfsangabe
 | `DECK_OLLAMA_TIMEOUT_S`, `DECK_OLLAMA_NUM_CTX`, `DECK_OLLAMA_ALLOW_REMOTE`, `DECK_E2E_OLLAMA` | Etappe 9 | Lane Ollama und Serverlauf |
 | `DECK_E2E_CLAUDE`, `DECK_E2E_CODEX` | Etappen 12, 13 | reale Lane-Laeufe nur auf dem Server |
 | `DECK_OWNER_PASSWORD_HASH` | Etappe 15 | Argon2id-Hash, nie Klartext |
-| `DECK_BACKUP_DIR` | Etappe 16 | Ziel der DB-Dumps |
+| `DECK_BACKUP_DIR` | Etappe 16 | Ziel der DB-Dumps (`--target runtime`), Default `backups/` |
+| `DECK_TEST_BACKUP_DIR` | Etappe 16 | Getrenntes Ziel fuer `--target test`, Default `backups_test/`; nie `DECK_BACKUP_DIR` |
 
 Kein Modellname im Repo: Modelle je `kind` stehen in `config/router.yaml` (Etappe 7, E7).
 

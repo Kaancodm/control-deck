@@ -57,6 +57,11 @@ jobs:
           uv run alembic -c alembic_kb.ini upgrade head
           uv run alembic -c alembic_kb.ini check
 
+      - name: Match dump and restore clients to the test server
+        env:
+          POSTGRES_TEST_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/ci_pg_clients.sh
+
       - name: Claude hook and settings tests
         run: |
           bash tests/hooks/test_guard.sh

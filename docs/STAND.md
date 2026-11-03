@@ -405,3 +405,56 @@ Offen bleiben reale Tailnet-/TLS-Bindung, externe Erreichbarkeit, private Konfig
 Betriebsrechte und echte Login-Einrichtung. Keine Netzwerk-Scans, echten Logins,
 Anbieter-/Modellaufrufe, API-Keys, produktiven DB-Verbindungen oder Serveraenderungen.
 Details: [SECURITY.md](SECURITY.md), [UI.md](UI.md). Keine neuen inhaltlichen Referenzfaelle.
+
+## Etappe 16: implementiert und vollstaendig lokal geprueft
+
+Draft-PR [#31](https://github.com/Kaancodm/control-deck/pull/31), Branch `stage/16-operations`,
+gestapelt auf Etappe 15 (`066ec26`). Kein Merge.
+
+Migration `0015`, append-only Betriebsereignisse, 14-/90-Tage-Aufbewahrung und
+wiederaufnehmbare Retention sind integriert. systemd-Benutzervorlagen und begrenzter
+Simulations-Supervisor bleiben Repo-Code; keine Installation oder Dienststarts auf einem
+Betriebsserver. Echte Prozessgruppenbeendigung samt Unterprozess und anschliessendem
+Lease-Retry sind belegt; Dienstende erzeugt keinen Owner-Abbruch. Ein Downgrade verweigert
+das Loeschen vorhandener Betriebsnachweise.
+
+Ein atomar publizierter Backup-Satz in Manifestversion 2 verlangt beide Datenbanken:
+zentral `public` und separat `public`/`deck_kb` samt pgvector. Pro DB teilen Dump,
+Revision und schemaqualifizierte Tabellenzaehler einen exportierten Snapshot. Fehlende
+Wissenskonfiguration oder ein fehlgeschlagener zweiter Dump publizieren kein zentrales
+Ersatzbackup. CLI, Update, Restic und Pruning verlangen vollstaendige Saetze; alte zentrale
+Manifestversion-1-Saetze werden weder als vollstaendig akzeptiert noch automatisch geloescht.
+
+Restore verlangt zwei leere `_test`-Ziele, getrennt voneinander und von beiden Quellen.
+Beide Archive, Pruefsummen, Revisionen und Ziele werden vor dem ersten Eingriff validiert.
+Nur leeres `public` wird ohne `CASCADE` vorbereitet. Normale Schemas wie `pgdata` werden
+nicht als PostgreSQL-Systemschemas uebergangen. Beide Schema-/Zeilennachweise, der
+Wissensvertrag, die pgvector-Version und beide Alembic-Checks muessen vor einem Erfolgsereignis
+passen. Teilfehler bleiben `restore_partial_failure`; beide Diagnoseziele gelten als nicht
+freigegeben und werden nicht automatisch bereinigt. Es gibt keine verteilte Transaktion.
+
+Frischer Gesamtlauf auf dem finalen Code- und Teststand `5f4243b`: **2210 Tests bestanden**,
+keine Skips oder xfail; eine bestehende Starlette/httpx-Deprecation-Warnung. `make lint`,
+zentrales Upgrade und Alembic-Check, separates KB-Upgrade und KB-Check sowie Hooks sind
+gruen. Beide Referenzmodi bestehen mit **4/4**. Der finale Folgecommit aktualisiert nur
+Dokumentation; Anwendung und Tests bleiben identisch. Finale Head-SHA und CI stehen im PR.
+
+Die gezielte Erweiterungspruefung besteht mit **92 Tests**. Vier zuvor rote Regressionen
+sichern normale Schemas in beiden Quellen und beiden Zielen. Der echte PostgreSQL-17-/
+pgvector-Roundtrip weist Dokumentinhalt, Vektor-Suche und je DB konsistente Zaehler trotz
+paralleler Aenderungen nach. Fehlende, beschaedigte oder widerspruechliche Wissensarchive,
+befuellte Ziele, ungueltiger Wissensvertrag, Restic-Teilsaetze und Restore-Teilfehlerversuche
+bleiben ohne Erfolgsnachweis. Der Gesamtlauf enthaelt ausserdem Chromium bei 390/1024 Pixeln
+und Offline-`systemd-analyze verify`. Externes Review bleibt offen; der PR bleibt Draft.
+
+### Inbetriebnahme
+
+Offen bleiben reale Bindung/TLS, User-Manager und Lingering, Datei-/Backup-Ziele, Speicher,
+Off-site-Kopie und Restore, Restic-Konfiguration sowie echte Lane-Isolation und Anmeldung.
+Beide Datenbanken sind im Backup-Satz enthalten; ein konsistenter Gesamtzeitpunkt ueber
+beide DBs und Laufdateien bleibt separat nachzuweisen. Die Runtime-Wissensvariable gilt
+nur fuer Wartung und aktiviert keinen Live-Wissensadapter.
+Der woechentliche Restore-Timer ist eine Trockenlauf-Erinnerung ohne `--apply`, kein
+Restore-Nachweis; automatische Bereitstellung leerer Ziele bleibt Inbetriebnahme.
+Keine echten Logins, Anbieteraufrufe, API-Keys, produktiven Verbindungen oder Serveraenderungen.
+Details: [OPERATIONS.md](OPERATIONS.md). Etappe 18 bleibt eine vorbereitete Checkliste.

@@ -1,0 +1,22 @@
+{
+  "schema_version": "task.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440006",
+  "parent_task_id": null,
+  "created_at": "2026-05-20T16:45:30Z",
+  "requested_by": "api",
+  "kind": "custom",
+  "title": "Freier Auftrag",
+  "instructions": "Custom pipeline step.",
+  "inputs": [{"name": "cfg", "type": "file", "path": "config/job.yaml", "mime": "application/yaml"}],
+  "context_refs": [],
+  "data_class": "cloud_ok",
+  "policy": {
+    "forbidden_workers": ["ollama", "claude"],
+    "max_attempts": 3,
+    "timeout_s": 7200,
+    "require_review": true
+  },
+  "acceptance": [],
+  "fallback_chain": ["codex"],
+  "labels": {"env": "dev"}
+}

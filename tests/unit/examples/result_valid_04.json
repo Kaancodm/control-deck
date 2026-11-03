@@ -1,0 +1,18 @@
+{
+  "schema_version": "result.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440004",
+  "attempt": 1,
+  "worker": "ollama",
+  "status": "blocked",
+  "output": {"text": "", "files": []},
+  "checks": [{"type": "policy", "passed": false, "detail": "data_class local_only"}],
+  "usage": {"wall_seconds": 0.1},
+  "timing": {
+    "started_at": "2026-03-10T14:00:01Z",
+    "finished_at": "2026-03-10T14:00:01Z"
+  },
+  "error": null,
+  "redaction": {"applied": false, "placeholders": 0},
+  "payload_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "log_ref": "runs/2026/03/10/task-004/attempt-1.log"
+}

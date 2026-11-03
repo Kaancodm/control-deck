@@ -1,0 +1,17 @@
+{
+  "schema_version": "task.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440003",
+  "parent_task_id": null,
+  "created_at": "2026-02-01T10:30:00Z",
+  "requested_by": "n8n",
+  "kind": "summarize",
+  "title": "Meeting-Notizen",
+  "instructions": "Kurzfassung ohne Namen.",
+  "inputs": [],
+  "context_refs": [],
+  "data_class": "cloud_ok",
+  "policy": {"forbidden_workers": [], "require_review": false},
+  "acceptance": [{"type": "must_contain", "value": "Zusammenfassung"}],
+  "fallback_chain": ["codex", "ollama", "claude"],
+  "labels": {"source": "automation"}
+}

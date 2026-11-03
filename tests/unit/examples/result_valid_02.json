@@ -1,0 +1,18 @@
+{
+  "schema_version": "result.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440002",
+  "attempt": 2,
+  "worker": "claude",
+  "status": "failed",
+  "output": {"text": "", "files": []},
+  "checks": [],
+  "usage": {"wall_seconds": 3.0},
+  "timing": {
+    "started_at": "2026-01-15T09:05:00Z",
+    "finished_at": "2026-01-15T09:05:03Z"
+  },
+  "error": {"code": "timeout", "message": "Worker exceeded timeout_s"},
+  "redaction": {"applied": true, "placeholders": 2},
+  "payload_hash": "2c26b46b68ffc68ff99b4537711d8d23ce8ad0dbcfd1c85e629936bef771a8c1",
+  "log_ref": "runs/2026/01/15/task-002/attempt-2.log"
+}

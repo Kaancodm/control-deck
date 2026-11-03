@@ -1,0 +1,20 @@
+{
+  "schema_version": "task.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440005",
+  "parent_task_id": null,
+  "created_at": "2026-04-01T00:00:00Z",
+  "requested_by": "ui",
+  "kind": "review",
+  "title": "ADR Review",
+  "instructions": "Pruefe Konsistenz mit ADR 0005.",
+  "inputs": [{"name": "draft", "type": "text", "value": "Entwurfstext"}],
+  "context_refs": [],
+  "data_class": "cloud_redacted",
+  "policy": {"allowed_workers": null, "forbidden_workers": []},
+  "acceptance": [
+    {"type": "must_not_contain", "value": "SECRET"},
+    {"type": "json_schema", "value": "{}"}
+  ],
+  "fallback_chain": ["claude"],
+  "labels": {"stage": "01"}
+}

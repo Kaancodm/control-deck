@@ -1,0 +1,27 @@
+{
+  "schema_version": "result.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440005",
+  "attempt": 3,
+  "worker": "claude",
+  "status": "succeeded",
+  "output": {
+    "text": "Review passed",
+    "files": [
+      {
+        "name": "out.md",
+        "path": "runs/out.md",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ]
+  },
+  "checks": [{"type": "must_contain", "passed": true, "detail": "ok"}],
+  "usage": {"input_tokens": 500, "output_tokens": 120, "wall_seconds": 45.0},
+  "timing": {
+    "started_at": "2026-04-01T01:00:00Z",
+    "finished_at": "2026-04-01T01:00:45Z"
+  },
+  "error": null,
+  "redaction": {"applied": true, "placeholders": 1},
+  "payload_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "log_ref": "runs/2026/04/01/task-005/attempt-3.log"
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "result.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440006",
+  "attempt": 1,
+  "worker": "codex",
+  "status": "failed",
+  "output": {"text": "", "files": []},
+  "checks": [{"type": "acceptance", "passed": false, "detail": "regex mismatch"}],
+  "usage": {"wall_seconds": 8.0},
+  "timing": {
+    "started_at": "2026-05-20T16:46:00Z",
+    "finished_at": "2026-05-20T16:46:08Z"
+  },
+  "error": {"code": "acceptance_failed", "message": "Output did not match acceptance rules"},
+  "redaction": {"applied": false, "placeholders": 0},
+  "payload_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "log_ref": "runs/2026/05/20/task-006/attempt-1.log"
+}

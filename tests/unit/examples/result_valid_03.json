@@ -1,0 +1,18 @@
+{
+  "schema_version": "result.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440003",
+  "attempt": 1,
+  "worker": "codex",
+  "status": "cancelled",
+  "output": {"text": "partial", "files": []},
+  "checks": [{"type": "human", "passed": false, "detail": "cancelled by operator"}],
+  "usage": {"input_tokens": 10, "output_tokens": 5, "wall_seconds": 1.2},
+  "timing": {
+    "started_at": "2026-02-01T10:31:00Z",
+    "finished_at": "2026-02-01T10:31:01Z"
+  },
+  "error": null,
+  "redaction": {"applied": false, "placeholders": 0},
+  "payload_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "log_ref": "runs/2026/02/01/task-003/attempt-1.log"
+}

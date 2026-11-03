@@ -38,7 +38,8 @@ class WaitingExecutor(SimulationExecutor):
             time.sleep(0.01)
         return super().execute(context)
 
-runner = HostRunner(get_session_factory(), runs_root=Path(os.environ['DECK_RUNS_DIR']),
+runner = HostRunner(get_session_factory(for_tests=True),
+                    runs_root=Path(os.environ['DECK_RUNS_DIR']),
                     lease_ttl=timedelta(seconds=2), heartbeat_interval_s=0.05)
 runner.run_once(Worker.OLLAMA, WaitingExecutor(Worker.OLLAMA))
 """
@@ -53,7 +54,7 @@ def test_service_stop_preserves_lease_retry_instead_of_owner_cancel(
     outcomes = []
     environment = {
         "PATH": os.defpath,
-        "DECK_DATABASE_URL": get_test_database_url(),
+        "DECK_TEST_DATABASE_URL": get_test_database_url(),
         "DECK_RUNS_DIR": str(runs),
     }
 

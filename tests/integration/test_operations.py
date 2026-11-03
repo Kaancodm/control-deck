@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import shutil
@@ -11,11 +12,13 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from alembic.config import Config
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command
 from app.core.schemas import TaskV1
 from app.db.config import get_test_database_url
 from app.db.models import Event, Lease, RedactionMap, Result, Task
@@ -222,6 +225,29 @@ def test_operation_events_are_append_only(db_session: Session) -> None:
             db_session.execute(text(statement), {"id": event_id})
             db_session.commit()
         db_session.rollback()
+
+
+def test_operations_migration_preserves_evidence_and_roundtrips(db_session: Session) -> None:
+    config = Config("alembic.ini")
+    config.cmd_opts = argparse.Namespace(x=["target=test"])
+    record_operation(db_session, operation_id=uuid4(), operation_type="backup", phase="started")
+    db_session.commit()
+    current = db_session.scalar(text("SELECT version_num FROM alembic_version"))
+    db_session.commit()
+    try:
+        with pytest.raises(RuntimeError, match="maintenance evidence would be lost"):
+            command.downgrade(config, "20251103_0014")
+        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == current
+        assert db_session.scalar(select(func.count()).select_from(OperationEvent)) == 1
+        db_session.execute(text("TRUNCATE operations_events"))
+        db_session.commit()
+        command.downgrade(config, "20251103_0014")
+        assert db_session.scalar(text("SELECT to_regclass('operations_events')")) is None
+        db_session.commit()
+    finally:
+        db_session.rollback()
+        command.upgrade(config, "head")
+    command.check(config)
 
 
 @pytest.fixture

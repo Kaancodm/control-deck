@@ -27,10 +27,10 @@ Details: `docs/DECISIONS/0001-*.md` bis `0008-*.md`.
 6. **Ausfuehrung** — Reinraum-Container (rootless Docker) oder Ollama-HTTP je nach Worker und `data_class`. Keine bezahlten APIs zur Laufzeit.
 7. **Heartbeat / Timeout / Abbruch** — Runner meldet Fortschritt; Ueberschreitung von `timeout_s` oder Operator-Abbruch (`cancel_requested`) beendet den Versuch.
 8. **Ergebnis einsammeln** — stdout/stderr, Artefakte und Metriken werden zu `result.v1` zusammengefuehrt; Rueckabbildung von Redaction-Platzhaltern wo noetig.
-9. **Validierung und Abnahme** — `result.v1` wird validiert; `acceptance`-Regeln werden ausgewertet. Retry bis `max_attempts`, danach `failed`.
-10. **Freigabe und Export** — HTTP-API: Owner-Freigabe (`awaiting_approval` → `queued`). `policy.require_review` steuert spaetere Review-Etappen; Export in die Wissens-DB nach GO (ADR 0007).
+9. **Validierung und Abnahme** — `result.v1` wird validiert; `app/core/acceptance.py` wertet die Regeln gegen `output.text` aus und ersetzt unbestaetigte Worker-Checks. Automatische Fehlschlaege fuehren zu Retry bis `max_attempts`, danach `failed`.
+10. **Freigabe und Review** — Owner-Freigabe vor Ausfuehrung (`awaiting_approval` → `queued`). Nach erfolgreicher Abnahme folgt `review`, dann Owner-Entscheid nach `done` oder `failed`. Nur `policy.require_review = false` ohne `human`-Regel erlaubt direkt `done`. Export in die Wissens-DB bleibt eine spaetere Etappe (ADR 0007).
 
-## Task-Zustaende (Plan v1.1, Etappen 3–4)
+## Task-Zustaende
 
 Massgeblich ist die Implementierung in `app/db/state_machine.py` (PostgreSQL-Enum `task_state` per Migration).
 
@@ -41,11 +41,14 @@ Massgeblich ist die Implementierung in `app/db/state_machine.py` (PostgreSQL-Enu
 | `blocked` | Datenschranke oder Policy |
 | `leased` | Runner haelt Lease, Start steht aus |
 | `running` | Ausfuehrung aktiv (Heartbeat) |
-| `succeeded` | Erfolgreich abgeschlossen (Review-/Export-Etappen folgen) |
+| `review` | Automatische Abnahme bestanden; wartet auf Owner-Entscheid |
+| `done` | Erfolgreich abgeschlossen, gegebenenfalls nach menschlicher Abnahme |
+| `expired` | Explizite Owner-Deadline erreicht; terminal |
+| `succeeded` | Historischer terminaler Status; kein Ziel neuer erfolgreicher Versuche |
 | `failed` | Kette erschoepft oder nicht behebbarer Fehler |
 | `cancelled` | Abgebrochen (Operator oder Runner) |
 
-Geplant fuer spaetere Etappen (noch nicht im Enum): `review`, `done`, `expired` gemaess Gesamt-TTL und menschlicher Abnahme nach Erfolg — siehe Plan v1.1 Abschnitt 5.
+`deadline_at` ist optionale, vom Owner beim Anlegen gesetzte API-/DB-Metadaten und kein Feld des eingefrorenen `task.v1`. Nur diese Deadline kann `expired` ausloesen. Ohne Deadline gibt es keinen Gesamt-TTL. `policy.timeout_s` und Lease-Ablauf betreffen einen Versuch und sind kein Task-Ablauf.
 
 ### Erlaubte Uebergaenge (Auszug)
 
@@ -59,8 +62,13 @@ Geplant fuer spaetere Etappen (noch nicht im Enum): `review`, `done`, `expired` 
 | `leased` | `running` | Runner start |
 | `leased` | `queued` | Lease abgelaufen (solange `attempt < max_attempts`) |
 | `leased` | `failed` | Lease abgelaufen bei erschoepften Versuchen |
-| `running` | `succeeded` / `failed` / `queued` | Ergebnis / Retry |
+| `running` | `review` | Erfolgreiche automatische Abnahme; Review-Pflicht oder `human`-Regel |
+| `running` | `done` | Erfolgreiche Abnahme, `require_review = false`, keine `human`-Regel |
+| `running` | `failed` / `queued` | Fehler / Retry, begrenzt durch `max_attempts` |
+| `review` | `done` / `failed` | Owner `review_approve` / `review_reject` |
+| `review` | `cancelled` | Owner cancel |
+| `awaiting_approval` / `queued` / `leased` / `running` / `review` | `expired` | Explizite Owner-Deadline erreicht |
 | `*` (pre-run) | `cancelled` | Operator cancel |
 | `leased` / `running` | `cancelled` | Operator `cancel_requested` + Runner/Reaper |
 
-Worker-Uebergaenge mit Lease nutzen atomisches SQL-Fencing (`status`, `lease_id`, Lease-Ablauf).
+Worker-Uebergaenge mit Lease nutzen atomisches SQL-Fencing (`status`, `lease_id`, Lease-Ablauf, Owner-Deadline). Die Ablaufpruefung bei API-/Queue-Zugriffen verwendet die DB-Zeit, entfernt Leases und erzeugt `task.expire`. Bereits terminale Tasks werden nicht nachtraeglich auf `expired` gesetzt.

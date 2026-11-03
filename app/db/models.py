@@ -69,6 +69,7 @@ class Task(Base):
         server_default=text("true"),
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -98,6 +99,15 @@ class Task(Base):
     __table_args__ = (
         Index("ix_tasks_status_created_at", "status", "created_at"),
         Index("ix_tasks_data_class", "data_class"),
+        Index(
+            "ix_tasks_active_deadline",
+            "deadline_at",
+            "id",
+            postgresql_where=text(
+                "deadline_at IS NOT NULL AND status NOT IN "
+                "('succeeded', 'done', 'expired', 'failed', 'blocked', 'cancelled')"
+            ),
+        ),
         CheckConstraint(
             "payload->>'schema_version' = 'task.v1'",
             name="ck_tasks_payload_schema_version",

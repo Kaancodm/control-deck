@@ -28,12 +28,25 @@ from app.db.state_machine import (
         (TaskState.LEASED, TaskTransition.LEASE_EXPIRED, TaskState.QUEUED),
         (TaskState.LEASED, TaskTransition.FAIL, TaskState.FAILED),
         (TaskState.LEASED, TaskTransition.CANCEL, TaskState.CANCELLED),
-        (TaskState.RUNNING, TaskTransition.SUCCEED, TaskState.SUCCEEDED),
+        (TaskState.RUNNING, TaskTransition.SUCCEED, TaskState.REVIEW),
         (TaskState.RUNNING, TaskTransition.FAIL, TaskState.FAILED),
         (TaskState.RUNNING, TaskTransition.RETRY, TaskState.QUEUED),
         (TaskState.RUNNING, TaskTransition.POLICY_BLOCK, TaskState.BLOCKED),
         (TaskState.RUNNING, TaskTransition.LEASE_EXPIRED, TaskState.QUEUED),
         (TaskState.RUNNING, TaskTransition.CANCEL, TaskState.CANCELLED),
+        (TaskState.REVIEW, TaskTransition.REVIEW_APPROVE, TaskState.DONE),
+        (TaskState.REVIEW, TaskTransition.REVIEW_REJECT, TaskState.FAILED),
+        (TaskState.REVIEW, TaskTransition.CANCEL, TaskState.CANCELLED),
+        *[
+            (state, TaskTransition.EXPIRE, TaskState.EXPIRED)
+            for state in (
+                TaskState.AWAITING_APPROVAL,
+                TaskState.QUEUED,
+                TaskState.LEASED,
+                TaskState.RUNNING,
+                TaskState.REVIEW,
+            )
+        ],
     ],
 )
 def test_allowed_transitions(
@@ -51,6 +64,8 @@ def test_allowed_transitions(
     "terminal",
     [
         TaskState.SUCCEEDED,
+        TaskState.DONE,
+        TaskState.EXPIRED,
         TaskState.FAILED,
         TaskState.BLOCKED,
         TaskState.CANCELLED,
@@ -78,3 +93,12 @@ def test_allowed_triggers_initial() -> None:
     assert triggers == frozenset(
         {TaskTransition.ENQUEUE, TaskTransition.SUBMIT, TaskTransition.BLOCK}
     )
+
+
+@pytest.mark.parametrize("trigger", [TaskTransition.REVIEW_APPROVE, TaskTransition.REVIEW_REJECT])
+@pytest.mark.parametrize(
+    "state", [TaskState.AWAITING_APPROVAL, TaskState.QUEUED, TaskState.RUNNING]
+)
+def test_review_decisions_only_apply_to_review(state: TaskState, trigger: TaskTransition) -> None:
+    with pytest.raises(InvalidTaskTransitionError):
+        apply_transition(state, trigger)

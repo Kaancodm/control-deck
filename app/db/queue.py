@@ -5,12 +5,18 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Lease, Task
-from app.db.state_machine import TaskState, TaskTransition
-from app.db.transitions import TransitionActor, transition_task, upsert_lease
+from app.db.state_machine import TERMINAL_STATES, TaskState, TaskTransition
+from app.db.transitions import (
+    LeaseOwnershipError,
+    TransitionActor,
+    TransitionFencingError,
+    transition_task,
+    upsert_lease,
+)
 
 
 def dequeue_next_queued_task(
@@ -24,26 +30,34 @@ def dequeue_next_queued_task(
 
     Uses ``FOR UPDATE SKIP LOCKED`` so concurrent workers receive distinct rows.
     """
+    expire_overdue_tasks(session)
     stmt = (
         select(Task)
         .where(
             Task.status == TaskState.QUEUED,
             Task.approved_at.is_not(None),
+            or_(Task.deadline_at.is_(None), Task.deadline_at > func.clock_timestamp()),
         )
         .order_by(Task.created_at.asc())
         .limit(1)
         .with_for_update(skip_locked=True)
     )
-    task = session.scalars(stmt).first()
-    if task is None:
-        return None
-
-    transition_task(
-        session,
-        task=task,
-        trigger=TaskTransition.ACQUIRE,
-        detail={"holder": holder} if holder else None,
-    )
+    while True:
+        task = session.scalars(stmt).first()
+        if task is None:
+            return None
+        try:
+            transition_task(
+                session,
+                task=task,
+                trigger=TaskTransition.ACQUIRE,
+                detail={"holder": holder} if holder else None,
+            )
+            break
+        except TransitionFencingError:
+            # The deadline may pass after selection but before the atomic acquire.
+            if not expire_task_if_due(session, task=task):
+                raise
 
     now = datetime.now(tz=UTC)
     lease_id = uuid.uuid4()
@@ -66,6 +80,7 @@ def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
 
     Only tasks in ``leased`` or ``running`` with ``expires_at < now()`` are processed.
     """
+    expire_overdue_tasks(session, limit=limit)
     now = datetime.now(tz=UTC)
     stmt = (
         select(Lease)
@@ -81,22 +96,84 @@ def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
     leases = list(session.scalars(stmt).all())
     for lease in leases:
         task = lease.task
-        if task.cancel_requested:
+        try:
+            if task.cancel_requested:
+                transition_task(
+                    session,
+                    task=task,
+                    trigger=TaskTransition.CANCEL,
+                    lease_id=lease.lease_id,
+                    actor=TransitionActor.SYSTEM,
+                    detail={"reaper": True, "reason": "cancel_requested"},
+                )
+                continue
             transition_task(
                 session,
                 task=task,
-                trigger=TaskTransition.CANCEL,
+                trigger=TaskTransition.LEASE_EXPIRED,
                 lease_id=lease.lease_id,
-                actor=TransitionActor.SYSTEM,
-                detail={"reaper": True, "reason": "cancel_requested"},
+                detail={"reaper": True, "expired_at": lease.expires_at.isoformat()},
             )
-            continue
+        except (LeaseOwnershipError, TransitionFencingError):
+            # The bounded sweep may omit this task, or its deadline may cross
+            # after selection. Expire it without discarding the rest of the batch.
+            if not expire_task_if_due(session, task=task):
+                raise
+    session.flush()
+    return len(leases)
+
+
+def expire_task_if_due(session: Session, *, task: Task) -> bool:
+    """Expire a due owner deadline under the task lock; never infer one from a lease."""
+    if task.deadline_at is None or task.status in TERMINAL_STATES:
+        return False
+    due = session.scalar(
+        select(Task)
+        .where(
+            Task.id == task.id,
+            Task.deadline_at <= func.clock_timestamp(),
+            Task.status.not_in(TERMINAL_STATES),
+        )
+        .with_for_update(of=Task)
+        .execution_options(populate_existing=True)
+    )
+    if due is None:
+        return False
+    transition_task(
+        session,
+        task=due,
+        trigger=TaskTransition.EXPIRE,
+        actor=TransitionActor.SYSTEM,
+        detail={
+            "reason": "owner_deadline_elapsed",
+            "deadline_at": due.deadline_at.isoformat() if due.deadline_at else None,
+        },
+    )
+    return True
+
+
+def expire_overdue_tasks(session: Session, *, limit: int = 32) -> int:
+    """Expire a bounded batch of due tasks with ``SKIP LOCKED`` and audit events."""
+    due_tasks = session.scalars(
+        select(Task)
+        .where(
+            Task.deadline_at <= func.clock_timestamp(),
+            Task.status.not_in(TERMINAL_STATES),
+        )
+        .order_by(Task.deadline_at.asc(), Task.id.asc())
+        .limit(limit)
+        .with_for_update(of=Task, skip_locked=True)
+        .execution_options(populate_existing=True)
+    ).all()
+    for task in due_tasks:
         transition_task(
             session,
             task=task,
-            trigger=TaskTransition.LEASE_EXPIRED,
-            lease_id=lease.lease_id,
-            detail={"reaper": True, "expired_at": lease.expires_at.isoformat()},
+            trigger=TaskTransition.EXPIRE,
+            actor=TransitionActor.SYSTEM,
+            detail={
+                "reason": "owner_deadline_elapsed",
+                "deadline_at": task.deadline_at.isoformat() if task.deadline_at else None,
+            },
         )
-    session.flush()
-    return len(leases)
+    return len(due_tasks)

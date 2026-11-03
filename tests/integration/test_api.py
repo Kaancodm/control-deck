@@ -156,7 +156,7 @@ def test_worker_result_fenced(api_client: TestClient, db_session: Session) -> No
         headers=_auth_headers(os.environ["DECK_WORKER_TOKEN"]),
     )
     assert response.status_code == 200
-    assert response.json()["task"]["status"] == TaskState.SUCCEEDED.value
+    assert response.json()["task"]["status"] == TaskState.REVIEW.value
 
     detail = api_client.get(f"/api/v1/tasks/{task_id}", headers=_owner_headers())
     assert detail.status_code == 200

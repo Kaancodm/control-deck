@@ -23,7 +23,12 @@ from app.api.serializers import task_detail, task_summary
 from app.db.queue import dequeue_next_queued_task
 from app.db.state_machine import InvalidTaskTransitionError
 from app.db.transitions import LeaseOwnershipError
-from app.db.worker_ops import WorkerOperationError, refresh_lease_heartbeat, submit_worker_result
+from app.db.worker_ops import (
+    TaskDeadlineElapsed,
+    WorkerOperationError,
+    refresh_lease_heartbeat,
+    submit_worker_result,
+)
 
 router = APIRouter(prefix="/worker", tags=["worker"])
 
@@ -74,7 +79,7 @@ def worker_heartbeat(
     body: WorkerHeartbeatRequest,
     session: DbSession,
     _worker: WorkerAuth,
-) -> WorkerHeartbeatResponse:
+) -> WorkerHeartbeatResponse | JSONResponse:
     """Extend an active lease and refresh ``heartbeat_at``."""
     extend = body.extend_seconds or default_heartbeat_extend_seconds()
     try:
@@ -84,6 +89,8 @@ def worker_heartbeat(
             task_id=body.task_id,
             extend_by=timedelta(seconds=extend),
         )
+    except TaskDeadlineElapsed as exc:
+        return problem_response(status=409, title="Task expired", detail=str(exc))
     except WorkerOperationError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return WorkerHeartbeatResponse(
@@ -110,6 +117,8 @@ def worker_result(
             lease_id=body.lease_id,
             result_payload=body.result,
         )
+    except TaskDeadlineElapsed as exc:
+        return problem_response(status=409, title="Task expired", detail=str(exc))
     except WorkerOperationError as exc:
         return problem_response(
             status=422,

@@ -11,7 +11,10 @@ class TaskState(StrEnum):
     QUEUED = "queued"
     LEASED = "leased"
     RUNNING = "running"
-    SUCCEEDED = "succeeded"
+    REVIEW = "review"
+    DONE = "done"
+    EXPIRED = "expired"
+    SUCCEEDED = "succeeded"  # Historical terminal rows retain their original status.
     FAILED = "failed"
     BLOCKED = "blocked"
     CANCELLED = "cancelled"
@@ -20,6 +23,8 @@ class TaskState(StrEnum):
 TERMINAL_STATES: frozenset[TaskState] = frozenset(
     {
         TaskState.SUCCEEDED,
+        TaskState.DONE,
+        TaskState.EXPIRED,
         TaskState.FAILED,
         TaskState.BLOCKED,
         TaskState.CANCELLED,
@@ -42,6 +47,9 @@ class TaskTransition(StrEnum):
     RETRY = "retry"
     POLICY_BLOCK = "policy_block"
     CANCEL = "cancel"
+    REVIEW_APPROVE = "review_approve"
+    REVIEW_REJECT = "review_reject"
+    EXPIRE = "expire"
 
 
 # from_state -> trigger -> to_state
@@ -53,27 +61,37 @@ _TRANSITION_TABLE: dict[TaskState | None, dict[TaskTransition, TaskState]] = {
     },
     TaskState.AWAITING_APPROVAL: {
         TaskTransition.APPROVE: TaskState.QUEUED,
+        TaskTransition.EXPIRE: TaskState.EXPIRED,
         TaskTransition.CANCEL: TaskState.CANCELLED,
     },
     TaskState.QUEUED: {
         TaskTransition.ACQUIRE: TaskState.LEASED,
+        TaskTransition.EXPIRE: TaskState.EXPIRED,
         TaskTransition.BLOCK: TaskState.BLOCKED,
         TaskTransition.CANCEL: TaskState.CANCELLED,
     },
-    # LEASED → failed/blocked intentionally omitted: runner must START or release lease first.
+    # A leased task may fail before it starts, but cannot report success before START.
     TaskState.LEASED: {
         TaskTransition.START: TaskState.RUNNING,
+        TaskTransition.EXPIRE: TaskState.EXPIRED,
         TaskTransition.LEASE_EXPIRED: TaskState.QUEUED,
         TaskTransition.FAIL: TaskState.FAILED,
         TaskTransition.CANCEL: TaskState.CANCELLED,
     },
     TaskState.RUNNING: {
-        TaskTransition.SUCCEED: TaskState.SUCCEEDED,
+        TaskTransition.SUCCEED: TaskState.REVIEW,
+        TaskTransition.EXPIRE: TaskState.EXPIRED,
         TaskTransition.FAIL: TaskState.FAILED,
         TaskTransition.RETRY: TaskState.QUEUED,
         TaskTransition.POLICY_BLOCK: TaskState.BLOCKED,
         TaskTransition.LEASE_EXPIRED: TaskState.QUEUED,
         TaskTransition.CANCEL: TaskState.CANCELLED,
+    },
+    TaskState.REVIEW: {
+        TaskTransition.REVIEW_APPROVE: TaskState.DONE,
+        TaskTransition.REVIEW_REJECT: TaskState.FAILED,
+        TaskTransition.CANCEL: TaskState.CANCELLED,
+        TaskTransition.EXPIRE: TaskState.EXPIRED,
     },
 }
 

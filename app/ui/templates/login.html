@@ -4,11 +4,20 @@
 <section class="panel narrow">
   <p class="eyebrow">Owner-Zugang</p><h1>Anmelden</h1>
   <p>Ein lokales Owner-Konto. Arbeiter-Zugangsdaten gelten hier nicht.</p>
+  {% if login_locked %}
+  <div class="notice error" role="alert">
+    <strong>Anmeldung gesperrt</strong>
+    <p>Zu viele fehlgeschlagene Anmeldungen. Die Anmeldung ist fuer alle Clients gesperrt.</p>
+    <p>Ein Neustart des Dienstes oder die lokale Aktion <code>make unlock-login</code> hebt die
+      Sperre auf. Danach diese Seite neu laden.</p>
+  </div>
+  {% else %}
   <form action="/ui/login" method="post">
     {% include 'partials/csrf.html' %}
     <label for="password">Passwort</label>
     <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
     <button type="submit">Anmelden</button>
   </form>
+  {% endif %}
 </section>
 {% endblock %}

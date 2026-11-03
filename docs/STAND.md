@@ -355,3 +355,53 @@ Produktive Schema-Kompatibilitaet, Schreibrechte, echtes lokales Embedding-Model
 Dimension sowie semantische Suchqualitaet bleiben offen. Das Live-Profil ist gesperrt.
 Keine echten Logins, API-Keys, Anbieteraufrufe, Serveraenderungen oder neuen inhaltlichen
 Referenzfaelle. Details: [WISSENS_DB.md](WISSENS_DB.md).
+
+## Etappe 15: lokal abgeschlossen
+
+Draft-PR: [#30](https://github.com/Kaancodm/control-deck/pull/30), Branch
+`stage/15-hardening`, auf den finalen Etappe-14-Head `f43b70f` rebased.
+
+Die vollstaendige Owner-UI ist mit der aeussersten HTTP-Schutzmiddleware integriert.
+Validierte Host-/Origin-Grenzen, begrenzte Requests, sichere Konfigurations- und
+Bindungspruefungen sowie redigierte Fehler gelten vor den Handlern. Die UI verwendet
+bei konfigurierter Public-Origin denselben validierten Wert; Forwarding-Header verleihen
+keine Rechte.
+
+Migration `0014` und ihre UI-Anbindung liefern Passwortbindung, 30 Minuten
+Inaktivitaetsablauf, eine unverlaengerbare absolute 12-Stunden-Grenze, Drosselung je
+Client-Kennung (Peer-Adresse der Verbindung, nur als Digest gespeichert), globale Login-Sperre
+nach 20 Fehlern in 24 Stunden und sichere Auth-Ereignisse. Die Sperre erscheint mit HTTP 423
+ohne Passwortformular und endet gemaess D3 mit einem Neustart des Dienstes oder der
+ausdruecklichen lokalen Entsperrung. «Ueberall abmelden» widerruft alle bestehenden Sessions
+mit Owner-/CSRF-Pruefung.
+Die Sperrreihenfolge bleibt Login-State vor Session, auch in der HTTP-Anbindung.
+
+Frischer Gesamtlauf auf dem Code- und Teststand von `397d723`: **2088 bestanden**, keine
+Skips oder xfail; eine bestehende Starlette/httpx-Deprecation-Warnung. `make lint`, zentraler
+Alembic-Check, separate KB-Migration samt Check und Hook-Pruefungen sind gruen.
+`make reference` und Ollama-Fake-CLI-Referenzmodus: jeweils **4/4**. Enthalten sind
+Chromium-Laeufe bei 390 Pixeln mit und 1024 Pixeln ohne JavaScript, mit globaler Abmeldung
+zweier Browser-Sessions, Sperranzeige nach Neuladen und erneuter Anmeldung nach Entsperrung.
+Zentrale und KB-Testdatenbank sind getrennte isolierte PostgreSQL-17-/pgvector-Datenbanken.
+
+Ein vorheriger Gesamtlauf hatte **2080 bestandene Tests und einen Fehlschlag**: ein geerbter
+Codex-Poll-Test erhielt beim ersten Queue-Poll unerwartet `idle`. Die Ursache ist inzwischen
+deterministisch reproduziert: Die generierte UUID in der Prompt-Ueberschrift konnte zufaellig
+wie eine Telefonnummer aussehen. Die erneute Datenschutzpruefung blockierte deshalb einen
+bereits freigegebenen synthetischen Auftrag vor jedem Prozessstart. Die gemeinsame Korrektur
+aus Etappe 14 entfernt die interne UUID aus der Prompt-Ueberschrift; strukturierte IDs,
+Artefaktpfade und die vollstaendige Inhaltspruefung bleiben erhalten. Regressionen pruefen
+auch, dass Telefonnummern im eigentlichen Inhalt weiterhin blockiert oder redigiert werden.
+Sichere Zustandsdiagnostik bleibt erhalten; keine Assertion wurde abgeschwaecht und kein
+Retry hinzugefuegt. Der neue Gesamtlauf nach dieser Korrektur ist vollstaendig gruen.
+Der anschliessende Rebase uebernimmt ausschliesslich die finalen Etappe-14-Nachweise;
+Code und Tests sind zum geprueften Stand unveraendert. Die CI des exakten finalen Heads
+wird im PR separat ausgewiesen.
+Externes Review bleibt offen, der PR bleibt Draft. Kein Merge.
+
+### Inbetriebnahme
+
+Offen bleiben reale Tailnet-/TLS-Bindung, externe Erreichbarkeit, private Konfiguration,
+Betriebsrechte und echte Login-Einrichtung. Keine Netzwerk-Scans, echten Logins,
+Anbieter-/Modellaufrufe, API-Keys, produktiven DB-Verbindungen oder Serveraenderungen.
+Details: [SECURITY.md](SECURITY.md), [UI.md](UI.md). Keine neuen inhaltlichen Referenzfaelle.

@@ -42,7 +42,7 @@ def require_owner(
     """
     Validate owner access via ``Authorization: Bearer`` (``DECK_OWNER_TOKEN``).
 
-    Replaced by login sessions in Etappe 15.
+    UI sessions are separate and never authorize these mutation endpoints.
     """
     if not owner_token_configured():
         raise HTTPException(
@@ -60,7 +60,7 @@ def require_owner(
         ) from exc
     expected = get_owner_token()
     provided = _extract_bearer(authorization)
-    if not provided or not hmac.compare_digest(provided, expected):
+    if not provided or not hmac.compare_digest(provided.encode(), expected.encode()):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing owner token",

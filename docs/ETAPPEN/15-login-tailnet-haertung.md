@@ -1,93 +1,54 @@
-# Etappe 15 - Login, Tailnet-Bindung, Haertung
+# Etappe 15 - Login und HTTP-Haertung
 
-Status: ABGELEITET AUS PLAN v1.1 (Drive, 03.11.2026); kompakt; nicht startklar, bis Etappe 14 gemergt ist
-Branch-Vorschlag: `stage/15-login-haertung`
-Abhaengig von: Etappe 11 (Session-Modul, CSRF, Header), Plan-Frage 9 (Passkeys)
-Entscheidungen: neue Abhaengigkeit `argon2-cffi` (im PR begruenden)
-Reviewer: Codex (ungerade Etappe)
-Abnahme laut Plan v1.1: Port-Scan von aussen leer; Login-Rate-Limit greift.
+Branch: `stage/15-hardening`, Draft-PR [#30](https://github.com/Kaancodm/control-deck/pull/30),
+gestapelt auf Etappe 14. Die Wiederaufnahme folgt dem Checkpoint vom 03.11.2026; ein Merge
+des Vorgaengers ist fuer den autorisierten Draft-Stapel nicht erforderlich. Kein Agent-Merge.
 
-## 1 Ziel
+## Ergebnis und verbindlicher Vertrag
 
-API und UI sind nur im Tailnet erreichbar und zusaetzlich durch einen Login geschuetzt (ein
-Benutzer, Argon2id, Session-Cookie, CSRF, Rate-Limit). Secrets liegen in `.env` mit Rechten 600
-ausserhalb des Repos. Der Zwischen-Login aus Etappe 11 wird ersetzt.
+- Die vollstaendige Owner-UI aus Etappe 14 bleibt erhalten. Die aeusserste HTTP-Middleware
+  begrenzt Body, Zeitbudget, Header und Request-Ziel vor jeder Handler-Ausfuehrung.
+- Bindung verlangt ausdrueckliches Loopback oder eine tatsaechliche Tailnet-Schnittstelle;
+  Host-Liste und optionale feste Public-Origin werden validiert. Forwarding-Header sind
+  keine Autoritaet. Launcher-Konfiguration kann mit `--check-only` ohne Listener geprueft werden.
+- Passwort-Login verwendet die bestehende Argon2id-Grundlage. Migration `0014` bindet Sessions
+  an den Passwort-Hash und widerruft alte authentifizierte Sessions. 30 Minuten Inaktivitaet
+  und hoechstens 12 Stunden absolute Laufzeit; Aktivitaet verlaengert die absolute Grenze nie.
+- Rate-Limit gemaess D3: Fuenf Fehlversuche je 15 Minuten je Client-Kennung. Die Kennung ist
+  die Peer-Adresse der Verbindung (ASGI-Scope), nie ein Wert aus Headern wie `X-Forwarded-For`;
+  gespeichert wird nur ihr Digest (Migration `0014`, Tabelle `ui_login_clients`). Danach
+  antwortet die UI mit HTTP 429 und `Retry-After`. Ab 20 Fehlversuchen in 24 Stunden ueber
+  alle Clients ist der Login global gesperrt, bis der Dienst neu startet oder die lokale
+  Aktion `make unlock-login` laeuft. Der Launcher hebt die Sperre beim Prozessstart auf.
+  Die UI zeigt HTTP 423 ohne Passwortformular.
+- «Ueberall abmelden» verlangt Owner-Session, Origin-Pruefung und explizites CSRF. Der Dienst
+  sperrt Login-State vor Sessions und widerruft alle vorhandenen Sessions atomar. UI und API
+  behalten ihre getrennten Rechte; Browser-Sessions erlauben keine Bearer-API-Mutationen.
+- Sichere `auth_events` enthalten nur Typ, Zeitpunkt, ID und Anzahl betroffener Sessions.
+  Passwort, Hash, Cookies und Client-Adressen erscheinen nicht darin; jeder Fehlversuch, jede
+  Drosselung und jede Sperre wird als `auth.*`-Event festgehalten. Wiederholte Drosselung
+  wird je Client und Fenster einmal auditiert. Downgrade verweigert das Entfernen vorhandener
+  Schutzdaten.
 
-## 2 Ausgangslage
+## Pruefungen
 
-| Punkt | Stand |
-|-------|-------|
-| Zwischen-Login mit Owner-Token, `app/ui/session.py`, CSRF, Sicherheits-Header | Etappe 11 |
-| `DECK_BIND_HOST`, `DECK_SECRET_KEY` als Platzhalter | belegt (`.env.example`) |
-| Eigene Bearer-Tokens je Worker-Lane (`DECK_WORKER_TOKEN_OLLAMA`, `DECK_WORKER_TOKEN_CLAUDE`, `DECK_WORKER_TOKEN_CODEX`) und separates `DECK_OWNER_TOKEN` | Etappe 8; doppelte Tokens und Owner-Kollisionen werden abgewiesen |
-| Plan Abschnitt 9: Bindung ausschliesslich auf die Tailnet-Adresse; Login als zweite Schicht | Plan v1.1 |
+Gezielte DB-, HTTP- und Parallelitaetstests pruefen Passwortwechsel, Session-Ablauf, Drosselung
+je Client ohne Einfluss von Forwarding-Headern, globale Sperre ueber Clients hinweg, Aufhebung
+der Sperre im Startpfad des Launchers, lokale Entsperrung, CSRF/Origin und Sperrreihenfolge.
+Chromium prueft die Owner-Ablaufe bei 390 Pixeln mit und 1024 Pixeln ohne JavaScript,
+einschliesslich globaler Abmeldung zweier Browser-Sessions und erneuter Anmeldung nach Entsperrung.
 
-## 3 Scope
+Pflichtchecks sind `make lint`, `uv run alembic -x target=test check`, `make test`,
+`make reference`, der Ollama-Fake-CLI-Referenzmodus und die separate KB-Migration samt
+`uv run alembic -c alembic_kb.ini check`. Die finalen Testzahlen und CI-Nachweise stehen in
+`docs/STAND.md` und im PR. Es werden keine inhaltlichen Owner-Referenzfaelle ergaenzt.
 
-**In:** Passwort-Login, Hash-Werkzeug, Session-Pruefung, Rate-Limit, Bindungspruefung beim Start,
-`.env`-Rechtepruefung, Sicherheitsabgleich der Header, `docs/SECURITY.md` (Grundlage fuer Etappe 18).
+## Inbetriebnahme
 
-**Out:** Mehrbenutzer, Passkeys (Plan-Frage 9; Vorbereitung siehe 10), TLS-Terminierung (Tailnet
-liefert verschluesselten Transport; HTTPS ueber Tailnet-Funktionen ist Betrieb, Etappe 16), WAF.
+Offen bleiben reale Tailnet-/TLS-Bindung, externe Erreichbarkeit, sichere private Konfiguration,
+Betriebsrechte und echte Login-Einrichtung. Keine Netzwerk-Scans, echten Logins,
+Anbieter-/Modellaufrufe, API-Keys, produktiven DB-Zugriffe oder Serveraenderungen.
 
-## 4 Default-Entscheidungen
-
-| Nr | Entscheidung |
-|----|--------------|
-| D1 | Ein Benutzer. Passwort-Hash in `DECK_OWNER_PASSWORD_HASH` (Argon2id, Parameter: Speicher 64 MB, Iterationen 3, Parallelitaet 1); erzeugt mit `make set-password` (liest das Passwort ohne Echo, gibt nur den Hash aus). Kein Klartext in Dateien oder Logs. |
-| D2 | Session wie Etappe 11 (HMAC mit `DECK_SECRET_KEY`), Ablauf 12 h, Verlaengerung bei Aktivitaet, Abmelden ueberall. Der Token-Login der UI entfaellt; `DECK_OWNER_TOKEN` bleibt nur fuer die API. |
-| D3 | Rate-Limit: 5 Fehlversuche je 15 Minuten je Client-Kennung (Tailnet-Adresse aus der Verbindung, nie aus Headern), danach 429 mit Wartezeit; ab 20 Fehlversuchen in 24 h globale Sperre des Logins bis Neustart oder `make unlock-login`; jeder Fehlversuch und jede Sperre wird Event `auth.*` (ohne Passwort). |
-| D4 | Bindung: `DECK_BIND_HOST` muss gesetzt sein und entweder Loopback oder eine Adresse einer Tailnet-Schnittstelle sein (Pruefung ueber die Schnittstellenliste des Systems); Wildcard-Bindung (alle Schnittstellen) wird verweigert; der Start bricht mit klarer Meldung ab. Kein Adress-Literal im Repo. |
-| D5 | Startpruefung `.env`: Rechte 600 und Eigentuemer gleich Dienstnutzer, sonst Warnung im Log (Fehler ab Etappe 16 im Betriebsmodus). |
-| D6 | Header-Abgleich: CSP, `nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY`, `Cache-Control: no-store` fuer alle `/ui`- und `/api`-Antworten; Cookies `HttpOnly`, `SameSite=Strict`, `Secure`, wenn nicht Loopback. |
-| D7 | Vergleich von Hashes und Tokens in konstanter Zeit; Fehlermeldungen unterscheiden nicht zwischen falschem Benutzer und falschem Passwort. |
-| D8 | `docs/SECURITY.md`: Bedrohungen (Tailnet-Geraet kompromittiert, Container-Ausbruch, Payload-Leck, Secrets in Logs), Gegenmassnahmen mit Verweis auf Etappen, offene Punkte. |
-
-## 5 Umsetzung
-
-| Pfad | Aenderung |
-|------|-----------|
-| `app/ui/auth.py`, `app/ui/session.py`, `app/ui/ratelimit.py` | Login, Session, Rate-Limit |
-| `app/core/bind.py` | Bindungspruefung, Aufruf in `app/api/app.py` |
-| `scripts/set_password.py`, `Makefile` (`set-password`, `unlock-login`) | Werkzeuge |
-| `pyproject.toml` | `argon2-cffi` mit Begruendung |
-| `tests/unit/test_auth.py`, `tests/unit/test_bind.py`, `tests/integration/test_login_flow.py` | Tests |
-| `docs/SECURITY.md` (neu), `docs/UI.md`, `.env.example` | Doku, `DECK_OWNER_PASSWORD_HASH` |
-
-## 6 Abnahmetests
-
-| Nr | Fall | Erwartet |
-|----|------|----------|
-| 1 | Richtiges Passwort | Session gesetzt, Weiterleitung auf `/ui/tasks` |
-| 2 | Falsches Passwort fuenfmal | 429 ab dem sechsten Versuch, Events vorhanden, Wartezeit sichtbar |
-| 3 | Zwanzig Fehlversuche | globale Sperre, `make unlock-login` hebt auf |
-| 4 | Wildcard-Bindung in `DECK_BIND_HOST` | Start verweigert |
-| 5 | Loopback und Tailnet-Adresse (Stub der Schnittstellenliste) | Start erlaubt |
-| 6 | Cookie-Attribute und Header auf allen Routen | vollstaendig |
-| 7 | Passwort in Log oder Event | 0 Treffer (Leck-Test) |
-| 8 | Owner: Port-Scan von einem Geraet ausserhalb des Tailnets | keine offenen Ports des Decks (Protokoll im PR) |
-
-## 7 Definition of Done
-
-`make lint`, `make test` gruen; Owner-Protokoll zu Test 8; `docs/SECURITY.md` vorhanden;
-PR-Template mit Reviewer **Codex**, Abhaengigkeit begruendet, "Bewusst offen".
-
-## 8 Blocker-Regel
-
-Stoppen und melden, wenn: Etappe 11 keinen austauschbaren Pruefschritt in `session.py` liefert;
-der Dienst auf dem Zielsystem keine Tailnet-Schnittstelle sieht; Plan-Frage 9 mit "nur Passkeys"
-beantwortet wird (dann anderer Umfang).
-
-## 9 Risiken
-
-| Risiko | Gegenmassnahme |
-|--------|----------------|
-| Tailnet-Geraet kompromittiert | Login als zweite Schicht, Rate-Limit, Sessions begrenzt |
-| Fehlkonfigurierte Bindung | Startpruefung D4 |
-| Schwaches Passwort | Mindestlaenge 12 im Hash-Werkzeug, Hinweis in Doku |
-
-## 10 Bewusst offen
-
-- Plan-Frage 9: Passkeys zusaetzlich oder statt Passwort; Session-Modul laesst einen zweiten Faktor zu.
-- Zwei-Faktor, Mehrbenutzer: nicht in v1.
-- Abgleich mit Plan v1.1 bei Start der Etappe.
+Mehrbenutzer, Passkeys und Zwei-Faktor sind nicht Teil dieser Etappe. Keine neue Abhaengigkeit:
+Argon2id und Uvicorn stammen aus Etappe 11. Externes Review erfolgt durch einen anderen
+Anbieter; die Inbetriebnahme und die Gesamt-Abnahme bleiben gesondert offen.

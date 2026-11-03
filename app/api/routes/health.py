@@ -25,21 +25,21 @@ def readyz() -> ReadyResponse | JSONResponse:
     """Verify database connectivity."""
     try:
         engine = create_engine(get_database_url(), **get_engine_kwargs())
-    except DatabaseConfigurationError as exc:
+    except (DatabaseConfigurationError, SQLAlchemyError):
         return problem_response(
             status=503,
             title="Not ready",
-            detail=str(exc),
+            detail="Database readiness is unavailable.",
             type_uri="https://control-deck.local/problems/not-ready",
         )
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
-    except SQLAlchemyError as exc:
+    except SQLAlchemyError:
         return problem_response(
             status=503,
             title="Not ready",
-            detail=str(exc),
+            detail="Database readiness is unavailable.",
             type_uri="https://control-deck.local/problems/not-ready",
         )
     finally:

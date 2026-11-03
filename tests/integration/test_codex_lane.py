@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.schemas import TaskV1, Worker
+from app.db import queue
 from app.db.models import Event, Lease, RedactionMap, Result, Task
 from app.db.repository import approve_task, create_task_from_v1
 from app.db.settings import read_settings, update_settings
@@ -494,11 +495,27 @@ def test_active_codex_stops_on_owner_control_or_lease_loss_without_late_result(
 
 
 def test_repeated_paused_polls_preserve_the_actionable_auth_failure(
-    db_session, tmp_path, process_calls
+    db_session, tmp_path, process_calls, monkeypatch
 ):
-    _task(db_session)
+    task_id = _task(db_session)
+    admission_checks = []
+    original_admission = queue.try_lock_admission
+
+    def record_admission(session):
+        allowed = original_admission(session)
+        admission_checks.append(allowed)
+        return allowed
+
+    monkeypatch.setattr(queue, "try_lock_admission", record_admission)
     runner = _runner(db_session, tmp_path, _executor(behavior="auth"))
-    assert runner.run_once().action == "completed"
+    outcome = runner.run_once()
+    assert outcome.action == "completed", (
+        outcome,
+        admission_checks,
+        read_settings(db_session),
+        db_session.get(Task, task_id).status,
+        db_session.scalar(select(func.count()).select_from(Lease)),
+    )
     update_settings(db_session, {"lanes.codex.paused": True})
     db_session.commit()
     for _ in range(2):

@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 from argon2 import PasswordHasher, Type, extract_parameters
 from argon2.exceptions import InvalidHashError, VerificationError
+from starlette.requests import Request
 from starlette.responses import Response
 
 SESSION_COOKIE = "deck_session"
@@ -36,22 +37,29 @@ class AuthSettings:
     password_hash: str = field(repr=False)
     cookie_secure: bool = True
     session_lifetime: timedelta = timedelta(hours=12)
+    idle_lifetime: timedelta = timedelta(minutes=30)
     anonymous_lifetime: timedelta = timedelta(minutes=10)
     failure_window: timedelta = timedelta(minutes=15)
     max_failures: int = 5
     max_anonymous_sessions: int = 1000
+    daily_failure_window: timedelta = timedelta(hours=24)
+    max_daily_failures: int = 20
 
     def __post_init__(self) -> None:
         _validate_password_hash(self.password_hash)
         if (
             type(self.cookie_secure) is not bool
             or not timedelta(0) < self.session_lifetime <= timedelta(hours=12)
+            or not timedelta(0) < self.idle_lifetime <= timedelta(hours=12)
             or not timedelta(0) < self.anonymous_lifetime <= timedelta(hours=1)
             or not timedelta(0) < self.failure_window <= timedelta(hours=1)
             or type(self.max_failures) is not int
             or not 1 <= self.max_failures <= 20
             or type(self.max_anonymous_sessions) is not int
             or not 1 <= self.max_anonymous_sessions <= 10000
+            or not timedelta(0) < self.daily_failure_window <= timedelta(hours=24)
+            or type(self.max_daily_failures) is not int
+            or not 1 <= self.max_daily_failures <= 100
         ):
             raise AuthConfigurationError("invalid_auth_limits")
 
@@ -107,6 +115,11 @@ def verify_owner_password(password: str, settings: AuthSettings) -> bool:
         return False
 
 
+def password_fingerprint(settings: AuthSettings) -> str:
+    """Bind existing sessions to the current password hash without storing that hash."""
+    return hashlib.sha256(settings.password_hash.encode()).hexdigest()
+
+
 def issue_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -121,6 +134,24 @@ def token_digest(token: str | None) -> str | None:
 def matches_token_hash(provided: str | None, expected: str) -> bool:
     digest = token_digest(provided)
     return digest is not None and hmac.compare_digest(digest, expected)
+
+
+def client_address(request: Request) -> str | None:
+    """Peer address of the ASGI connection (stage 15, D3).
+
+    The launcher disables proxy headers and the boundary middleware strips
+    forwarding metadata; this never consults ``Forwarded``/``X-Forwarded-*``.
+    """
+    client = request.client
+    return client.host if client is not None and client.host else None
+
+
+def client_fingerprint(address: str | None) -> str:
+    """Key per-client login windows by a digest so no address is stored or logged.
+
+    Connections without a peer address share one window and stay bounded.
+    """
+    return hashlib.sha256(b"deck-login-client\0" + (address or "").encode("utf-8")).hexdigest()
 
 
 def set_session_cookies(

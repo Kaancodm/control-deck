@@ -216,10 +216,18 @@ Authentifizierungszustand sowie Erstellungs-, Ablauf- und Widerrufszeit. Roh-Tok
 Passwoerter und Chatverlaeufe werden nicht gespeichert. Ein Ablaufindex unterstuetzt die
 Bereinigung. Der Passwort-Hash kommt aus lokaler Konfiguration und liegt nicht in dieser Tabelle.
 
-`ui_login_state` ist eine durch CHECKs beschraenkte Singleton-Zeile fuer das gemeinsame
-Anmeldelimit des einen Owners. Zeilensperren verhindern, dass parallele Fehlversuche das
-Limit umgehen. Zeitentscheide verwenden die Datenbankuhr. Der Downgrade verweigert noch
-gueltige, nicht widerrufene Owner-Sessions; vorher muessen diese widerrufen werden.
+`ui_login_state` ist eine durch CHECKs beschraenkte Singleton-Zeile fuer das globale
+24-Stunden-Budget und die globale Login-Sperre des einen Owners. Ihre Zeilensperre
+serialisiert alle Anmeldungen, sodass parallele Fehlversuche kein Limit umgehen.
+Zeitentscheide verwenden die Datenbankuhr. Der Downgrade verweigert noch gueltige, nicht
+widerrufene Owner-Sessions; vorher muessen diese widerrufen werden.
+
+Migration `0014` verschiebt das 15-Minuten-Fenster in `ui_login_clients`: eine Zeile je
+Client-Kennung mit SHA-256-Digest der Peer-Adresse (`client_hash`), `failures`,
+`window_started_at` und `throttled_at`. Adressen selbst werden nicht gespeichert. Abgelaufene
+Fenster werden beim Ausstellen neuer Login-Challenges bereinigt; `make unlock-login` leert die
+Tabelle. Die Sperrreihenfolge bleibt Singleton, dann Session, dann Client-Zeile. Der Downgrade
+verweigert, solange ein Client-Fenster noch aktiv gedrosselt ist.
 
 Die Migration veraendert keine Task-/Result-Schemas und setzt keinen `data_class`-Default.
 Details: [UI.md](UI.md).

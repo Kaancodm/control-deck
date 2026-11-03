@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any
 
 from pydantic import ValidationError
@@ -29,10 +30,23 @@ class PrivacyInputError(ValueError):
         super().__init__("Task failed privacy input validation.")
 
 
+class PrivacyInputUnavailable(PrivacyInputError):
+    """A stored attachment is temporarily unavailable; preserve the task state."""
+
+
+@dataclass(frozen=True)
+class FileHash:
+    """Digest of the exact inspected UTF-8 bytes, without a filename or contents."""
+
+    input_index: int
+    sha256: str
+
+
 @dataclass(frozen=True)
 class GateReport:
     findings: tuple[Finding, ...]
     blocked: bool
+    file_hashes: tuple[FileHash, ...] = ()
 
     @property
     def has_secrets(self) -> bool:
@@ -52,6 +66,12 @@ class GateReport:
                 for finding in self.findings
             ],
         }
+
+
+@dataclass(frozen=True)
+class StoredTaskInspection:
+    blocking_detail: dict[str, Any] | None = None
+    file_hashes: tuple[FileHash, ...] = ()
 
 
 class PrivacyViolation(PrivacyInputError):
@@ -101,6 +121,7 @@ def inspect_task(task: TaskV1, *, settings: PrivacySettings | None = None) -> Ga
         raise PrivacyInputError("too_many_files")
 
     findings: list[Finding] = []
+    file_hashes: list[FileHash] = []
     total_bytes = 0
 
     def scan_part(source: str, content: str, *, count_bytes: bool = True) -> None:
@@ -132,12 +153,16 @@ def inspect_task(task: TaskV1, *, settings: PrivacySettings | None = None) -> Ga
             except FileInputError as exc:
                 raise PrivacyInputError(exc.code, source=source) from None
             scan_part(source, content)
+            # The strict UTF-8 reader preserves BOM and line endings. Re-encoding
+            # therefore hashes the same bytes that were read and scanned.
+            file_hashes.append(FileHash(index, sha256(content.encode("utf-8")).hexdigest()))
     if task.context_refs:
         raise PrivacyInputError("context_unavailable", source="context_refs")
     has_secrets = any(item.kind == FindingKind.SECRET for item in findings)
     return GateReport(
         findings=tuple(findings),
         blocked=has_secrets or (task.data_class != DataClass.LOCAL_ONLY and bool(findings)),
+        file_hashes=tuple(file_hashes),
     )
 
 
@@ -149,13 +174,22 @@ def validate_submission(task: TaskV1) -> GateReport:
     return report
 
 
-def inspect_stored_task(payload: dict[str, Any]) -> dict[str, Any] | None:
-    """Recheck mutable inputs; malformed attachments block an existing task safely."""
+def inspect_stored_task(payload: dict[str, Any]) -> StoredTaskInspection:
+    """Recheck inputs, distinguishing terminal rejection from unavailable files."""
     try:
         task = TaskV1.model_validate(payload)
         report = inspect_task(task)
-        return report.safe_detail() if report.blocked else None
+        return StoredTaskInspection(
+            blocking_detail=report.safe_detail() if report.blocked else None,
+            file_hashes=report.file_hashes,
+        )
     except ValidationError:
-        return {"reason": "privacy_gate", "code": "invalid_task", "source": "task"}
+        return StoredTaskInspection(
+            blocking_detail={"reason": "privacy_gate", "code": "invalid_task", "source": "task"}
+        )
     except PrivacyInputError as exc:
-        return {"reason": "privacy_gate", "code": exc.code, "source": exc.source}
+        if exc.code == "file_unavailable":
+            raise PrivacyInputUnavailable(exc.code, source=exc.source) from None
+        return StoredTaskInspection(
+            blocking_detail={"reason": "privacy_gate", "code": exc.code, "source": exc.source}
+        )

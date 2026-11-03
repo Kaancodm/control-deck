@@ -54,10 +54,15 @@ Der originale Auftrag bleibt bei nicht geheimen Treffern lokal gespeichert und f
 in der Task-Ansicht sichtbar; die Treffer-Metadaten ersetzen keine Pseudonymisierung.
 
 Dateien und Blockliste werden vor Freigabe und Lease erneut gelesen. Ein neuer Treffer oder
-Dateifehler setzt einen vorhandenen Task auf `blocked`; die Freigabeantwort ist **200** mit
+dauerhafter Dateifehler setzt einen vorhandenen Task auf `blocked`; die Freigabeantwort ist **200** mit
 diesem Status. Die Queue ueberspringt solche Tasks und prueft den naechsten freigegebenen Auftrag.
 Ein Konfigurationsfehler ergibt **503** und erteilt keine Freigabe oder Lease fuer den betroffenen Task.
 Ein bereits `blocked` gesetzter Task laesst sich nicht mit `approve` entsperren (**409**).
+
+`file_unavailable` ist voruebergehend: Freigabe **409** bei unveraendertem Status, beim Lease-Pull
+Ueberspringen des Tasks fuer diesen Aufruf. `task.gate_error` enthaelt sichere Fehler-Metadaten;
+Versuchszahl und Lease bleiben unveraendert. Bei erfolgreicher Freigabe speichert `task.approve`
+je gelesener Datei den Input-Index und SHA-256 unter `detail.file_hashes`.
 
 `cloud_redacted` hat in Etappe 5 noch keinen Redaction-Pfad. Nicht geheime Treffer bleiben bis
 Etappe 6 gesperrt. Es gibt keinen Override durch `cloud_ok` oder Owner-Freigabe.

@@ -202,3 +202,108 @@ def test_prefix_factoring_preserves_unicode_case_and_longest_order() -> None:
     assert [
         text[item.start : item.end] for item in scan_text(text, source="title", blocklist=blocklist)
     ] == ["İSTANBUL PROJECT", "ΣΥΝΘ PROJECT"]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "DECK_OWNER_TOKEN",
+        "DECK_WORKER_TOKEN",
+        "DECK_SECRET_KEY",
+        "POSTGRES_PASSWORD",
+        "client_secret",
+        "AWS_SECRET_ACCESS_KEY",
+        "PREFIX_API_KEY",
+        "PREFIX_ACCESS_TOKEN",
+        "service-passwd",
+        "service-credential",
+    ],
+)
+@pytest.mark.parametrize("value", ["synthetic-value", "short", "42"])
+def test_prefixed_credentials_are_secrets_even_with_short_values(key: str, value: str) -> None:
+    text = key + "=" + value
+    findings = scan_text(text, source="instructions")
+    assert any(item.rule == "credential_assignment" for item in findings)
+    assert all(item.kind == FindingKind.SECRET for item in findings)
+    assert (findings[0].start, findings[0].end) == (0, len(text))
+
+
+@pytest.mark.parametrize("key", ["password", "passwd", "pwd", "secret_key", "api_key"])
+def test_unambiguous_bare_credentials_keep_short_value_detection(key: str) -> None:
+    findings = scan_text(key + "=42", source="labels[0].assignment")
+    assert any(item.rule == "credential_assignment" for item in findings)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Das Token: 42 Stück wurden geliefert.", "token=x", "token=123456789123456", '"token": "x"'],
+)
+def test_ambiguous_bare_token_counts_and_tiny_values_are_not_secrets(text: str) -> None:
+    assert scan_text(text, source="instructions") == []
+
+
+@pytest.mark.parametrize(
+    "scheme,user", [("postgresql+psycopg", "user"), ("redis", ""), ("ssh", "user")]
+)
+def test_non_http_credential_urls_allow_empty_user_and_short_password(
+    scheme: str, user: str
+) -> None:
+    prefix = scheme + "://" + user + ":pw@"
+    findings = scan_text(prefix + "host/db", source="instructions")
+    assert findings and findings[0].rule == "credential_url"
+    assert findings[0].kind == FindingKind.SECRET
+    assert (findings[0].start, findings[0].end) == (0, len(prefix))
+
+
+@pytest.mark.parametrize("scheme", ["redis", "postgresql+psycopg"])
+def test_credential_urls_without_password_are_not_secrets(scheme: str) -> None:
+    findings = scan_text(scheme + "://user:@host/db", source="instructions")
+    assert not any(item.kind == FindingKind.SECRET for item in findings)
+
+
+@pytest.mark.parametrize(
+    "prefix,rule",
+    [
+        ("tskey-auth-", "tailscale_token"),
+        ("tskey-api-", "tailscale_token"),
+        ("xai-", "xai_api_key"),
+        ("sk_live_", "stripe_key"),
+        ("sk_test_", "stripe_key"),
+        ("AIza", "google_api_key"),
+        ("xoxb-", "slack_token"),
+        ("xoxp-", "slack_token"),
+        ("xoxa-", "slack_token"),
+        ("hf_", "huggingface_token"),
+        ("glpat-", "gitlab_token"),
+    ],
+)
+def test_additional_synthetic_key_families(prefix: str, rule: str) -> None:
+    value = prefix + "x" * 36
+    findings = scan_text(value, source="instructions")
+    assert any(item.rule == rule and item.kind == FindingKind.SECRET for item in findings)
+    assert value not in repr(findings)
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["-----BEGIN PGP PRIVATE KEY BLOCK-----", "---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----"],
+)
+def test_additional_private_key_headers(header: str) -> None:
+    findings = scan_text(header, source="instructions")
+    assert findings and findings[0].rule == "private_key"
+
+
+def test_tailscale_hostname_suffix_is_protected_without_matching_longer_domains() -> None:
+    text = "synthetic" + ".tail-fixture" + ".ts.net"
+    findings = scan_text(text, source="instructions")
+    assert findings and findings[0].rule == "internal_hostname"
+    assert findings[0].kind == FindingKind.PROTECTED_IDENTIFIER
+    assert scan_text(text + "work", source="instructions") == []
+
+
+def test_long_credential_prefix_near_misses_still_find_late_credentials() -> None:
+    text = "a-" * 100000 + " ordinary text\nDECK_OWNER_TOKEN=short"
+    findings = scan_text(text, source="instructions")
+    assert len(findings) == 1
+    assert findings[0].rule == "credential_assignment"
+    assert text[findings[0].start : findings[0].end] == "DECK_OWNER_TOKEN=short"

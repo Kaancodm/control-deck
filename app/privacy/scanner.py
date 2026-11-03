@@ -34,6 +34,13 @@ _SECRET_PATTERNS = (
     ("aws_access_key", r"(?<![A-Za-z0-9])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])"),
     ("github_token", r"(?<![A-Za-z0-9_])(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,512}"),
     ("provider_api_key", r"(?<![A-Za-z0-9_])sk-[A-Za-z0-9_-]{12,512}"),
+    ("tailscale_token", r"(?<![A-Za-z0-9_])tskey-(?:auth-|api-)?[A-Za-z0-9_-]{12,512}"),
+    ("xai_api_key", r"(?<![A-Za-z0-9_])xai-[A-Za-z0-9_-]{12,512}"),
+    ("stripe_key", r"(?<![A-Za-z0-9_])sk_(?:live|test)_[A-Za-z0-9]{12,512}"),
+    ("google_api_key", r"(?<![A-Za-z0-9_])AIza[A-Za-z0-9_-]{12,512}"),
+    ("slack_token", r"(?<![A-Za-z0-9_])xox[bpa]-[A-Za-z0-9-]{12,512}"),
+    ("huggingface_token", r"(?<![A-Za-z0-9_])hf_[A-Za-z0-9]{12,512}"),
+    ("gitlab_token", r"(?<![A-Za-z0-9_])glpat-[A-Za-z0-9_-]{12,512}"),
     (
         "jwt",
         r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,2000}\."
@@ -41,16 +48,21 @@ _SECRET_PATTERNS = (
     ),
     (
         "private_key",
-        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----",
+        r"-----BEGIN (?:(?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY|"
+        r"PGP PRIVATE KEY BLOCK)-----|---- BEGIN SSH2 (?:ENCRYPTED )?PRIVATE KEY ----",
     ),
     (
         "credential_assignment",
-        r"(?i)(?<!\w)(?:api[_ -]?key|access[_ -]?token|token|secret|password|passwort|"
-        r"authorization)\b[\"']?\s*[:=]\s*(?P<quote>[\"']?)"
+        r"(?i)(?<![\w-])(?P<key>[\w-]{0,256}(?:api[_ -]?key|access[_ -]?(?:token|key)|"
+        r"secret(?:[_ -](?:access[_ -])?key)?|token|password|passwort|passwd|pwd|"
+        r"credential|authorization))\b[\"']?\s*[:=]\s*(?P<quote>[\"']?)"
         r"(?P<value>[^\s\"',;{}\[\]]{1,512})",
     ),
     ("bearer_token", r"(?i)(?<!\w)Bearer[ \t]+[A-Za-z0-9._~+/-]{8,2048}={0,2}"),
-    ("credential_url", r"(?i)\bhttps?://[^\s/@:]{1,128}:[^\s/@]{1,512}@"),
+    (
+        "credential_url",
+        r"(?i)(?<![\w+.-])[a-z][a-z0-9+.-]*://[^\s/@:]{0,128}:[^\s/@]{1,512}@",
+    ),
 )
 
 # ISO country lengths let formatted identifiers stop before following prose.
@@ -181,7 +193,7 @@ _PROTECTED_PATTERNS = (
     (
         "internal_hostname",
         r"(?i)(?<![\w.-])(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.){1,8}"
-        r"(?:internal|local|lan|corp)(?![\w.-])|(?<![\w.-])localhost(?![\w.-])",
+        r"(?:internal|local|lan|corp|ts\.net)(?![\w.-])|(?<![\w.-])localhost(?![\w.-])",
     ),
 )
 _COMPILED = {
@@ -234,6 +246,13 @@ def _matches(text: str, *, source: str, kind: FindingKind) -> Iterator[Finding]:
                 and match.group("value").lower() in {"none", "null", "true", "false"}
             ):
                 continue
+            if rule == "credential_assignment" and match.group("key").lower() == "token":
+                # Bare "token" also names counts or labels in ordinary prose.
+                # Explicit credential names and prefixed environment keys retain
+                # detection of short and numeric passwords.
+                value = match.group("value")
+                if len(value) < 8 or value.isdecimal():
+                    continue
             yield Finding(kind, rule, source, match.start(), match.end())
             count += 1
             if count == _MAX_FINDINGS:

@@ -22,12 +22,18 @@ in derselben Transaktion `task.block` gespeichert. Der Rohauftrag bleibt lokal i
 Datenbank und in der geschuetzten Owner-Ansicht vorhanden.
 
 Eine erneute Pruefung entdeckt beispielsweise geaenderte Dateien oder neue Blocklist-Eintraege.
-Neue Sperrtreffer oder Dateifehler setzen einen vorhandenen Task auf `blocked`; die Queue
+Neue Sperrtreffer oder dauerhafte Dateifehler setzen einen vorhandenen Task auf `blocked`; die Queue
 prueft danach den naechsten Auftrag. Der terminale Status `blocked` laesst sich nicht durch
 Owner-Freigabe uebergehen. Konfigurationsfehler ergeben **503** ohne neue Freigabe oder Lease
 fuer den betroffenen Task.
 Ungueltige gespeicherte Alt-Auftraege werden mit dem sicheren Grund `invalid_task` blockiert,
 statt die Verarbeitung der gesamten Queue abzubrechen.
+
+Eine voruebergehend unlesbare Datei (`file_unavailable`) beendet den Task nicht. Die Freigabe
+antwortet mit **409** und laesst `awaiting_approval` unveraendert. Die Queue laesst einen solchen
+Task in `queued`, ueberspringt ihn fuer diesen Aufruf und prueft den naechsten Auftrag. Nach
+Wiederherstellung der Datei ist ein erneuter Versuch moeglich. Es wird weder eine Lease noch
+ein Versuch verbraucht; `task.gate_error` protokolliert nur Fehlercode und strukturelle Quelle.
 
 ## Erkennung und Fundstellen
 
@@ -36,7 +42,7 @@ keine vollstaendige Erkennung beliebiger Namen, Organisationen oder verschleiert
 
 | Kategorie | Musterfamilien |
 |-----------|----------------|
-| `secret` | AWS-Zugangsschluessel, Anbieter- und GitHub-Token, JWT, Private-Key-Kopfzeilen, Zugangsdaten-Zuweisungen, Bearer-Token, Zugangsdaten in URLs |
+| `secret` | AWS-Zugangsschluessel, Anbieter-, GitHub-, GitLab-, Tailscale-, xAI-, Stripe-, Google-, Slack- und Hugging-Face-Token, JWT, Private-Key-Kopfzeilen einschliesslich PGP/SSH2, Zugangsdaten-Zuweisungen, Bearer-Token, Zugangsdaten in URLs |
 | `redactable_pii` | ASCII-E-Mail, schweizerische/deutsche Telefonnummern, IBAN, AHV-Nummern |
 | `protected_identifier` | Interne IPv4-/IPv6-Adressen, interne Hostnamen, Benutzerverzeichnisse, konfigurierte Blocklist-Literale |
 
@@ -48,6 +54,13 @@ Link-Local- und CGNAT-IPv4-Bereiche sowie IPv6-ULA, Link-Local, Loopback, die ni
 Adresse und interne IPv4-mapped-Adressen. Beliebige Schreibweisen oder Unicode-Verschleierung
 sind nicht vollstaendig abgedeckt. Harmlos wirkende oder nicht erkannte Inhalte sind keine
 Garantie fuer das Fehlen persoenlicher Daten.
+
+Zugangsdaten-Zuweisungen erfassen auch Konfigurationsnamen mit Praefixen, insbesondere die
+Deck-Token, Secret-Key- und Datenbank-Passwortfelder. Kurze Werte in eindeutig benannten
+Zugangsdatenfeldern bleiben gesperrt. Beim mehrdeutigen nackten Schluessel `token` vermeiden
+Mindestlaenge und der Ausschluss rein numerischer Werte Treffer in gewoehnlichem Zahlentext.
+URL-Zugangsdaten werden unabhaengig vom Schema erkannt, auch mit leerem Benutzernamen;
+interne Hostnamen umfassen auch die Endung `.ts.net`.
 
 Geprueft werden `title`, `instructions`, Name/Wert/Pfad/MIME der Inputs,
 `acceptance[].value`, Schluessel und Werte von `labels`, Referenzkennungen und die vollstaendigen
@@ -122,16 +135,29 @@ des Lesens fuehren zur Ablehnung.
 Ueberschrittene Grenzen fuehren zu **422** am Eingang oder `blocked` bei einer erneuten
 Pruefung. Kein Inhalt wird still gekuerzt.
 
+Bei erfolgreicher Freigabe enthaelt `task.approve.detail.file_hashes` fuer jede gelesene Datei
+`input_index` und `sha256`. Der Hash stammt aus denselben vollstaendigen Bytes, die in diesem
+Freigabelauf geprueft wurden; UTF-8-BOM und Zeilenenden bleiben erhalten. Es gibt keinen zweiten
+Dateizugriff fuer den Hash und keine Dateipfade oder Rohinhalte im Hash-Eintrag. Diese Nachweise
+erlauben der spaeteren Worker-Etappe einen Inhaltsvergleich, ersetzen ihn aber noch nicht.
+
 ## Anschluss an die folgenden Etappen
 
 - Etappe 6 verwendet die Trefferkategorien fuer Pseudonymisierung und lokale `redaction_maps`.
   `cloud_redacted` besitzt in Etappe 5 noch keinen Transformationspfad.
 - Etappe 7 berechnet die erlaubten Lanes und den Ollama-Override fuer `local_only`.
 - Etappe 8 bindet Claims und Ergebnisse an eine Worker-Identitaet. Die vorhandene Worker-API
-  garantiert diese Zuordnung noch nicht; die Datenschranke ersetzt sie nicht.
+  garantiert diese Zuordnung noch nicht; die Datenschranke ersetzt sie nicht. Zwei strikte
+  `xfail`-Integrationstests halten die offene Dispatch-Luecke fuer Cloud-Worker sichtbar.
 - Der spaetere Payload-Pfad muss die tatsaechlich versendeten Bytes nach Kontextaufloesung und
   Redaction erneut pruefen und archivieren. Die aktuelle Dateipruefung reserviert keinen
-  unveraenderlichen Versand-Snapshot fuer eine spaetere Worker-Ausfuehrung.
+  unveraenderlichen Versand-Snapshot fuer eine spaetere Worker-Ausfuehrung. Etappe 8 muss die
+  tatsaechlich gelesenen Bytes gegen die Freigabe-Hashes pruefen oder einen freigegebenen
+  unveraenderlichen Snapshot verwenden.
+- NFKC-Normalisierung, Entfernung unsichtbarer Formatzeichen und die Rueckrechnung der
+  Fundstellen auf den Originaltext bleiben ein eigener Folgepunkt vor der Redaction-Etappe.
+  Text und Blocklisten brauchen dieselbe Normalisierung; Homoglyphen erfordern eine gesonderte
+  Entscheidung und werden durch NFKC allein nicht abgedeckt.
 
 Unit-Tests pruefen Muster, harmlose Texte, Limits und sichere Dateioperationen. Integrationstests
 pruefen API, Persistenz, Freigabe und Queue gegen eine isolierte Testdatenbank. Inhaltliche

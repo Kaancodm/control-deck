@@ -22,7 +22,7 @@ from app.db.repository import approve_task, create_task_from_api_payload
 from app.db.state_machine import InvalidTaskTransitionError, TaskState, TaskTransition
 from app.db.transitions import TransitionActor, request_operator_cancel, transition_task
 from app.privacy.config import PrivacyConfigurationError
-from app.privacy.gate import PrivacyInputError, PrivacyViolation
+from app.privacy.gate import PrivacyInputError, PrivacyInputUnavailable, PrivacyViolation
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -175,6 +175,13 @@ def approve_task_endpoint(
         return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")
     try:
         approve_task(session, task)
+    except PrivacyInputUnavailable as exc:
+        return problem_response(
+            status=409,
+            title="Task input temporarily unavailable",
+            detail="Approval was deferred; restore the attachment and retry.",
+            errors=[{"code": exc.code, "source": exc.source}],
+        )
     except PrivacyConfigurationError:
         return problem_response(
             status=503,

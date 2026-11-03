@@ -426,3 +426,87 @@ def test_malformed_legacy_task_is_blocked_without_stalling_queue(
     blocked_event = next(event for event in legacy.events if event.event_type == "task.block")
     assert blocked_event.detail["code"] == "invalid_task"
     assert _secret() not in json.dumps(blocked_event.detail)
+
+
+@pytest.mark.parametrize("data_class", ["local_only", "cloud_ok", "cloud_redacted"])
+@pytest.mark.parametrize(
+    "key",
+    [
+        "DECK_OWNER_TOKEN",
+        "DECK_WORKER_TOKEN",
+        "DECK_SECRET_KEY",
+        "POSTGRES_PASSWORD",
+        "client_secret",
+        "AWS_SECRET_ACCESS_KEY",
+    ],
+)
+def test_prefixed_credentials_are_rejected_before_storage(
+    gate_client: TestClient, db_session: Session, data_class: str, key: str
+) -> None:
+    credential = key + "=synthetic-credential-value"
+    payload = _payload(data_class)
+    payload["instructions"] = credential
+
+    response = gate_client.post("/api/v1/tasks", json=payload, headers=_OWNER)
+
+    assert response.status_code == 422
+    assert credential not in response.text
+    assert "synthetic-credential-value" not in response.text
+    _assert_nothing_persisted(db_session)
+
+
+@pytest.mark.parametrize("scheme,user", [("postgresql+psycopg", "user"), ("redis", "")])
+@pytest.mark.parametrize("data_class", ["local_only", "cloud_ok", "cloud_redacted"])
+def test_non_http_credential_urls_are_rejected_before_storage(
+    gate_client: TestClient, db_session: Session, data_class: str, scheme: str, user: str
+) -> None:
+    credential = scheme + "://" + user + ":pw@" + "host/db"
+    payload = _payload(data_class)
+    payload["instructions"] = credential
+
+    response = gate_client.post("/api/v1/tasks", json=payload, headers=_OWNER)
+
+    assert response.status_code == 422
+    assert credential not in response.text
+    _assert_nothing_persisted(db_session)
+
+
+def test_prefixed_label_credential_cannot_bypass_gate(
+    gate_client: TestClient, db_session: Session
+) -> None:
+    payload = _payload()
+    payload["labels"] = {"DECK_OWNER_TOKEN": "short"}
+    response = gate_client.post("/api/v1/tasks", json=payload, headers=_OWNER)
+    assert response.status_code == 422
+    _assert_nothing_persisted(db_session)
+
+
+def test_numeric_token_prose_is_accepted(gate_client: TestClient) -> None:
+    payload = _payload("cloud_ok")
+    payload["instructions"] = "Das Token: 42 Stück wurden geliefert."
+    assert _create(gate_client, payload)["status"] == "awaiting_approval"
+
+
+@pytest.fixture
+def approved_local_task(gate_client: TestClient) -> str:
+    payload = _payload()
+    task_id = str(payload["task_id"])
+    _create(gate_client, payload)
+    approval = gate_client.post(f"/api/v1/tasks/{task_id}/approve", headers=_OWNER)
+    assert approval.status_code == 200
+    assert approval.json()["status"] == "queued"
+    return task_id
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="Stage 8 must bind worker identity and exclude local_only tasks from cloud dispatch.",
+)
+@pytest.mark.parametrize("worker", ["claude", "codex"])
+def test_cloud_worker_cannot_lease_local_only_task(
+    gate_client: TestClient, approved_local_task: str, worker: str
+) -> None:
+    response = gate_client.post("/api/v1/worker/lease", json={"worker": worker}, headers=_WORKER)
+    assert response.status_code == 404
+    assert approved_local_task not in response.text

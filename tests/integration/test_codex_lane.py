@@ -17,13 +17,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.schemas import TaskV1, Worker
 from app.db.models import Event, Lease, RedactionMap, Result, Task
 from app.db.repository import approve_task, create_task_from_v1
-from app.db.settings import update_settings
+from app.db.settings import read_settings, update_settings
 from app.db.state_machine import TaskState
 from app.db.transitions import request_operator_cancel
 from app.workers import sandbox
 from app.workers.codex_lane import CodexLaneRunner
 from app.workers.lane_status import get_lane_status
 from app.workers.lanes.codex import CodexExecutor, CodexSimulation
+from app.workers.lanes.ollama import OllamaExecutor, OllamaSimulation
+from app.workers.ollama_lane import OllamaLaneRunner
 from app.workers.sandbox import CleanroomSimulation
 from tests.integration.test_database import _minimal_task_payload
 
@@ -79,8 +81,9 @@ def _task(
     data_class: str = "cloud_ok",
     text: str = "ordinary synthetic text",
     acceptance=None,
+    max_attempts: int = 3,
 ) -> UUID:
-    payload = _minimal_task_payload(uuid4())
+    payload = _minimal_task_payload(uuid4(), max_attempts=max_attempts)
     payload["fallback_chain"] = ["codex", "ollama"]
     payload["data_class"] = data_class
     payload["instructions"] = text
@@ -454,3 +457,123 @@ def test_repeated_paused_polls_preserve_the_actionable_auth_failure(
     health = get_lane_status(db_session, lane=Worker.CODEX)
     assert health.status == "auth_required"
     assert health.reason == "simulation_auth_required"
+
+
+def _enable_fallback(path: Path) -> None:
+    configuration = json.loads(path.read_text())
+    configuration["lanes"]["ollama"] = {"models": {"default": "fixture-model"}}
+    path.write_text(json.dumps(configuration))
+
+
+def _ollama_runner(session: Session, tmp_path: Path) -> OllamaLaneRunner:
+    return OllamaLaneRunner(
+        sessionmaker(bind=session.get_bind(), autoflush=False),
+        runs_root=tmp_path / "runs",
+        executor=OllamaExecutor(
+            profile="simulation", simulation=OllamaSimulation(models=("fixture-model",))
+        ),
+        lease_ttl=timedelta(seconds=10),
+        heartbeat_interval_s=0.03,
+    )
+
+
+@pytest.mark.parametrize("behavior", ["auth", "policy"])
+def test_codex_provider_refusal_pauses_actual_lane_then_falls_back(
+    db_session, tmp_path, router_file, process_calls, behavior
+):
+    _enable_fallback(router_file)
+    task_id = _task(db_session)
+    assert _runner(db_session, tmp_path, _executor(behavior=behavior)).run_once().status == "queued"
+    db_session.expire_all()
+    task = db_session.get(Task, task_id)
+    assert task.retry_state["cursor"] == 1
+    assert read_settings(db_session).lane_paused[Worker.CODEX]
+    db_session.commit()
+
+    outcome = _ollama_runner(db_session, tmp_path).run_once()
+
+    assert outcome.task_id == task_id and outcome.attempt == 2 and outcome.status == "review"
+    assert len(_runs(process_calls)) == 1
+    db_session.expire_all()
+    stored = list(
+        db_session.scalars(
+            select(Result.payload).where(Result.task_id == task_id).order_by(Result.attempt)
+        )
+    )
+    assert [item["worker"] for item in stored] == ["codex", "ollama"]
+    assert read_settings(db_session).lane_paused[Worker.CODEX]
+
+
+def test_codex_rate_limits_persist_backoff_across_runners_then_advance(
+    db_session, tmp_path, router_file, process_calls
+):
+    _enable_fallback(router_file)
+    task_id = _task(db_session, max_attempts=5)
+    for attempt, delay in ((1, 60), (2, 240)):
+        before = datetime.now(UTC)
+        outcome = _runner(db_session, tmp_path, _executor(behavior="rate_limit")).run_once()
+        assert outcome.status == "queued" and outcome.attempt == attempt
+        db_session.expire_all()
+        task = db_session.get(Task, task_id)
+        assert task.retry_state["pinned_worker"] == "codex"
+        assert task.retry_state["rate_limits"] == {"codex": attempt}
+        assert task.next_attempt_at >= before + timedelta(seconds=delay)
+        assert _runner(db_session, tmp_path, _executor()).run_once().action == "idle"
+        assert _ollama_runner(db_session, tmp_path).run_once().action == "idle"
+        assert len(_runs(process_calls)) == attempt
+        task.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+        db_session.commit()
+    outcome = _runner(db_session, tmp_path, _executor(behavior="rate_limit")).run_once()
+    assert outcome.status == "queued" and outcome.attempt == 3
+    db_session.expire_all()
+    task = db_session.get(Task, task_id)
+    assert task.retry_state["cursor"] == 1
+    assert task.next_attempt_at <= db_session.scalar(select(func.clock_timestamp()))
+    db_session.commit()
+    result = _ollama_runner(db_session, tmp_path).run_once()
+    assert result.status == "review" and result.attempt == 4
+    db_session.expire_all()
+    assert db_session.get(Task, task_id).next_attempt_at is None
+    assert len(_runs(process_calls)) == 3
+
+
+def test_empty_codex_completion_stays_on_lane_until_attempt_budget_exhausted(
+    db_session, tmp_path, router_file, process_calls
+):
+    _enable_fallback(router_file)
+    task_id = _task(db_session, max_attempts=2)
+    assert _runner(db_session, tmp_path, _executor(behavior="empty")).run_once().status == "queued"
+    assert _ollama_runner(db_session, tmp_path).run_once().action == "idle"
+    assert _runner(db_session, tmp_path, _executor(behavior="empty")).run_once().status == "failed"
+    db_session.expire_all()
+    task = db_session.get(Task, task_id)
+    assert task.attempt == 2 and task.retry_state["pinned_worker"] == "codex"
+    assert task.deadline_at is None
+    assert len(_runs(process_calls)) == 2
+    stored = list(db_session.scalars(select(Result.payload).where(Result.task_id == task_id)))
+    assert all(item["error"]["code"] == "acceptance_failed" for item in stored)
+
+
+def test_codex_transport_timeout_falls_back_without_creating_a_deadline(
+    db_session, tmp_path, router_file, process_calls
+):
+    _enable_fallback(router_file)
+    task_id = _task(db_session)
+    adapter = CodexExecutor(
+        profile="simulation",
+        simulation=CodexSimulation(
+            ("fixture-model",),
+            CleanroomSimulation(cli_version="0.166.0", behavior="delay", delay_s=5),
+        ),
+        timeout_s=0.3,
+    )
+    assert _runner(db_session, tmp_path, adapter).run_once().status == "queued"
+    assert _ollama_runner(db_session, tmp_path).run_once().status == "review"
+    db_session.expire_all()
+    task = db_session.get(Task, task_id)
+    assert task.attempt == 2 and task.deadline_at is None
+    assert len(_runs(process_calls)) == 1
+    first = db_session.scalar(
+        select(Result.payload).where(Result.task_id == task_id, Result.attempt == 1)
+    )
+    assert first["error"]["code"] == "timeout"

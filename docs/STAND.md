@@ -8,6 +8,11 @@ Simulator pruefen ausschliesslich Textausgaben. Der Zwischenstand auf Etappe-12-
 `b6536fa` besteht **1571 Tests**, `make lint`, Alembic-Check sowie beide Referenzmodi mit je
 **4/4 Faellen**. Keine xfail oder Skips; eine bestehende Starlette/httpx-Warnung.
 
+Inzwischen auf Etappe-12-Zwischenstand `2487ca5` mit Etappe 10 und Migration `0012`
+rebased. **183 gezielte Codex-Tests** sowie Lint und Alembic sind dort gruen, einschliesslich
+Lane-Pause/Fallback, persistentem Rate-Limit-Backoff und ausgeschöpftem Acceptance-Budget.
+Der Gesamtzaehler oben bezeichnet weiterhin den vorherigen Stand.
+
 Der finale Rebase auf den fertigen Etappe-12-Stand und danach erneute Pflichtchecks stehen
 noch aus. Diese Zahl ist kein finaler Stack-Nachweis. Das Live-Profil bleibt ohne Prozessstart
 gesperrt: vollstaendige Tool-Deaktivierung, ausgeschlossene interne Subscription-Retries und

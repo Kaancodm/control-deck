@@ -8,7 +8,7 @@ import os
 import re
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from argon2 import PasswordHasher, Type, extract_parameters
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -134,7 +134,7 @@ def set_session_cookies(
         response.set_cookie(
             name,
             value,
-            expires=credentials.expires_at,
+            expires=credentials.expires_at.astimezone(UTC),
             path="/ui",
             secure=settings.cookie_secure,
             httponly=True,

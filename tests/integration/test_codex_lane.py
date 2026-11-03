@@ -438,3 +438,19 @@ def test_active_codex_stops_on_owner_control_or_lease_loss_without_late_result(
         assert task.deadline_at is None
     assert db_session.scalar(select(func.count()).select_from(Result)) == 0
     assert db_session.scalar(select(func.count()).select_from(Lease)) == 0
+
+
+def test_repeated_paused_polls_preserve_the_actionable_auth_failure(
+    db_session, tmp_path, process_calls
+):
+    _task(db_session)
+    runner = _runner(db_session, tmp_path, _executor(behavior="auth"))
+    assert runner.run_once().action == "completed"
+    update_settings(db_session, {"lanes.codex.paused": True})
+    db_session.commit()
+    for _ in range(2):
+        assert runner.run_once().action == "idle"
+    assert len(_runs(process_calls)) == 1
+    health = get_lane_status(db_session, lane=Worker.CODEX)
+    assert health.status == "auth_required"
+    assert health.reason == "simulation_auth_required"

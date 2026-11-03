@@ -13,7 +13,7 @@ from app.core.schemas import Worker
 from app.db.models import Result
 from app.db.settings import read_settings
 from app.routing.config import get_router_config
-from app.workers.lane_status import LaneHealthState, update_lane_status
+from app.workers.lane_status import LaneHealthState, get_lane_status, update_lane_status
 from app.workers.lanes.codex import CodexExecutor
 from app.workers.runner import HostRunner, RunOutcome
 
@@ -41,6 +41,15 @@ class CodexLaneRunner:
 
     def _record(self, status: LaneHealthState, reason: str) -> None:
         with self.session_factory() as session:
+            current = get_lane_status(session, lane=Worker.CODEX)
+            if (
+                status == LaneHealthState.PAUSED
+                and reason == "runner_paused"
+                and current is not None
+                and current.status == LaneHealthState.AUTH_REQUIRED.value
+            ):
+                # Polling a core-paused lane must preserve its actionable auth reason.
+                return
             update_lane_status(session, lane=Worker.CODEX, status=status, reason=reason)
             session.commit()
 

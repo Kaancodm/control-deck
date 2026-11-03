@@ -30,6 +30,7 @@ from app.db.worker_ops import (
     submit_worker_result,
 )
 from app.privacy.config import PrivacyConfigurationError
+from app.routing.config import RouterConfigurationError
 
 router = APIRouter(prefix="/worker", tags=["worker"])
 
@@ -52,6 +53,13 @@ def worker_lease(
             session,
             lease_ttl=timedelta(seconds=ttl_seconds),
             holder=body.holder,
+        )
+    except RouterConfigurationError:
+        session.rollback()
+        return problem_response(
+            status=503,
+            title="Routing configuration unavailable",
+            detail="The local routing configuration must be available before dispatch.",
         )
     except PrivacyConfigurationError:
         return problem_response(

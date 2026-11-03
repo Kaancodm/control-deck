@@ -1,0 +1,18 @@
+# Local policy ceilings count committed claims, not provider quota estimates.
+# Models are configured locally before activating a real adapter; none are downloaded.
+version: 1
+lanes:
+  ollama:
+    enabled: true
+    daily_attempt_limit: null
+    models: {}
+  claude:
+    enabled: true
+    daily_attempt_limit: null
+    models: {}
+  codex:
+    enabled: true
+    daily_attempt_limit: null
+    models: {}
+# First matching rule can only restrict the task's worker set.
+rules: []

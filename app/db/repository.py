@@ -12,9 +12,11 @@ from sqlalchemy.orm import Session
 from app.core.schemas import ResultV1, TaskV1
 from app.core.validate import validate_result, validate_task
 from app.db.models import Event, Result, Task
+from app.db.routing import persist_task_route
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import TransitionActor, transition_task
 from app.privacy.gate import PrivacyInputUnavailable, inspect_stored_task, validate_submission
+from app.routing.config import get_router_config
 
 _GATE_ERROR_COOLDOWN = timedelta(seconds=60)
 
@@ -25,6 +27,7 @@ def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
     if existing is not None:
         return existing
     gate = validate_submission(task_v1)
+    routing_config = get_router_config()
     payload = task_v1.model_dump(mode="json")
     task = Task(
         id=task_v1.task_id,
@@ -43,8 +46,16 @@ def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
         trigger=TaskTransition.SUBMIT,
         detail={"source": "create_task_from_v1"},
     )
+    plan = persist_task_route(session, task, config=routing_config)
     if gate.blocked:
         transition_task(session, task=task, trigger=TaskTransition.BLOCK, detail=gate.safe_detail())
+    elif plan.status == "blocked":
+        transition_task(
+            session,
+            task=task,
+            trigger=TaskTransition.BLOCK,
+            detail={"reason": "routing", "code": plan.reason},
+        )
     return task
 
 
@@ -70,6 +81,7 @@ def create_task_from_api_payload(
     ):
         raise ValueError("deadline_at must be in the future")
     gate = validate_submission(task_v1)
+    routing_config = get_router_config()
     row = Task(
         id=task_v1.task_id,
         status=TaskState.AWAITING_APPROVAL,
@@ -88,8 +100,16 @@ def create_task_from_api_payload(
         trigger=TaskTransition.SUBMIT,
         detail={"source": "api"},
     )
+    plan = persist_task_route(session, row, config=routing_config)
     if gate.blocked:
         transition_task(session, task=row, trigger=TaskTransition.BLOCK, detail=gate.safe_detail())
+    elif plan.status == "blocked":
+        transition_task(
+            session,
+            task=row,
+            trigger=TaskTransition.BLOCK,
+            detail={"reason": "routing", "code": plan.reason},
+        )
     return row
 
 
@@ -97,6 +117,7 @@ def approve_task(session: Session, task: Task) -> None:
     """Move an owner-gated task into the queue."""
     if task.status != TaskState.AWAITING_APPROVAL:
         raise ValueError(f"task {task.id} is not awaiting approval")
+    routing_config = get_router_config()
     try:
         inspection = inspect_stored_task(task.payload)
     except PrivacyInputUnavailable as exc:
@@ -105,6 +126,15 @@ def approve_task(session: Session, task: Task) -> None:
     if inspection.blocking_detail is not None:
         transition_task(
             session, task=task, trigger=TaskTransition.BLOCK, detail=inspection.blocking_detail
+        )
+        return
+    plan = persist_task_route(session, task, config=routing_config)
+    if plan.status == "blocked":
+        transition_task(
+            session,
+            task=task,
+            trigger=TaskTransition.BLOCK,
+            detail={"reason": "routing", "code": plan.reason},
         )
         return
     task.approved_at = datetime.now(tz=UTC)

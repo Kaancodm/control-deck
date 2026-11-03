@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
+
+from app.core.schemas import Worker
+from app.routing.router import RoutingPlan
 
 
 class EventOut(BaseModel):
@@ -100,3 +103,26 @@ class HealthResponse(BaseModel):
 class ReadyResponse(BaseModel):
     status: str
     database: str
+
+
+class DryRunFindingOut(BaseModel):
+    kind: str
+    rule: str
+    source: str
+    start: int
+    end: int
+
+
+class LaneBudgetOut(BaseModel):
+    used: int
+    limit: int | None
+    remaining: int | None
+
+
+class TaskDryRunOut(BaseModel):
+    status: Literal["ready", "blocked", "deferred"]
+    reason: str | None
+    plan: RoutingPlan
+    gate_status: Literal["clear", "blocked"]
+    findings: list[DryRunFindingOut]
+    budgets: dict[Worker, LaneBudgetOut]

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Event
@@ -34,5 +36,14 @@ def record_transition_event(
         attempt=attempt,
         lease_id=lease_id,
     )
+    if result.event_type == "task.acquire":
+        # A claim belongs to its admission day, not the transaction start day.
+        claimed_at = session.scalar(select(func.clock_timestamp()))
+        assert isinstance(claimed_at, datetime)
+        event.created_at = claimed_at
+        event.detail = {
+            **(event.detail or {}),
+            "budget_date": claimed_at.astimezone(UTC).date().isoformat(),
+        }
     session.add(event)
     return event

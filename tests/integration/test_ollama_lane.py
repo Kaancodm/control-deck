@@ -603,6 +603,31 @@ def test_stdout_stays_in_result_without_leaking_into_logs_or_events(
     assert marker not in (tmp_path / "runs" / str(task_id) / "1" / "ollama.log").read_text()
 
 
+@pytest.mark.parametrize("behavior, attempts", [("empty", 3), ("invalid_utf8", 2)])
+def test_fake_cli_retries_are_separate_persisted_attempts_and_stop_at_policy_limit(
+    db_session: Session, tmp_path: Path, behavior: str, attempts: int
+) -> None:
+    task_id = _task(db_session)
+    executor = _executor(behavior=behavior)
+    runner = _runner(db_session, tmp_path, executor)
+    for attempt in range(1, attempts + 1):
+        outcome = runner.run_once()
+        assert outcome.action == "completed"
+        assert outcome.attempt == attempt
+        assert outcome.status == ("failed" if attempt == attempts else "queued")
+        assert len(executor.run_calls) == attempt
+        artifact = tmp_path / "runs" / str(task_id) / str(attempt) / "result.json"
+        assert json.loads(artifact.read_text())["status"] == "failed"
+    assert runner.run_once().action == "idle"
+    assert len(executor.run_calls) == attempts
+    db_session.expire_all()
+    assert db_session.get(Task, task_id).status == TaskState.FAILED
+    assert (
+        db_session.scalar(select(func.count()).select_from(Result).where(Result.task_id == task_id))
+        == attempts
+    )
+
+
 def test_cli_timeout_ends_one_attempt_without_expiring_task_or_retrying(
     db_session: Session, tmp_path: Path
 ) -> None:

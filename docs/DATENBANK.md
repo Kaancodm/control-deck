@@ -53,6 +53,17 @@ werden mit einem transaktionsgebundenen Advisory-Lock vor den Task-Locks gepruef
 Rollback verwirft Claim und Verbrauch gemeinsam. Es gibt fuer Etappe 7 keine neue Tabelle
 oder Migration. Details: [ROUTING.md](ROUTING.md).
 
+## Retry-Laufzeitdaten (Revision 0011)
+
+`tasks.retry_state` ist optionales versioniertes JSONB mit stabilem Policy-Cursor,
+festgehaltener Lane, Rate-Limit-Zaehlern und taskweitem internem Retry-Zaehler.
+`tasks.next_attempt_at` ist der optionale naechste Ausfuehrungszeitpunkt mit Zeitzone.
+Beide Felder liegen ausserhalb des unveraenderlichen `task.v1`. Die Queue und der atomare
+Claim vergleichen den Zeitpunkt mit `clock_timestamp()`; der Claim entfernt ihn.
+Der partielle Index `ix_tasks_queued_next_attempt` auf Zeitpunkt und Erstellungszeit
+gilt nur fuer `queued`. Der Downgrade verweigert vorhandene Werte in beiden Spalten.
+Verhalten und Fehlerliste: [ETAPPEN/10-fehlerpfade.md](ETAPPEN/10-fehlerpfade.md).
+
 ## Queue (SKIP LOCKED)
 
 Runner ziehen Arbeit mit `SELECT … FOR UPDATE SKIP LOCKED` auf dem aeltesten `queued`-Task (Index `status`, `created_at`). Die Funktion `dequeue_next_queued_task` nutzt zentral `transition_task` (Audit-Event, `attempt += 1`, `updated_at`) und ersetzt die Lease-Zeile re-acquire-sicher (ADR 0001, 0004). Abgelaufene Leases holt `reap_expired_leases` per `SKIP LOCKED` zurueck in die Queue.

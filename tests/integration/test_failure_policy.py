@@ -158,7 +158,12 @@ def test_internal_retry_is_task_wide_not_reset_by_other_failures(db_session):
 
 @pytest.mark.parametrize(
     "code,status",
-    [("auth_required", "failed"), ("policy_blocked", "failed"), ("policy_blocked", "blocked")],
+    [
+        ("auth_required", "failed"),
+        ("auth_required", "blocked"),
+        ("policy_blocked", "failed"),
+        ("policy_blocked", "blocked"),
+    ],
 )
 @pytest.mark.parametrize("max_attempts", [1, 5])
 def test_provider_refusal_atomically_pauses_lane_even_when_budget_exhausted(
@@ -199,6 +204,30 @@ def test_lane_pause_is_serialized_with_admission_before_task_lock(db_session, mo
     monkeypatch.setattr(worker_ops, "lock_admission", assert_lock_order)
     _fail(db_session, lease_id, result, "auth_required")
     assert called == [True]
+
+
+def test_lost_lease_while_waiting_for_admission_cannot_pause_lane(db_session, monkeypatch):
+    from app.db import worker_ops
+
+    _queued(db_session)
+    task, lease_id, result = _claim(db_session, Worker.CLAUDE)
+    before = copy.deepcopy(task.retry_state)
+    original = worker_ops.lock_admission
+
+    def expire_before_lock(session):
+        with Session(session.get_bind()) as observer:
+            lease = observer.get(Lease, lease_id)
+            lease.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            observer.commit()
+        original(session)
+
+    monkeypatch.setattr(worker_ops, "lock_admission", expire_before_lock)
+    with pytest.raises(LeaseOwnershipError):
+        _fail(db_session, lease_id, result, "auth_required")
+    db_session.rollback()
+    assert task.retry_state == before and task.status == TaskState.RUNNING
+    assert not read_settings(db_session).lane_paused[Worker.CLAUDE]
+    assert get_lane_status(db_session, lane=Worker.CLAUDE) is None
 
 
 @pytest.mark.parametrize(

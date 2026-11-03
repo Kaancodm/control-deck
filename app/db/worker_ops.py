@@ -364,12 +364,10 @@ def submit_worker_result(
     normalized = ResultV1.model_validate(stored_payload)
     failure_code: ErrorCode | None = None
     if normalized.status in (ResultStatus.FAILED, ResultStatus.BLOCKED):
-        # A provider refusal is an attempt failure, not a host privacy override.
-        # Blocked results without that specific code remain terminal blocked.
-        if normalized.status == ResultStatus.FAILED or (
-            normalized.error is not None and normalized.error.code == ErrorCode.POLICY_BLOCKED
-        ):
-            failure_code = normalized.error.code if normalized.error else ErrorCode.INTERNAL
+        # Typed provider errors use one policy even when the provider calls the
+        # attempt blocked. Host privacy blocks happen before dispatch, outside
+        # result ingestion. A blocked snapshot without an error stays blocked.
+        failure_code = normalized.error.code if normalized.error is not None else None
     if failure_code in (ErrorCode.AUTH_REQUIRED, ErrorCode.POLICY_BLOCKED):
         # Claims and owner controls use this order too. Acceptance above runs
         # without either admission or task locks; rejected identities never pause.

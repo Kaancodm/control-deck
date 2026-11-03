@@ -20,10 +20,10 @@ def main() -> int:
     if not arguments or arguments[0] != "run":
         return 2
     try:
-        cli = arguments.index("claude")
+        cli = min(arguments.index(name) for name in ("claude", "codex") if name in arguments)
     except ValueError:
         return 2
-    fake_cli = str(Path(__file__).with_name("lanes") / "_fake_claude_cli.py")
+    fake_cli = str(Path(__file__).with_name("lanes") / f"_fake_{arguments[cli]}_cli.py")
     os.execve(sys.executable, [sys.executable, fake_cli, *arguments[cli + 1 :]], dict(os.environ))
     return 2
 

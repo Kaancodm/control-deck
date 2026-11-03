@@ -20,8 +20,10 @@ from app.core.schemas import (
 from app.db.session import get_session_factory
 from app.routing.config import get_router_config
 from app.workers.claude_lane import ClaudeLaneRunner
+from app.workers.codex_lane import CodexLaneRunner
 from app.workers.contracts import AttemptContext
 from app.workers.lanes.claude import ClaudeExecutor, ClaudeSimulation
+from app.workers.lanes.codex import CodexExecutor, CodexSimulation
 from app.workers.lanes.ollama import OllamaExecutor, OllamaSimulation
 from app.workers.ollama_lane import OllamaLaneRunner
 from app.workers.runner import HostRunner
@@ -65,7 +67,7 @@ def main() -> int:
     parser.add_argument("--once", required=True, action="store_true")
     parser.add_argument(
         "--executor",
-        choices=["simulation", "ollama-fake-cli", "claude-fake-cli"],
+        choices=["simulation", "ollama-fake-cli", "claude-fake-cli", "codex-fake-cli"],
         default="simulation",
     )
     args = parser.parse_args()
@@ -74,9 +76,18 @@ def main() -> int:
         parser.error("The Ollama fake CLI can only serve the ollama lane")
     if args.executor == "claude-fake-cli" and worker != Worker.CLAUDE:
         parser.error("The Claude fake CLI can only serve the claude lane")
+    if args.executor == "codex-fake-cli" and worker != Worker.CODEX:
+        parser.error("The Codex fake CLI can only serve the codex lane")
     factory = get_session_factory()
     runs_root = Path(os.environ.get("DECK_RUNS_DIR", "runs"))
-    if args.executor == "claude-fake-cli":
+    if args.executor == "codex-fake-cli":
+        configuration = get_router_config()
+        models = tuple(sorted(set(configuration.lanes[Worker.CODEX].models.values())))
+        codex_executor = CodexExecutor(
+            profile="simulation", simulation=CodexSimulation(models=models)
+        )
+        outcome = CodexLaneRunner(factory, runs_root=runs_root, executor=codex_executor).run_once()
+    elif args.executor == "claude-fake-cli":
         configuration = get_router_config()
         models = tuple(sorted(set(configuration.lanes[Worker.CLAUDE].models.values())))
         claude_executor = ClaudeExecutor(

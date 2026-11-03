@@ -14,11 +14,13 @@ from pathlib import Path
 from uuid import UUID
 
 from app.core.schemas import Worker
+from app.workers.lanes.codex_protocol import codex_command
 from app.workers.process import ProcessResult, run_process
 
 _IMAGE = re.compile(r"[a-z0-9][a-z0-9./_-]{0,200}@sha256:[a-f0-9]{64}\Z")
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 SIMULATED_CLAUDE_IMAGE = "simulation/claude@sha256:" + "0" * 64
+SIMULATED_CODEX_IMAGE = "simulation/codex@sha256:" + "0" * 64
 CLAUDE_VERSION = "2.1.317"
 
 
@@ -54,7 +56,8 @@ class CleanroomRequest:
 
     def __post_init__(self) -> None:
         if (
-            self.lane is not Worker.CLAUDE
+            not isinstance(self.lane, Worker)
+            or self.lane not in {Worker.CLAUDE, Worker.CODEX}
             or not isinstance(self.image, str)
             or not _IMAGE.fullmatch(self.image)
             or not isinstance(self.container_id, UUID)
@@ -108,6 +111,27 @@ def cleanroom_command(request: CleanroomRequest) -> tuple[str, ...]:
     if not isinstance(request, CleanroomRequest):
         raise ValueError("Invalid cleanroom request")
     limits = request.limits
+    profile: tuple[str, ...]
+    if request.lane == Worker.CODEX:
+        profile = (
+            "--mount=type=volume,src=deck-codex-profile,dst=/profile",
+            "--env=HOME=/tmp/home",
+            "--env=CODEX_HOME=/profile",
+        )
+        command = codex_command(request.model)
+    else:
+        profile = (
+            "--mount=type=volume,src=deck-claude-profile,dst=/profile",
+            "--env=HOME=/tmp/home",
+            "--env=CLAUDE_CONFIG_DIR=/profile",
+            "--env=CLAUDE_CODE_MAX_RETRIES=0",
+            "--env=DISABLE_UPDATES=1",
+            "--env=CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+            "--env=CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
+            "--env=CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1",
+            "--env=CLAUDE_CODE_DISABLE_FAST_MODE=1",
+        )
+        command = claude_command(request.model)
     return (
         "run",
         "--rm",
@@ -125,17 +149,9 @@ def cleanroom_command(request: CleanroomRequest) -> tuple[str, ...]:
         "--workdir=/work",
         f"--tmpfs=/work:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size={limits.temporary_mib}m",
         f"--tmpfs=/tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size={limits.temporary_mib}m",
-        "--mount=type=volume,src=deck-claude-profile,dst=/profile",
-        "--env=HOME=/tmp/home",
-        "--env=CLAUDE_CONFIG_DIR=/profile",
-        "--env=CLAUDE_CODE_MAX_RETRIES=0",
-        "--env=DISABLE_UPDATES=1",
-        "--env=CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
-        "--env=CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
-        "--env=CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1",
-        "--env=CLAUDE_CODE_DISABLE_FAST_MODE=1",
+        *profile,
         request.image,
-        *claude_command(request.model),
+        *command,
     )
 
 

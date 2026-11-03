@@ -1,5 +1,29 @@
 # Stand des Repositorys
 
+## Etappe 13 implementiert und lokal geprueft
+
+Die Codex-Lane ist im gestapelten [Draft-PR #28](https://github.com/Kaancodm/control-deck/pull/28)
+auf Etappe 12 umgesetzt. Der versionierte JSONL-Vertrag, eine Fake-CLI und der gemeinsame
+Reinraum-Simulator akzeptieren ausschliesslich abgeschlossene Textausgaben. Genau die
+freigegebenen und archivierten Payload-Bytes erreichen stdin; `local_only` bleibt bei Ollama.
+Tool-Ereignisse, Teilantworten und ungueltige Protokolle werden verworfen. Das Codex-Profil
+bleibt vom Claude-Profil getrennt; Abbruch und Timeout behalten eine eigene Bereinigung.
+
+Pflichtchecks auf isolierter PostgreSQL-17-Testdatenbank: **1896 Tests bestanden**, davon
+**601 Integrationstests** und **1295 Unit-Tests**; keine xfail oder Skips. `make lint`,
+`uv run alembic -x target=test check` sowie beide Referenzmodi mit je **4/4 Faellen** sind
+gruen. Eine bestehende Starlette/httpx-Deprecation-Warnung. Die Tests belegen auch Lane-Pause
+und erlaubten Fallback, 60-/240-Sekunden-Backoff ueber neue Runner hinweg sowie das globale
+Versuchsbudget. Die CI des finalen Heads wird im PR ausgewiesen.
+
+Inbetriebnahme bleibt offen: vollstaendige Tool-Deaktivierung, ausgeschlossene interne
+Subscription-Retries, Rootless-/Netzgrenzen, Image-Build und echte Anmeldung sind nicht
+nachgewiesen. Das Live-Profil startet keinen Prozess und ist nicht aktivierbar; ein
+Simulationserfolg ist kein Live-Nachweis. Keine echten Logins, Anbieteraufrufe, API-Keys
+oder Serveraenderungen. Details und Quellen: [LANES.md](LANES.md).
+
+Externes Review durch einen anderen Anbieter und Owner-Merge bleiben ausstehend.
+
 ## Etappe 12 bereit fuer externes Review
 
 Branch: `stage/12-claude`, gestapelt auf Etappe 11 (`stage/11-ui-chat`, PR #26).

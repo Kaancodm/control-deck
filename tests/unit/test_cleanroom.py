@@ -72,7 +72,6 @@ def test_subscription_contract_disables_tools_without_bare_mode():
         {"image": "image@sha256:" + "A" * 64},
         {"image": "--network=host"},
         {"lane": Worker.OLLAMA},
-        {"lane": Worker.CODEX},
         {"lane": "claude"},
         {"container_id": "arbitrary-name"},
         {"model": "--help"},

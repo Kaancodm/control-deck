@@ -23,6 +23,8 @@
 <section class="panel"><h2>Auftrag</h2><pre>{{ task.payload.instructions }}</pre>
 {% for input in task.payload.inputs %}<h3>{{ input.name }}</h3>{% if input.type == 'text' %}<pre>{{ input.value }}</pre>{% else %}<p>Dateianhang: {{ input.name }}</p>{% endif %}{% endfor %}
 <details><summary>Unveraenderlicher Auftrag (task.v1)</summary><pre>{{ task.payload|tojson(indent=2) }}</pre></details></section>
+{% include 'partials/knowledge_context.html' %}
+{% include 'partials/knowledge_export.html' %}
 {% for item in outputs %}<section class="panel"><h2>Ergebnis · Versuch {{ item.result.attempt }}</h2>
 {% with result=item.result %}{% include 'partials/result_status.html' %}{% endwith %}
 {% if task.data_class.value == 'cloud_redacted' %}<p class="hint">Lokal vor der Speicherung rueckabgebildetes Ergebnis.</p>{% endif %}

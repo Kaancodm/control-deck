@@ -14,6 +14,9 @@
   <p class="hint">Vorschlag: local_only. Nur Ollama darf lokalen Text erhalten. Cloud-Klassen umgehen keine Datenschranke.</p>
   <label class="check"><input type="checkbox" name="cloud_confirm" value="yes"> Ich bestaetige einen ausdruecklich gewaehlten Cloud-Versand.</label>
   <label for="input_text">Zusaetzlicher Text</label><textarea id="input_text" name="input_text" rows="4">{{ values.get('input_text','') }}</textarea>
+  <label for="context_refs">Ausgewaehlte Wissensreferenzen (optional, eine je Zeile)</label>
+  <textarea id="context_refs" name="context_refs" maxlength="1024" rows="3">{{ values.get('context_refs','') }}</textarea>
+  <p class="hint"><a href="/ui/knowledge">Wissen suchen und auswaehlen</a>. Inhalte werden vor der Start-Freigabe angezeigt. Unzulaessige Referenzen werden abgewiesen.</p>
   <label for="files">Dateien: UTF-8-Text, Markdown, JSON oder CSV</label><input id="files" name="files" type="file" multiple accept=".txt,.md,.markdown,.json,.csv">
   <p class="hint">Maximal 16 Dateien, 1 MiB je Datei und 5 MiB pro Auftrag. PDF, Office, Bilder und Archive sind ausgeschlossen.</p>
   <label for="fallback_chain">Fallback-Reihenfolge</label><input id="fallback_chain" name="fallback_chain" required value="{{ values.get('fallback_chain','ollama') }}" aria-describedby="chain-help">

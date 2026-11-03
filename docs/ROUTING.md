@@ -13,12 +13,12 @@ Verbrauch werden ausdruecklich uebergeben. `task.v1` und `result.v1` bleiben unv
 3. `allowed_workers` und `forbidden_workers` schraenken die Auswahl ein. Eine leere
    `allowed_workers`-Liste erlaubt keinen Worker; ein fehlender Wert beschraenkt sie nicht.
    Auch der Ollama-Override darf diese Policy nicht umgehen.
-4. Die erste passende lokale Regel schraenkt die Kette weiter ein. Deaktivierte Lanes
-   fallen aus der Auswahl. Ohne grundsaetzlich zulaessige Lane lautet der Entscheid
-   `blocked` mit `no_allowed_lane`.
-5. Bereits ausgeschoepfte Tagesbudgets entfernen Lanes fuer die aktuelle Entscheidung.
-   Sind alle ansonsten zulaessigen Lanes betroffen, lautet sie `deferred` mit
-   `budget_exhausted`. Gespeicherte Auftraege bleiben wartend und werden beim naechsten
+4. Die erste passende lokale Regel schraenkt die Kette weiter ein. Ohne gemaess Policy
+   und Regel grundsaetzlich zulaessige Lane lautet der Entscheid `blocked` mit
+   `no_allowed_lane`.
+5. Deaktivierte Lanes und ausgeschoepfte Tagesbudgets entfernen Lanes nur fuer die aktuelle
+   Entscheidung. Sind alle ansonsten zulaessigen Lanes betroffen, lautet sie `deferred`
+   mit einem sicheren Verfuegbarkeitsgrund. Gespeicherte Auftraege bleiben wartend und werden beim naechsten
    Claim erneut geprueft; sie werden deshalb nicht terminal blockiert.
 6. Die erste verbleibende Lane wird ausgewaehlt. Das Modell wird je Auftragsart gesucht,
    danach unter `default`. Ein fehlender Eintrag bleibt `null`; es wird kein Modell

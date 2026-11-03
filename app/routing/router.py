@@ -68,14 +68,17 @@ def route_task(
             and worker not in selected_rule.allowed_workers
         ):
             reason = "rule_not_allowed"
-        elif not config.lanes[worker].enabled:
-            reason = "lane_disabled"
         if reason is None:
             eligible.append(worker)
         else:
             exclusions[worker] = reason
     chain: list[Worker] = []
     for worker in eligible:
+        # Operational availability must never turn an authorized task into a
+        # terminal policy rejection. A later poll may observe re-enabled lanes.
+        if not config.lanes[worker].enabled:
+            exclusions[worker] = "lane_disabled"
+            continue
         limit = config.lanes[worker].daily_attempt_limit
         if limit is not None and usage.get(worker, 0) >= limit:
             exclusions[worker] = "budget_exhausted"
@@ -86,7 +89,9 @@ def route_task(
     if not eligible:
         plan_status, reason = "blocked", "no_allowed_lane"
     elif not chain:
-        plan_status, reason = "deferred", "budget_exhausted"
+        unavailable = {exclusions[worker] for worker in eligible}
+        reason = next(iter(unavailable)) if len(unavailable) == 1 else "lane_unavailable"
+        plan_status = "deferred"
     return RoutingPlan(
         chain=chain,
         rule=selected_rule.id if selected_rule is not None else "default",

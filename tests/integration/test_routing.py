@@ -249,7 +249,7 @@ def test_exhausted_lane_uses_next_authorised_fallback(
     }
 
 
-def test_queue_rechecks_policy_after_configuration_changes(
+def test_disabled_lane_preserves_queued_task_until_reenabled(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     task = _insert_task(db_session)
@@ -263,8 +263,25 @@ def test_queue_rechecks_policy_after_configuration_changes(
     monkeypatch.setattr("app.db.queue.get_router_config", lambda: disabled)
     assert dequeue_next_queued_task(db_session, lease_ttl=_TTL) is None
     db_session.refresh(task)
-    assert task.status == TaskState.BLOCKED and task.attempt == 0
-    assert task.lane is None and task.plan["status"] == "blocked"
+    assert task.status == TaskState.QUEUED and task.attempt == 0
+    assert task.lane is None and task.plan["status"] == "deferred"
+    assert task.plan["reason"] == "lane_disabled"
+    assert routing_snapshot(db_session).usage[Worker.OLLAMA] == 0
+    assert not db_session.scalars(
+        select(Event).where(Event.task_id == task.id, Event.event_type == "task.block")
+    ).all()
+    db_session.commit()
+
+    monkeypatch.setattr("app.db.queue.get_router_config", RouterConfig)
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=_TTL, worker=Worker.OLLAMA)
+    assert claimed is not None and claimed.id == task.id
+    assert claimed.status == TaskState.LEASED and claimed.attempt == 1
+    assert claimed.lane == "ollama" and claimed.plan["status"] == "ready"
+    assert routing_snapshot(db_session).usage == {
+        Worker.OLLAMA: 1,
+        Worker.CLAUDE: 0,
+        Worker.CODEX: 0,
+    }
 
 
 def test_new_limit_waits_for_previously_unlimited_claim(

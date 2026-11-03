@@ -28,6 +28,7 @@ from app.core.schemas import DataClass
 from app.db.base import Base
 from app.db.state_machine import TaskState
 from app.kb import state as _knowledge_state  # noqa: F401 — register local snapshot metadata
+from app.operations import models as _operation_models  # noqa: F401
 
 _task_state_enum = Enum(
     TaskState,

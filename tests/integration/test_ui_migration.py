@@ -39,7 +39,7 @@ def revision_0011():
 def test_0012_adds_only_authentication_tables_and_roundtrips(revision_0011):
     cfg, engine = revision_0011
     before = set(inspect(engine).get_table_names())
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "20251103_0012")
     assert set(inspect(engine).get_table_names()) - before == {"ui_sessions", "ui_login_state"}
     columns = {value["name"] for value in inspect(engine).get_columns("ui_sessions")}
     assert columns == {
@@ -51,15 +51,15 @@ def test_0012_adds_only_authentication_tables_and_roundtrips(revision_0011):
         "revoked_at",
     }
     assert "password" not in columns and "token" not in columns
-    command.check(cfg)
     command.downgrade(cfg, "20251103_0011")
     assert set(inspect(engine).get_table_names()) == before
     command.upgrade(cfg, "head")
+    command.check(cfg)
 
 
 def test_0012_downgrade_refuses_to_drop_live_owner_session(revision_0011):
     cfg, engine = revision_0011
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "20251103_0012")
     with engine.begin() as connection:
         connection.execute(
             text(

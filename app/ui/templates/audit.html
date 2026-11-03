@@ -4,18 +4,18 @@
 <h1>Audit</h1>
 <p>Auftrags-, Betriebs- und Anmeldeereignisse. Nur sichere Metadaten; keine Inhalte oder Zugangsdaten.</p>
 <form method="get" action="/ui/audit" class="filter-grid">
-  <label>Quelle<select name="source">{% for value, label in [('all','Alle'),('task','Auftraege'),('operation','Betrieb'),('auth','Anmeldung')] %}<option value="{{ value }}" {% if filters.get('source', 'all') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-  <label>Ereignis<select name="event_type"><option value="">Alle</option>{% for value in event_types %}<option {% if filters.get('event_type') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
-  <label>Akteur<select name="actor"><option value="">Alle</option>{% for value in actors %}<option {% if filters.get('actor') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
-  <label>Lane<select name="lane"><option value="">Alle</option>{% for value in workers %}<option {% if filters.get('lane') == value.value %}selected{% endif %}>{{ value.value }}</option>{% endfor %}</select></label>
-  <label>Auftrags-ID<input name="task_id" value="{{ filters.get('task_id', '') }}"></label>
-  <label>Ab (ISO-Zeit mit Zeitzone)<input name="since" value="{{ filters.get('since', '') }}" placeholder="2026-01-01T00:00:00Z"></label>
-  <label>Bis ausschliesslich (ISO-Zeit)<input name="until" value="{{ filters.get('until', '') }}" placeholder="2026-01-02T00:00:00Z"></label>
-  <label>Je Seite<input type="number" name="limit" min="1" max="200" value="{{ audit.limit }}"></label>
+  <div><label for="audit-source">Quelle</label><select id="audit-source" name="source">{% for value, label in [('all','Alle'),('task','Auftraege'),('operation','Betrieb'),('auth','Anmeldung')] %}<option value="{{ value }}" {% if filters.get('source', 'all') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div><label for="audit-event">Ereignis</label><select id="audit-event" name="event_type"><option value="">Alle</option>{% for value in event_types %}<option {% if filters.get('event_type') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+  <div><label for="audit-actor">Akteur</label><select id="audit-actor" name="actor"><option value="">Alle</option>{% for value in actors %}<option {% if filters.get('actor') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+  <div><label for="audit-lane">Lane</label><select id="audit-lane" name="lane"><option value="">Alle</option>{% for value in workers %}<option {% if filters.get('lane') == value.value %}selected{% endif %}>{{ value.value }}</option>{% endfor %}</select></div>
+  <div><label for="audit-task">Auftrags-ID</label><input id="audit-task" name="task_id" value="{{ filters.get('task_id', '') }}"></div>
+  <div><label for="audit-since">Ab (ISO-Zeit mit Zeitzone)</label><input id="audit-since" name="since" value="{{ filters.get('since', '') }}" placeholder="2026-01-01T00:00:00Z"></div>
+  <div><label for="audit-until">Bis ausschliesslich (ISO-Zeit)</label><input id="audit-until" name="until" value="{{ filters.get('until', '') }}" placeholder="2026-01-02T00:00:00Z"></div>
+  <div><label for="audit-limit">Je Seite</label><input id="audit-limit" type="number" name="limit" min="1" max="200" value="{{ audit.limit }}"></div>
   <button>Filtern</button>
 </form>
 <p>{{ audit.total }} Ereignisse · <a href="{{ csv_url }}">Sichtbare Seite als CSV</a></p>
-<ol class="timeline">{% for item in audit.items %}<li>
+<ol class="timeline audit-events">{% for item in audit.items %}<li>
   <time>{{ item.created_at.isoformat() }}</time><strong>{{ item.event_type }}</strong>
   <p>{{ item.source }} · {{ item.id }}{% if item.actor %} · {{ item.actor }}{% endif %}{% if item.lane %} · {{ item.lane.value }}{% endif %}</p>
   {% if item.task_id %}<a href="/ui/tasks/{{ item.task_id }}">Auftrag {{ item.task_id }}</a>{% endif %}

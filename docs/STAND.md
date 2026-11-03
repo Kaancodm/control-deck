@@ -15,8 +15,13 @@ gueltige Session erlauben Gesundheitsdetails; anonym bleibt nur der Minimalstatu
 Die Session gilt nun fuer den Root-Pfad, CSRF bleibt auf `/ui`; alte Session-Cookies
 werden beim Setzen und Abmelden entfernt. Schreib-APIs erhalten keine Session-Rechte.
 
-71 gezielte UI-/Health-/Audit-/Cookie-Tests bestehen. Das ist keine Gesamt-Testzahl.
-Finaler Eltern-Rebase, Browser-Smoke und vollstaendige Pflichtchecks/CI stehen noch aus.
+147 gezielte Zaehler-/UI-/Health-/Audit-/Cookie-Tests bestehen. Anschliessend bestehen
+27 UI-/Health-/Browser-Tests einschliesslich unklassifiziertem Fehlerzustand und echten
+Chromium-Smokes: Audit-Filter, Seitenwechsel, CSV, Warnband, Session-Health und Logout
+bei 390 Pixeln mit JavaScript sowie 1024 Pixeln ohne JavaScript. `make lint` ist gruen.
+Das sind keine Gesamt-Testzahlen. Finaler Eltern-Rebase und vollstaendige Pflichtchecks/CI
+stehen noch aus. Der Abnahme-Entwurf aus Checkpoint `a2e6ff3` liegt unveraendert unter
+`docs/ABNAHME_CHECKLISTE_ENTWURF.md`; Etappe 18 wird damit nicht gestartet.
 
 ### Inbetriebnahme
 

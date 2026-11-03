@@ -87,6 +87,7 @@ main { padding-block: var(--space-5); }
 .timeline { padding-left: var(--space-5); }
 .timeline li { padding-bottom: var(--space-4); }
 .timeline time { display: block; font-size: .85rem; overflow-wrap: anywhere; }
+.audit-events { overflow-wrap: anywhere; }
 .pagination { margin-block: var(--space-5); }
 footer { border-top: 1px solid var(--color-line); padding-block: var(--space-5); font-size: .85rem; }
 .skip-link { position: absolute; top: -10rem; padding: var(--space-3); background: var(--color-panel); }

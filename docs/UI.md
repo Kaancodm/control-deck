@@ -14,6 +14,8 @@ spaetere Design aus den Owner-Komponenten wird separat getestet und abgenommen.
 | `/ui/tasks/{id}` | Unveraenderlicher Auftrag, getrennte Freigaben, Ergebnisse und Zeitlinie |
 | `/ui/failed` | Schreibgeschuetzte Fehlerliste aus Etappe 10, ohne automatische Wiederholung |
 | `/ui/lanes` | Beobachtete Lane-Zustaende, Pause und bestaetigter Not-Aus |
+| `/ui/audit` | Auftrags-, Betriebs- und Auth-Ereignisse mit begrenzten Filtern |
+| `/ui/audit.csv` | Ausschliesslich die sichtbare Audit-Seite als geschuetzter CSV-Download |
 | `/ui/chat` | Lokale Antwort und optionaler validierter Auftragsentwurf |
 
 Der sichtbare Vorschlag `local_only` ist kein Schema- oder DB-Default. Eine Cloud-Datenklasse
@@ -85,7 +87,37 @@ kann mit `Referrer-Policy: no-referrer` bei normalen Formularen `Origin: null` s
 akzeptiert wird dies nur mit `Sec-Fetch-Site: same-origin` und gueltigem Session-CSRF.
 Bei konfigurierter `DECK_PUBLIC_ORIGIN` gilt ausschliesslich diese validierte Origin;
 Forwarding-Header ersetzen sie nicht.
-Echte Browser-Smokes pruefen diesen Ablauf. UI-Sessions verleihen keine API-/Worker-Rechte.
+Echte Browser-Smokes pruefen diesen Ablauf. UI-Sessions verleihen keine Schreib-API- oder
+Worker-Rechte. Ausschliesslich die neue lesende Gesundheitsroute akzeptiert auch die Session.
+
+## Audit und Lane-Gesundheit
+
+Die Audit-Ansicht vereint Auftrags-, Betriebs- und Auth-Ereignisse. Filter betreffen Quelle,
+Ereignistyp, Akteur, Lane, Task und ein Zeitintervall mit Zeitzone (Beginn inklusive, Ende
+exklusive). Standard sind 100, maximal 200 Eintraege je Seite; Offset maximal 100000.
+CSV exportiert genau diese Seite, einschliesslich sicherer Zaehler. Formel-Praefixe werden
+neutralisiert. Unbekannte Gruende, Akteure und Ereignistypen werden nicht als Rohwerte gezeigt;
+Payload, Ergebnisse, Credentials, Dateipfade und freie Detail-Dictionaries bleiben ausgeschlossen.
+
+Die Lane-Ansicht trennt positive Vorpruefungen von tatsaechlich angenommenen Ergebnissen.
+`completed_attempts`, Fehlerserie und Erfolgs-/Fehlerzeitpunkte beginnen mit Migration `0016`;
+alte Beobachtungen werden nicht als historische Ausfuehrungen nachgetragen. Ein Ergebnis
+zaehlt atomar erst nach letzter Lease-/Identitaets-/Deadline-Pruefung und lokaler Acceptance.
+Doppelte oder verworfene Ergebnisse zaehlen nicht. Erfolg setzt die Fehlerserie zurueck;
+Abbruch ist weder Erfolg noch Fehler. Der letzte Fehler bleibt als historische Metadaten sichtbar.
+
+Ein Auth-Fehler erscheint im selben Lauf und auf der naechsten Owner-Seite im Warnband.
+Ein mindestens 24 Stunden alter Claim ohne aktuell erfassten Erfolg loest einen Hinweis auf
+fehlenden Erfolgsnachweis aus. Positive Vorpruefungen verdecken diesen Hinweis nicht.
+Das Band wird mit der bestehenden Steuerungsansicht aktualisiert. Lokale Tagesbudgets
+zaehlen Claims; sie sind keine Anbieter-Kontingente. Anbieterwerte bleiben unbekannt.
+
+`GET /api/v1/health` akzeptiert Owner-Token oder gueltige Session und zeigt DB-Schemastand,
+lokale Lane-Beobachtungen, Steuerung und Zaehler. Es prueft keinen Anbieter. Ohne Credentials
+liefert es nur `{"status":"ok"}` ohne DB-Zugriff. Ungueltige Credentials liefern keine Details.
+Gesundheitsabfragen verlaengern die Session-Aktivitaet nicht. Das Session-Cookie gilt dafuer
+unter `/`; das CSRF-Cookie bleibt unter `/ui`. Beim Setzen und Abmelden wird auch das alte
+Session-Cookie unter `/ui` entfernt. Cookie-Schutz und CSRF-Pruefungen bleiben erhalten.
 
 Jinja escaped Inhalte. CSP erlaubt nur lokale Ressourcen, keine Inline-Skripte, Objekte
 oder fremde Frames. `nosniff`, `no-referrer` und `no-store` schuetzen auch Fehlerantworten.

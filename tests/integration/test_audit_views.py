@@ -66,6 +66,21 @@ def test_owner_bearer_health_keeps_simulation_and_quota_explicit(health_client, 
     )
 
 
+def test_lane_view_distinguishes_unclassified_failure_from_no_error(health_client, db_session):
+    update_lane_status(
+        db_session, lane=Worker.OLLAMA, status=LaneHealthState.OK, reason="simulation_ready"
+    )
+    row = db_session.get(LaneStatus, Worker.OLLAMA.value)
+    row.completed_attempts = row.consecutive_failures = 1
+    row.last_attempt_at = row.last_error_at = datetime.now(UTC)
+    db_session.commit()
+    login(health_client)
+    response = health_client.get("/ui/lanes")
+    assert response.status_code == 200
+    assert "Letzter Fehler: unbekannt" in response.text
+    assert "Letzter Fehler: keiner" in response.text  # Lanes without any recorded error.
+
+
 def test_session_cookie_reaches_health_without_granting_write_api_access(health_client):
     csrf = login(health_client)
     request = health_client.build_request("GET", "/api/v1/health")

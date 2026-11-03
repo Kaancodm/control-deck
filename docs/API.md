@@ -2,6 +2,8 @@
 
 Die FastAPI-Schicht verwendet die bestehenden DB-Module (`app/db`, `transition_task`, Queue).
 Etappe `05-data-gate` ergaenzt die Datenschranke an Erstellung, Freigabe und Lease.
+Etappe 6 normalisiert die Scanner-Schattenkopie und drosselt wiederholte Lease-Poll-Fehler;
+ihre Redaction-Maps erhalten keinen HTTP-Endpunkt.
 Basis-Pfad fuer versionierte Endpunkte: **`/api/v1`**. OpenAPI: `/api/v1/docs`, Schema: `/api/v1/openapi.json`.
 
 ## Konfiguration
@@ -63,9 +65,16 @@ Ein bereits `blocked` gesetzter Task laesst sich nicht mit `approve` entsperren 
 Ueberspringen des Tasks fuer diesen Aufruf. `task.gate_error` enthaelt sichere Fehler-Metadaten;
 Versuchszahl und Lease bleiben unveraendert. Bei erfolgreicher Freigabe speichert `task.approve`
 je gelesener Datei den Input-Index und SHA-256 unter `detail.file_hashes`.
+Identische Lease-Poll-Fehler werden pro Task, Fehlercode und Quelle hoechstens einmal in
+60 Sekunden protokolliert. Die Drosselung verwendet DB-Zeit und Task-Lock; Owner-Freigabeversuche
+bleiben einzeln auditiert.
 
-`cloud_redacted` hat in Etappe 5 noch keinen Redaction-Pfad. Nicht geheime Treffer bleiben bis
-Etappe 6 gesperrt. Es gibt keinen Override durch `cloud_ok` oder Owner-Freigabe.
+Etappe 6 bietet einen lokalen Payload-Builder mit Pseudonymisierung und Rueckabbildung.
+Die bestehende Worker-API liefert weiterhin den unveraenderlichen Auftrag und ist noch nicht
+an diesen Versandpfad angeschlossen. Deshalb bleiben nicht geheime Cloud-Treffer hier
+gesperrt. Es gibt keinen Override durch `cloud_ok` oder Owner-Freigabe. Die Maps erscheinen
+nicht in Task-, Ergebnis- oder Event-Antworten. Anbindung und Grenzen:
+[REDAKTION.md](REDAKTION.md).
 Erkennungskatalog, Datei-Limits und Konfiguration: [DATENSCHRANKE.md](DATENSCHRANKE.md).
 
 ### Owner-Deadline
@@ -105,6 +114,7 @@ Dequeue verlangt ein gesetztes **`approved_at`** (Owner-Freigabe); Tasks in `que
 Die aktuelle Worker-API besitzt noch keine Lane-Identitaet. Die verbindliche Zuordnung von
 `local_only` zu Ollama und die Pruefung der gemeldeten Worker-Identitaet folgen mit Router und
 Runner; die Datenschranke ersetzt diese Kontrollen nicht.
+Zwei strikte `xfail`-Integrationstests dokumentieren diese weiterhin offene Dispatch-Luecke.
 
 Bei `result.v1.status = succeeded` berechnet `app/core/acceptance.py` die Checks aus `task.acceptance` und `result.output.text` selbst; vom Worker gemeldete Checks ersetzen diese Pruefung nicht. Ein automatischer Fehlschlag wird als Ergebnis mit `status = failed` und `error.code = acceptance_failed` gespeichert. Der Task geht bei verbleibenden Versuchen zurueck in die Queue, sonst nach `failed`.
 

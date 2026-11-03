@@ -134,14 +134,14 @@ def test_only_missing_file_in_queue_returns_without_rechecking_forever(
     assert _approve(gate_client, payload["task_id"]).status_code == 200
     path.unlink()
 
-    for attempt in range(1, 3):
+    for _attempt in range(2):
         response = gate_client.post("/api/v1/worker/lease", json={}, headers=_WORKER)
         assert response.status_code == 404, response.text
         db_session.expire_all()
         task = db_session.get(Task, uuid.UUID(payload["task_id"]))
         assert task is not None and task.status == TaskState.QUEUED
         assert task.attempt == 0 and task.lease is None
-        assert sum(event.event_type == "task.gate_error" for event in task.events) == attempt
+        assert sum(event.event_type == "task.gate_error" for event in task.events) == 1
 
 
 @pytest.mark.parametrize("change", ["binary", "symlink"])

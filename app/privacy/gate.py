@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.core.schemas import DataClass, InputType, TaskV1
 from app.privacy.config import PrivacyConfigurationError, PrivacySettings, get_privacy_settings
 from app.privacy.files import FileInputError, read_text_input
+from app.privacy.normalization import NormalizationError
 from app.privacy.scanner import Finding, FindingKind, scan_text
 
 _MAX_TASK_BYTES = 5 * 1024 * 1024
@@ -104,7 +105,12 @@ def _task_text_parts(task: TaskV1) -> Iterator[tuple[str, str]]:
         yield f"context_refs[{index}].ref", reference.ref
 
 
-def inspect_task(task: TaskV1, *, settings: PrivacySettings | None = None) -> GateReport:
+def inspect_task(
+    task: TaskV1,
+    *,
+    settings: PrivacySettings | None = None,
+    file_texts: dict[int, str] | None = None,
+) -> GateReport:
     """Scan all supplied text; raw findings never leave this local boundary.
 
     Personal data is permitted locally. Cloud classes remain blocked on findings
@@ -112,6 +118,10 @@ def inspect_task(task: TaskV1, *, settings: PrivacySettings | None = None) -> Ga
     This does not resolve routing, worker identity, or knowledge-DB contents.
     """
     settings = settings or get_privacy_settings()
+    if file_texts is not None:
+        # A host-side payload builder may retain the exact inspected reads.
+        # The collector never appears in reports, audit details, or API responses.
+        file_texts.clear()
     if task.data_class != DataClass.LOCAL_ONLY and not settings.blocklist_configured:
         raise PrivacyConfigurationError("blocklist_required")
     if len(task.inputs) > _MAX_INPUTS:
@@ -134,7 +144,10 @@ def inspect_task(task: TaskV1, *, settings: PrivacySettings | None = None) -> Ga
             total_bytes += size
         if total_bytes > _MAX_TASK_BYTES:
             raise PrivacyInputError("task_too_large")
-        findings.extend(scan_text(content, source=source, blocklist=settings.blocklist))
+        try:
+            findings.extend(scan_text(content, source=source, blocklist=settings.blocklist))
+        except NormalizationError:
+            raise PrivacyInputError("unicode_too_complex", source=source) from None
         # Preserve secret findings even when earlier fields filled the metadata cap.
         findings.sort(key=lambda item: (item.kind != FindingKind.SECRET, item.source, item.start))
         del findings[_MAX_FINDINGS:]
@@ -153,6 +166,8 @@ def inspect_task(task: TaskV1, *, settings: PrivacySettings | None = None) -> Ga
             except FileInputError as exc:
                 raise PrivacyInputError(exc.code, source=source) from None
             scan_part(source, content)
+            if file_texts is not None:
+                file_texts[index] = content
             # The strict UTF-8 reader preserves BOM and line endings. Re-encoding
             # therefore hashes the same bytes that were read and scanned.
             file_hashes.append(FileHash(index, sha256(content.encode("utf-8")).hexdigest()))

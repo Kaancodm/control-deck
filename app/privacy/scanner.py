@@ -10,6 +10,8 @@ from functools import lru_cache
 from ipaddress import IPv6Address
 from itertools import groupby
 
+from app.privacy.normalization import normalize_shadow, normalize_text
+
 
 class FindingKind(StrEnum):
     SECRET = "secret"
@@ -280,7 +282,8 @@ def _literal_alternation(literals: Sequence[str], depth: int = 8) -> str:
 @lru_cache(maxsize=4)
 def _blocklist_patterns(entries: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
     groups: dict[tuple[bool, bool], list[str]] = {}
-    for entry in sorted(set(entries), key=lambda item: (-len(item), item)):
+    normalized = {normalize_text(entry) for entry in entries}
+    for entry in sorted(normalized, key=lambda item: (-len(item), item)):
         if entry:
             bounds = (
                 entry[0].isalnum() or entry[0] == "_",
@@ -323,14 +326,21 @@ def scan_text(text: str, *, source: str, blocklist: Sequence[str] = ()) -> list[
     including when the 128-finding limit is reached. Within a category, the first
     match wins, choosing the longest match at the same position. Matching is
     conservative syntax recognition, not exhaustive secret or identity discovery.
+    NFKC shadow text and blocklist literals share format-character removal.
+    Findings refer to the unchanged original text, including composed sequences.
     Blocklist literals use Unicode-aware case-insensitive word boundaries.
     """
+    shadow = normalize_shadow(text)
     selected: list[Finding] = []
     for kind in (FindingKind.SECRET, FindingKind.PROTECTED_IDENTIFIER, FindingKind.REDACTABLE_PII):
-        candidates = list(_matches(text, source=source, kind=kind))
+        candidates = list(_matches(shadow.text, source=source, kind=kind))
         if kind == FindingKind.PROTECTED_IDENTIFIER:
-            candidates.extend(_blocklist_matches(text, source, blocklist))
-        _select_nonoverlapping(candidates, selected)
+            candidates.extend(_blocklist_matches(shadow.text, source, blocklist))
+        original_candidates = []
+        for finding in candidates:
+            start, end = shadow.original_span(finding.start, finding.end)
+            original_candidates.append(Finding(kind, finding.rule, source, start, end))
+        _select_nonoverlapping(original_candidates, selected)
         if len(selected) == _MAX_FINDINGS:
             break
     return sorted(selected, key=lambda item: (item.start, item.end, item.rule))

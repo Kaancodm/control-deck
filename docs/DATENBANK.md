@@ -13,7 +13,7 @@ Etappe `03-db-schema` fuehrt PostgreSQL als persistente Queue und Audit-Store ei
 
 ### `data_class`
 
-Pflichtfeld gemaess ADR 0005, Datenbank-Default **`local_only`**. Erlaubte Werte: `local_only`, `cloud_redacted`, `cloud_ok` (identisch zu `task.v1`).
+Pflichtfeld in `task.v1` gemaess ADR 0005 (kein Schema-Default). Erlaubte Werte: `local_only`, `cloud_redacted`, `cloud_ok`. Legacy: die Spalte behaelt DB-Default `local_only` fuer bestehende Zeilen; neue Payloads muessen `data_class` explizit setzen.
 
 ### Task-Status
 
@@ -79,6 +79,8 @@ uv run alembic downgrade base
 - **Integration:** nur gegen `DECK_TEST_DATABASE_URL`; der Datenbankname **muss auf `_test` enden** (Schutz vor destruktiven Laeufen auf Produktions-DBs). CI startet `postgres:17`, legt `controldeck_test` an, fuehrt `alembic upgrade` + `alembic check` aus.
 
 Lokal ohne `DECK_TEST_DATABASE_URL` werden Integrationstests uebersprungen; `make test` bleibt gruen.
+
+Alembic waehlt **nicht** still `DECK_TEST_DATABASE_URL`: fuer Tests `-x target=test` (siehe `tests/integration/conftest.py`). Sind Runtime- und Test-URL gleichzeitig gesetzt, bricht `alembic upgrade` ohne explizites Ziel ab.
 
 ## Betrieb (Hinweis)
 

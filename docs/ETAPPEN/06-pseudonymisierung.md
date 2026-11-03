@@ -83,7 +83,7 @@ Verschluesselung der Map (Alternative zu E2), NER-Modelle (Alternative zu E3), A
 
 ### 5.2 Schnittstellen (Python, Signaturen verbindlich)
 
-```python
+```text
 # app/core/redaction/engine.py
 @dataclass(frozen=True)
 class RedactionOutcome:

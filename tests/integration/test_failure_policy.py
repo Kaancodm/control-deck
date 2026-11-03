@@ -23,6 +23,7 @@ from app.db.worker_ops import (
     start_worker_attempt,
     submit_worker_result,
 )
+from app.routing.config import RouterConfig
 from app.workers.lane_status import get_lane_status
 from tests.integration.test_database import _minimal_task_payload
 from tests.integration.test_worker_control import _record_preparation
@@ -88,6 +89,34 @@ def test_fallback_never_rewinds_and_counts_every_claim(db_session, code):
     assert task.payload == original
     assert task.deadline_at is None
     assert len(list(db_session.scalars(select(Result)))) == 3
+
+
+@pytest.mark.parametrize("allowed", [["claude"], ["claude", "ollama"]])
+def test_fallback_respects_claim_routing_rule_and_fails_exhausted_chain(
+    db_session, monkeypatch, allowed
+):
+    config = RouterConfig.model_validate(
+        {"rules": [{"id": "restricted", "allowed_workers": allowed}]}
+    )
+    for module in ("queue", "routing", "repository"):
+        monkeypatch.setattr(f"app.db.{module}.get_router_config", lambda: config)
+    _queued(db_session)
+    task, lease_id, result = _claim(db_session, Worker.CLAUDE)
+    task = _fail(db_session, lease_id, result, "timeout")
+    if len(allowed) == 1:
+        assert task.status == TaskState.FAILED
+        assert task.next_attempt_at is None
+    else:
+        assert task.status == TaskState.QUEUED
+        assert (
+            dequeue_next_queued_task(
+                db_session, worker=Worker.CODEX, lease_ttl=timedelta(minutes=5)
+            )
+            is None
+        )
+        db_session.commit()
+        task, _, _ = _claim(db_session, Worker.OLLAMA)
+        assert task.attempt == 2
 
 
 def test_rate_limits_backoff_then_fallback_survives_new_sessions(db_session):

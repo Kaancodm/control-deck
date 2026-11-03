@@ -397,6 +397,19 @@ def submit_worker_result(
             )
         except ValueError:
             raise WorkerOperationError("Retry metadata is invalid.") from None
+        if decision.action == "fallback" and isinstance(task.plan, dict):
+            exclusions = task.plan.get("exclusions")
+            remaining = canonical_chain(payload)[decision.state.cursor :]
+            if (
+                isinstance(exclusions, dict)
+                and remaining
+                and all(exclusions.get(worker.value) == "rule_not_allowed" for worker in remaining)
+            ):
+                # Use the rule that admitted this attempt, not temporary lane
+                # availability. A structurally exhausted chain must terminate.
+                decision = decision.model_copy(
+                    update={"action": "fail", "reason": "fallback_exhausted"}
+                )
         trigger = TaskTransition.FAIL if decision.action == "fail" else TaskTransition.RETRY
         if decision.action != "fail":
             now = session.scalar(select(func.clock_timestamp()))

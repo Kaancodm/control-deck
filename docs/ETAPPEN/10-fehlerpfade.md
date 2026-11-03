@@ -44,7 +44,9 @@ einschraenken. Sie erweitern sie nicht.
 Neue Routing-Abfragen erhalten den Fortschritt. Deaktivierte, pausierte oder im Tagesbudget
 erschoepfte festgehaltene Lanes bleiben wartend; eine andere Lane darf den Retry nicht
 uebernehmen. Bei einem Fallback werden nur spaetere zulaessige Lanes betrachtet. Sind diese
-voruebergehend nicht verfuegbar, bleibt der Task `queued`. Eine nachtraeglich verschaerfte
+bereits durch die Routing-Regel des Claims vollstaendig ausgeschlossen, endet der Task
+als `failed`. Sind sie voruebergehend nicht verfuegbar, bleibt der Task `queued`.
+Eine nachtraeglich verschaerfte
 Routing-Regel oder ungueltige Laufzeitmetadaten verschieben einen bereits versuchten Task,
 statt fruehere Lanes erneut zuzulassen. Fehlende Metadaten historischer aktiver Tasks werden
 aus der zuletzt zugewiesenen Lane konservativ initialisiert.

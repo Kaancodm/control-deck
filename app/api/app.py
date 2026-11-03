@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.errors import register_exception_handlers
 from app.api.routes import control, health, knowledge, tasks, worker
+from app.api.security import ConfiguredHttpBoundary
 from app.db.ui_auth import SessionCapacityError
 from app.services.tasks import OwnerTaskError
 from app.ui.auth import AuthConfigurationError
@@ -17,7 +18,6 @@ from app.ui.knowledge import router as knowledge_ui_router
 from app.ui.middleware import UiSecurityMiddleware
 from app.ui.routes import UiError, ui_error_handler
 from app.ui.routes import router as ui_router
-from app.api.security import ConfiguredHttpBoundary
 
 
 def create_app() -> FastAPI:

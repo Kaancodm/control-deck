@@ -26,6 +26,8 @@ from app.db.ui_auth import (
     check_csrf,
     create_anonymous_session,
     get_ui_session,
+    owner_login_locked,
+    revoke_all_ui_sessions,
     revoke_ui_session,
 )
 from app.kb.contracts import allowed_classes
@@ -103,19 +105,23 @@ def _value(data: FormData, key: str, default: str = "") -> str:
     return value
 
 
-def csrf(request: Request, session: Session, data: FormData, *, anonymous: bool = False) -> None:
+def csrf_origin(request: Request) -> None:
+    """Check request provenance without acquiring a session lock."""
     origin = request.headers.get("origin")
+    expected_origin = getattr(request.state, "public_origin", None) or str(request.base_url).rstrip(
+        "/"
+    )
     # Chromium can send an opaque Origin for a same-origin form under no-referrer.
     # This exception still requires Fetch Metadata and the session-bound CSRF token.
     opaque_same_origin = origin == "null" and request.headers.get("sec-fetch-site") == "same-origin"
-    if (
-        origin is not None
-        and origin != str(request.base_url).rstrip("/")
-        and not opaque_same_origin
-    ):
+    if origin is not None and origin != expected_origin and not opaque_same_origin:
         raise UiError("invalid_csrf", 403)
     if request.headers.get("sec-fetch-site") == "cross-site":
         raise UiError("invalid_csrf", 403)
+
+
+def csrf(request: Request, session: Session, data: FormData, *, anonymous: bool = False) -> None:
+    csrf_origin(request)
     row = get_ui_session(session, request.cookies.get(SESSION_COOKIE), owner_required=not anonymous)
     supplied = _value(data, "csrf") or request.headers.get("x-csrf-token")
     if row is None or not check_csrf(row, supplied):
@@ -133,6 +139,8 @@ def login_page(request: Request, session: DbSession) -> Response:
     existing = get_ui_session(session, request.cookies.get(SESSION_COOKIE), owner_required=False)
     if existing is not None and existing.authenticated:
         return RedirectResponse("/ui/tasks", status_code=303)
+    if owner_login_locked(session):
+        return page(request, "login.html", owner=False, login_locked=True, status=423)
     if existing is not None:
         return page(request, "login.html", owner=False)
     credentials = create_anonymous_session(session, settings)
@@ -158,6 +166,8 @@ async def login(request: Request, session: DbSession) -> Response:
         response: Response = RedirectResponse("/ui/tasks", status_code=303)
         set_session_cookies(response, outcome.credentials, settings)
         return response
+    if outcome.code == "login_locked":
+        return page(request, "login.html", owner=False, login_locked=True, status=423)
     status = 429 if outcome.code == "login_throttled" else 401
     response = page(request, "login.html", owner=False, error=outcome.code, status=status)
     if outcome.retry_after is not None:
@@ -173,6 +183,26 @@ async def logout(request: Request, session: DbSession) -> Response:
     revoke_ui_session(session, request.cookies.get(SESSION_COOKIE))
     response = RedirectResponse("/ui/login", status_code=303)
     clear_session_cookies(response, get_auth_settings())
+    return response
+
+
+@router.post("/logout-all")
+async def logout_all(request: Request, session: DbSession) -> Response:
+    data = await form(request)
+    csrf_origin(request)
+    settings = get_auth_settings()
+    # Do not call owner()/csrf() first: activity updates would take a session lock
+    # before the global login-state lock used by authentication and revocation.
+    if not revoke_all_ui_sessions(
+        session,
+        request.cookies.get(SESSION_COOKIE),
+        _value(data, "csrf") or request.headers.get("x-csrf-token"),
+        settings,
+    ):
+        raise UiError("invalid_csrf", 403)
+    session.commit()
+    response = RedirectResponse("/ui/login", status_code=303)
+    clear_session_cookies(response, settings)
     return response
 
 

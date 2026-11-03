@@ -249,6 +249,11 @@ def check_csrf(row: UiSession, provided: str | None) -> bool:
     return matches_token_hash(provided, row.csrf_hash)
 
 
+def owner_login_locked(session: Session) -> bool:
+    """Expose the persisted lock without acquiring a session or administration lock."""
+    return session.scalar(select(UiLoginState.locked_at).where(UiLoginState.id == 1)) is not None
+
+
 def authenticate_owner(
     session: Session,
     token: str | None,

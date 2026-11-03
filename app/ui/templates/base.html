@@ -21,6 +21,9 @@
       <form action="/ui/logout" method="post" class="inline-form">
         {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Abmelden</button>
       </form>
+      <form action="/ui/logout-all" method="post" class="inline-form">
+        {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Ueberall abmelden</button>
+      </form>
       {% endif %}
     </header>
     {% if owner and controls %}

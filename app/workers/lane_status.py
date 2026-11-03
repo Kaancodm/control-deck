@@ -10,7 +10,8 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.core.schemas import Worker
+from app.audit.health import AttemptHealth, completed_attempt
+from app.core.schemas import ErrorCode, ResultStatus, Worker
 from app.db.models import LaneStatus
 
 _REASON_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
@@ -78,6 +79,53 @@ def get_lane_status(session: Session, *, lane: Worker) -> LaneStatus | None:
         .where(LaneStatus.lane == lane.value)
         .execution_options(populate_existing=True)
     )
+
+
+def record_completed_attempt(
+    session: Session, *, lane: Worker, status: ResultStatus, error_code: ErrorCode | None
+) -> None:
+    """Count once after final result fencing, in the same transaction as its result.
+
+    Callers hold the task lock and have inserted the unique task/attempt result.
+    Never acquire admission or task locks after taking this lane lock.
+    """
+    _validate_lane(lane)
+    session.execute(
+        insert(LaneStatus)
+        .values(
+            lane=lane.value, status=LaneHealthState.UNAVAILABLE.value, reason="attempt_recorded"
+        )
+        .on_conflict_do_nothing(index_elements=[LaneStatus.lane])
+    )
+    row = session.scalar(
+        select(LaneStatus)
+        .where(LaneStatus.lane == lane.value)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    assert row is not None
+    now = session.scalar(select(func.clock_timestamp()))
+    assert isinstance(now, datetime)
+    state = completed_attempt(
+        AttemptHealth(
+            completed_attempts=row.completed_attempts,
+            consecutive_failures=row.consecutive_failures,
+            last_error_code=ErrorCode(row.last_error_code) if row.last_error_code else None,
+            last_error_at=row.last_error_at,
+            last_attempt_at=row.last_attempt_at,
+            last_attempt_success_at=row.last_attempt_success_at,
+        ),
+        status=status,
+        error_code=error_code,
+        recorded_at=now,
+    )
+    row.completed_attempts = state.completed_attempts
+    row.consecutive_failures = state.consecutive_failures
+    row.last_error_code = state.last_error_code.value if state.last_error_code else None
+    row.last_error_at = state.last_error_at
+    row.last_attempt_at = state.last_attempt_at
+    row.last_attempt_success_at = state.last_attempt_success_at
+    session.flush()
 
 
 def list_lane_status(session: Session) -> list[LaneStatus]:

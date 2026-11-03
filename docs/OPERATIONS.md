@@ -4,10 +4,10 @@ Etappe 16 liefert Repo-Code und Tests. Es wurden keine Dienste installiert, gest
 aktualisiert oder auf einem Zielserver geprueft. Die systemd-Dateien sind Vorlagen fuer
 Benutzerdienste; Inbetriebnahme bleibt ein eigener Owner-Schritt.
 
-Zwischenstand: Die Umsetzung ist auf Owner-Wunsch pausiert. 66 neue Unit-Tests und die
-Offline-Unit-Pruefung sind bestanden. DB-Integration, echter Dump-/Restore-Roundtrip,
-vollstaendige Pflichtchecks und finale CI stehen nach der Parent-Integration noch aus.
-Die folgenden Abschnitte beschreiben den vorbereiteten Vertrag, keine Live-Abnahme.
+Implementiert mit isolierten PostgreSQL-/pgvector-Datenbanken und Fake-CLIs. Ein echter
+Dump-/Restore-Roundtrip und Prozessgruppenabbruch mit anschliessendem Lease-Retry sind
+geprueft. Vollstaendige Pflichtchecks und finale CI werden in [STAND.md](STAND.md) und
+Draft-PR #31 dokumentiert; diese Nachweise ersetzen keine Live-Abnahme.
 
 ## Explizite Ausfuehrung
 
@@ -92,6 +92,9 @@ extern. Der Prozess erhaelt einen geprueften offenen Dateideskriptor fuer das Pa
 normale Logs enthalten weder Werte noch Prozessdiagnosen. Die Hook-Phasen werden separat
 auditiert. Ein DB-Dump und eine parallele Dateikopie sind kein atomarer Gesamt-Snapshot;
 Off-site-Restore und konsistente Artefaktwiederherstellung bleiben Inbetriebnahme.
+Der Dump umfasst ausschliesslich `public` in der zentralen Deck-Datenbank. Die separate
+Wissens-DB wird damit nicht gesichert; deren Sicherungs-/Restore-Vertrag ist ebenfalls
+Inbetriebnahme. Ein zentraler Dump ist kein Gesamtbackup beider Datenbanken.
 
 ## Restore nur in eine leere Testdatenbank
 
@@ -104,6 +107,11 @@ abgewiesen. Beispiel mit vom Owner bereitgestellter leerer Testdatenbank:
 ```text
 make restore-probe ARGS='--apply --target test --backup-name <backup-id>'
 ```
+
+Nach Manifest-/Pruefsummenpruefung wird das Ziel erneut auf Leerheit geprueft. Das leere
+Schema `public` wird ohne `CASCADE` entfernt, weil der schema-begrenzte Dump es selbst
+anlegt. Ein inzwischen befuelltes Ziel wird abgewiesen; es gibt kein `--clean` gegen
+bestehende Objekte. Nach einem Fehler bleibt das Wegwerf-Ziel zur Diagnose erhalten.
 
 `pg_restore` laeuft in einer Transaktion ohne Owner-/Rechteuebernahme. Danach muessen
 Tabellenzaehlungen, Revision und `alembic -x target=test check` passen. Erfolg wird erst

@@ -172,7 +172,7 @@ def test_unclassified_blocked_result_does_not_invent_success():
         error_code=None,
         recorded_at=NOW,
     )
-    assert result.last_error_code == ErrorCode.INTERNAL
+    assert result.last_error_code is None
     assert result.consecutive_failures == 1 and result.last_attempt_success_at is None
 
 

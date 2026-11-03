@@ -68,7 +68,7 @@ def completed_attempt(
             if succeeded
             else previous.consecutive_failures
         ),
-        last_error_code=(error_code or ErrorCode.INTERNAL) if failed else previous.last_error_code,
+        last_error_code=error_code if failed else previous.last_error_code,
         last_error_at=recorded_at if failed else previous.last_error_at,
         last_attempt_at=recorded_at,
         last_attempt_success_at=recorded_at if succeeded else previous.last_attempt_success_at,

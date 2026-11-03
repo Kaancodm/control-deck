@@ -18,6 +18,7 @@ from app.core.schemas import Worker
 from app.db.models import Event, Task
 from app.db.state_machine import TaskState
 from app.db.ui_auth import UiSession
+from app.redaction.placeholders import PLACEHOLDER_PATTERN
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.ui.chat import SimulatedChat
 from app.workers.runner import HostRunner
@@ -427,3 +428,41 @@ def test_chat_rejects_context_from_unapproved_task(ui_client, db_session):
     )
     assert response.status_code == 503
     assert db_session.get(Task, UUID(task_id)).approved_at is None
+
+
+def test_authoritative_restored_result_and_model_html_remain_escaped(
+    ui_client, db_session, tmp_path, monkeypatch
+):
+    original = "<b>synthetic</b>"
+    blocklist = tmp_path / "blocklist.txt"
+    blocklist.write_text(original)
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(blocklist))
+    csrf = login(ui_client)
+    location = create(
+        ui_client,
+        csrf,
+        instructions=original,
+        data_class="cloud_redacted",
+        cloud_confirm="yes",
+        fallback_chain="claude",
+    )
+    ui_client.post(location + "/approve", data={"csrf": csrf, "confirm": "yes"})
+
+    class EchoPlaceholder(SimulationExecutor):
+        def execute(self, context):
+            result = super().execute(context)
+            token = PLACEHOLDER_PATTERN.search(context.payload_text)
+            assert token is not None
+            result.output.text = token.group() + " <script>alert(1)</script>"
+            return result
+
+    outcome = HostRunner(
+        sessionmaker(bind=db_session.get_bind(), autoflush=False), runs_root=tmp_path / "runs"
+    ).run_once(Worker.CLAUDE, EchoPlaceholder(Worker.CLAUDE))
+    assert outcome.action == "completed"
+    page = ui_client.get(location)
+    assert "&lt;b&gt;synthetic&lt;/b&gt;" in page.text
+    assert "<b>synthetic</b>" not in page.text
+    assert "<mark" not in page.text
+    assert "<script>alert(1)</script>" not in page.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page.text

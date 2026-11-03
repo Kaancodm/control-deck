@@ -28,8 +28,6 @@ from app.db.ui_auth import (
     revoke_ui_session,
 )
 from app.privacy.config import PrivacyConfigurationError, get_privacy_settings
-from app.redaction.engine import RedactionError
-from app.redaction.repository import RedactionStorageError
 from app.routing.config import RouterConfigurationError
 from app.services.tasks import OwnerTaskError, act_on_task, find_task, list_owner_tasks, submit_task
 from app.ui.auth import (
@@ -43,7 +41,7 @@ from app.ui.chat import ChatError, ChatRequest, UnavailableChat, ask_local
 from app.ui.files import MAX_FILE_BYTES, Upload, read_payload, store_uploads
 from app.ui.forms import FormError, form_from_draft, task_from_form, validate_draft
 from app.ui.middleware import MAX_BODY_BYTES
-from app.ui.views import TextSegment, output_segments, page
+from app.ui.views import page
 from app.workers.lane_status import list_lane_status
 
 router = APIRouter(prefix="/ui", include_in_schema=False)
@@ -275,12 +273,8 @@ def detail(request: Request, task_id: UUID, session: DbSession) -> Response:
     outputs = []
     for result in sorted(task.results, key=lambda value: value.attempt):
         text = result.payload.get("output", {}).get("text", "")
-        try:
-            segments = output_segments(session, task, text)
-            unavailable = False
-        except (RedactionError, RedactionStorageError, ValueError):
-            segments, unavailable = [TextSegment(text)], True
-        outputs.append({"result": result, "segments": segments, "unavailable": unavailable})
+        # Stored results are authoritative local text, already restored by worker_ops.
+        outputs.append({"result": result, "text": text})
     return page(request, "task_detail.html", task=task, outputs=outputs)
 
 

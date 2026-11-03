@@ -43,3 +43,6 @@ backups/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Claude Code (per-user overrides)
+.claude/settings.local.json

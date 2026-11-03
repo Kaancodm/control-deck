@@ -108,3 +108,4 @@ type errors fail lint even when ruff is clean.
 - Plan v1.1 (architecture and 18 stages): Google Doc ID `1RLpgiZpNknISYLdiGTMEllgVo9OIXsZ73DANPQt2XCk`.
 - ADRs: `docs/DECISIONS/0001` to `0008`.
 - Database notes: `docs/DATENBANK.md`. Reference suite: `docs/REFERENCE_CASES.md`.
+- Review criteria: `REVIEW.md`. Build tickets: `/plan-ticket` (template `tasks/TEMPLATE.md`); session handover: `/handoff`.

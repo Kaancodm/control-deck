@@ -356,9 +356,21 @@ Dimension sowie semantische Suchqualitaet bleiben offen. Das Live-Profil ist ges
 Keine echten Logins, API-Keys, Anbieteraufrufe, Serveraenderungen oder neuen inhaltlichen
 Referenzfaelle. Details: [WISSENS_DB.md](WISSENS_DB.md).
 
-## Etappe 15: Haertung in Arbeit
+## Etappe 15: gesicherter Zwischenstand, pausiert
 
-Gestapelt auf Etappe 14. Die Passwort-/Session-Grundlage aus Etappe 11 wird um
-verbindliche Request-Grenzen, sichere Bindung und Konfigurationspruefungen gehaertet.
+Draft-PR #30, Branch `stage/15-hardening`. Gestapelt auf dem frueheren Etappe-14-Stand
+`56998cc`; der Rebase auf den finalen Vorgaenger ist noch offen. Kein Merge.
+
+Implementiert: validierter HTTP-Start, Host-/Origin- und Request-Grenzen auch fuer Chunked-Body,
+sichere Fehlerantworten, geschuetztes Passwort-Hash-Werkzeug sowie Migration `0014` fuer
+Passwortbindung, Inaktivitaetsablauf, dauerhafte Login-Sperre und sichere Auth-Ereignisse.
+Eine globale Session-Abmeldung existiert als DB-Service; die UI-Anbindung bleibt offen.
+
+Nachweis dieses Zwischenstands: **137 gezielte Tests bestanden**, keine Skips oder xfail;
+eine bestehende Starlette/httpx-Warnung. `make lint`, zentraler Alembic-Check und
+separater Wissens-DB-Alembic-Check sind gruen. Isolierte PostgreSQL-/pgvector-Testdatenbanken.
+Dies ist keine abschliessende Gesamttestzahl. Vollstaendiges `make test`, Referenzlaeufe,
+Browser-Integration und CI sind nach dem finalen Eltern-Rebase noch auszufuehren.
+
 Noch nicht reviewbereit. Echte Tailnet-/TLS-Pruefungen bleiben Inbetriebnahme;
-keine Netzwerk-Scans, Logins oder Serveraenderungen.
+keine Netzwerk-Scans, echten Logins, Anbieteraufrufe oder Serveraenderungen.

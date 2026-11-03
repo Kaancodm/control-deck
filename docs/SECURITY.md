@@ -1,6 +1,6 @@
 # Schutzgrenzen und sichere Konfiguration
 
-Etappe 15 ist noch in Arbeit. Diese Beschreibung trennt pruefbaren Repo-Code von der
+Etappe 15 ist als Zwischenstand gesichert und pausiert. Diese Beschreibung trennt pruefbaren Repo-Code von der
 spaeteren Inbetriebnahme. Sie ersetzt weder das externe Review noch eine Betriebsfreigabe.
 
 ## HTTP-Eingang
@@ -45,8 +45,26 @@ Chromium kann bei einem Formular unter `no-referrer` die Origin als `null` sende
 UI-Formulare mit `Sec-Fetch-Site: same-origin` darf dieser Fall zur anschliessenden CSRF-Pruefung
 weiterlaufen. API-Requests erhalten diese Ausnahme nicht. Header allein erteilen keine Rechte.
 
-Session-Aktivitaetsgrenze, Passwortwechsel und dauerhafte Login-Sperre werden in dieser
-Etappe noch ergaenzt. Die abschliessenden Tests stehen erst nach dem Rebase auf Etappe 14 fest.
+Migration `0014` bindet authentifizierte Sessions an einen Fingerprint des aktuellen
+Passwort-Hashes. Ein Wechsel macht alte Sessions ungueltig. Nach 30 Minuten ohne Aktivitaet
+endet eine Session; Aktivitaet verlaengert niemals die absolute Grenze von 12 Stunden.
+Die Migration widerruft bisherige authentifizierte Sessions ohne diese Bindung.
+
+Zusaetzlich zur gemeinsamen Drosselung nach fuenf Fehlern in 15 Minuten sperren 20 Fehler
+innerhalb von 24 Stunden den Owner-Login dauerhaft. Ein Neustart hebt diese Sperre nicht auf.
+`make unlock-login` ist eine ausdrueckliche lokale Verwaltungsaktion und protokolliert die
+Entsperrung. `make set-password` liest zweimal ohne Echo und gibt ausschliesslich einen
+Argon2id-Hash aus; unsichere Terminal-Fallbacks und Passwortargumente werden abgewiesen.
+
+`auth_events` speichert nur Typ, Zeitpunkt, ID und Anzahl betroffener Sessions. Keine
+Passwoerter, Cookies, CSRF-Werte oder Client-Adressen. Wiederholte abgewiesene Aufrufe im selben
+Drosselungsfenster erzeugen nicht immer neue Ereignisse. Ein Downgrade darf bestehende
+Auth-Ereignisse oder aktive Schutzdaten nicht entfernen.
+
+Die globale Session-Abmeldung ist als gepruefter DB-Service vorhanden. Ihre UI-Anbindung,
+die Anzeige der dauerhaften Sperre und die Integration einer festen Proxy-Origin in die
+UI-CSRF-Pruefung bleiben nach dem finalen Eltern-Rebase offen. Die abschliessenden Tests
+stehen deshalb noch aus; dieser Zwischenstand ist nicht reviewbereit.
 
 ## Private Konfiguration
 

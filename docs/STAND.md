@@ -2,11 +2,17 @@
 
 ## Etappe 13: in Arbeit
 
-Die Codex-Lane entsteht als gestapelter Draft-PR auf Etappe 12. Ein versionierter
-JSONL-Vertrag, eine Fake-CLI und der gemeinsame Reinraum-Simulator pruefen ausschliesslich
-Textausgaben. Das Live-Profil bleibt bis zum Nachweis technisch deaktivierter Tools und
-der Reinraum-Grenzen gesperrt. Keine echten Logins, Anbieteraufrufe oder Serveraenderungen.
-Pflichtchecks und finale Testzahl folgen nach dem Rebase auf den fertigen Etappe-12-Stand.
+Die Codex-Lane ist im gestapelten [Draft-PR #28](https://github.com/Kaancodm/control-deck/pull/28)
+implementiert. Der versionierte JSONL-Vertrag, eine Fake-CLI und der gemeinsame Reinraum-
+Simulator pruefen ausschliesslich Textausgaben. Der Zwischenstand auf Etappe-12-Checkpoint
+`b6536fa` besteht **1571 Tests**, `make lint`, Alembic-Check sowie beide Referenzmodi mit je
+**4/4 Faellen**. Keine xfail oder Skips; eine bestehende Starlette/httpx-Warnung.
+
+Der finale Rebase auf den fertigen Etappe-12-Stand und danach erneute Pflichtchecks stehen
+noch aus. Diese Zahl ist kein finaler Stack-Nachweis. Das Live-Profil bleibt ohne Prozessstart
+gesperrt: vollstaendige Tool-Deaktivierung, ausgeschlossene interne Subscription-Retries und
+Reinraum-Grenzen sind nicht nachgewiesen. Keine echten Logins, Anbieteraufrufe oder
+Serveraenderungen. Details und Inbetriebnahme: [LANES.md](LANES.md).
 
 
 ## Etappe 12 bereit fuer externes Review

@@ -12,6 +12,7 @@ Etappe `03-db-schema` fuehrt PostgreSQL als persistente Queue und Audit-Store ei
 | `leases` | Pull-Lease pro Task (`lease_id`, `expires_at`, `heartbeat_at`, optional `holder`) |
 | `settings` | Typisierte lokale Runner-Steuerung: Pause, Not-Aus, Lane-Pause, Parallelitaet |
 | `redaction_maps` | Lokale, taskgebundene Zuordnung stabiler Platzhalter zu exakten Originalwerten |
+| `lane_status` | Persistierte Lane-Gesundheit mit sicherem Grund und DB-Zeitstempeln |
 
 ### `data_class`
 

@@ -48,5 +48,7 @@ def db_session(migrated_database: None) -> Generator[Session, None, None]:
         session.execute(text("TRUNCATE tasks, results, events, leases RESTART IDENTITY CASCADE"))
         if session.scalar(text("SELECT to_regclass('settings')")) is not None:
             session.execute(text("TRUNCATE settings"))
+        if session.scalar(text("SELECT to_regclass('lane_status')")) is not None:
+            session.execute(text("TRUNCATE lane_status"))
         session.commit()
         session.close()

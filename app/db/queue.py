@@ -37,6 +37,7 @@ def dequeue_next_queued_task(
     lease_ttl: timedelta,
     holder: str | None = None,
     worker: Worker,
+    available_models: frozenset[str] | None = None,
 ) -> Task | None:
     """
     Atomically claim the oldest ``queued`` task and move it to ``leased``.
@@ -124,6 +125,11 @@ def dequeue_next_queued_task(
             unavailable_ids.add(task.id)
             continue
         if task.lane != worker.value:
+            unavailable_ids.add(task.id)
+            continue
+        if available_models is not None and plan.models.get(worker) not in available_models:
+            # The lane's external preflight observed this inventory before the
+            # transaction. Missing or newly reconfigured models consume no claim.
             unavailable_ids.add(task.id)
             continue
         detail = {"lane": task.lane, "budget_date": snapshot.budget_date.isoformat()}

@@ -9,6 +9,15 @@ Das Live-Profil bleibt gesperrt: Die offizielle CLI bietet keinen sicheren No-Pu
 und kann bei multimodalen Modellen Dateien aus dem Prompt nachladen.
 Die konkreten Voraussetzungen bleiben unter **Inbetriebnahme** offen.
 
+Zwischenstand PR [#24](https://github.com/Kaancodm/control-deck/pull/24): Adapter,
+Prozessgrenzen, Lane-Gesundheit und simulierte Host-E2E sind implementiert. Gezielt geprueft:
+80 Prozess-/Adaptertests, 26 E2E-Tests, 48 Gesundheits-/Migrationstests und 6 CLI-Tests.
+Die vollstaendigen Pflichtchecks und der Referenz-CLI-Schalter stehen noch aus.
+Die Arbeit pausiert fuer die externen Review-Korrekturen an Basis-PR #23; danach wird
+Etappe 9 auf dessen neuen Head rebased. Noch nicht reviewbereit.
+`simulation_ready` bezeichnet ausschliesslich die Fake-Inventarpruefung; das Live-Profil
+bleibt `unavailable` / `live_profile_unavailable`. Details: [LANES.md](LANES.md).
+
 
 ## Etappe 8 bereit fuer externes Review
 

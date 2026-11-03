@@ -18,7 +18,10 @@ from app.core.schemas import (
     Worker,
 )
 from app.db.session import get_session_factory
+from app.routing.config import get_router_config
 from app.workers.contracts import AttemptContext
+from app.workers.lanes.ollama import OllamaExecutor, OllamaSimulation
+from app.workers.ollama_lane import OllamaLaneRunner
 from app.workers.runner import HostRunner
 
 
@@ -58,19 +61,30 @@ def main() -> int:
     parser.add_argument("--worker", required=True, choices=[worker.value for worker in Worker])
     parser.add_argument("--simulate", required=True, action="store_true")
     parser.add_argument("--once", required=True, action="store_true")
-    args = parser.parse_args()
-    runner = HostRunner(
-        get_session_factory(),
-        runs_root=Path(os.environ.get("DECK_RUNS_DIR", "runs")),
+    parser.add_argument(
+        "--executor", choices=["simulation", "ollama-fake-cli"], default="simulation"
     )
+    args = parser.parse_args()
     worker = Worker(args.worker)
-    outcome = runner.run_once(worker, SimulationExecutor(worker))
+    if args.executor == "ollama-fake-cli" and worker != Worker.OLLAMA:
+        parser.error("The Ollama fake CLI can only serve the ollama lane")
+    factory = get_session_factory()
+    runs_root = Path(os.environ.get("DECK_RUNS_DIR", "runs"))
+    if args.executor == "ollama-fake-cli":
+        configuration = get_router_config()
+        models = tuple(sorted(set(configuration.lanes[Worker.OLLAMA].models.values())))
+        executor = OllamaExecutor(profile="simulation", simulation=OllamaSimulation(models=models))
+        outcome = OllamaLaneRunner(factory, runs_root=runs_root, executor=executor).run_once()
+    else:
+        runner = HostRunner(factory, runs_root=runs_root)
+        outcome = runner.run_once(worker, SimulationExecutor(worker))
+
     print(
         json.dumps(
             {"action": outcome.action, "status": outcome.status, "error_code": outcome.error_code}
         )
     )
-    return 1 if outcome.action == "error" else 0
+    return 1 if outcome.action in ("error", "unavailable") else 0
 
 
 if __name__ == "__main__":

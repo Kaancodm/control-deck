@@ -258,3 +258,26 @@ class Setting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class LaneStatus(Base):
+    """Last observed lane health, with safe reason codes and a retained success time."""
+
+    __tablename__ = "lane_status"
+
+    lane: Mapped[str] = mapped_column(Text, primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
+    )
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("lane IN ('ollama', 'claude', 'codex')", name="ck_lane_status_lane"),
+        CheckConstraint(
+            "status IN ('ok', 'unavailable', 'auth_required', 'paused')",
+            name="ck_lane_status_status",
+        ),
+        CheckConstraint("reason ~ '^[a-z][a-z0-9_]{0,63}$'", name="ck_lane_status_reason"),
+    )

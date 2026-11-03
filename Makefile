@@ -1,4 +1,4 @@
-.PHONY: lint test validate
+.PHONY: lint test validate reference
 
 lint:
 	uv run ruff check .
@@ -7,6 +7,9 @@ lint:
 
 test:
 	uv run pytest
+
+reference:
+	uv run python scripts/run_reference.py
 
 validate:
 	uv run python scripts/validate.py task tests/unit/examples/task_valid_01.json

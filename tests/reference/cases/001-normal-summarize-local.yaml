@@ -1,0 +1,34 @@
+id: "001-normal-summarize-local"
+category: normal
+description: "Lokale Zusammenfassung ohne Cloud-Pfad."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: system
+  kind: summarize
+  title: "Referenz Kurzfassung"
+  instructions: "Fasse den Eingabetext in einem Satz zusammen."
+  inputs:
+    - name: source
+      type: text
+      value: "Drei Saetze Beispielinhalt fuer den Referenzlauf."
+  context_refs: []
+  data_class: local_only
+  policy:
+    forbidden_workers: []
+    require_review: false
+  acceptance: []
+  fallback_chain:
+    - ollama
+  labels:
+    suite: reference
+expect:
+  status: succeeded
+  must_contain:
+    - reference-ok
+  must_not_contain: []
+  regex: null
+  max_chars: 500
+  max_seconds: 30
+  allowed_workers:
+    - ollama

@@ -4,6 +4,7 @@ Control Deck tauscht Auftraege und Ergebnisse als JSON aus. Normative Definition
 
 - `schemas/task.v1.json` (Entwickler-Referenz)
 - `schemas/result.v1.json` (Entwickler-Referenz)
+- `schemas/reference_case.v1.json` (Entwickler-Referenz, Referenz-Testfaelle)
 - `app/schemas/*.json` (gebundelt im Paket; Laufzeit-Laden via `importlib.resources`)
 
 Spiegel in Python: `app/core/schemas.py`.

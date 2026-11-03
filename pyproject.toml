@@ -5,10 +5,13 @@ description = "Local task orchestration deck with schema-validated handoff (task
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.14.0",
     "fastapi>=0.115.0",
-    "pydantic>=2.0",
     "jsonschema[format-nongpl]>=4.0",
+    "psycopg[binary]>=3.2.0",
+    "pydantic>=2.0",
     "pyyaml>=6.0",
+    "sqlalchemy>=2.0.36",
 ]
 
 [project.optional-dependencies]

@@ -62,8 +62,8 @@ type errors fail lint even when ruff is clean.
 
 - ADR 0005: `data_class` is **mandatory on every `task.v1` payload** (no implicit default in the
   schema). Allowed values: `local_only`, `cloud_redacted`, `cloud_ok`.
-- Legacy: the PostgreSQL column still has server default `local_only` for older rows; new tasks must
-  set `data_class` explicitly in JSON — reject producers that omit it.
+- Migration `0003` removed the PostgreSQL column default; `task.v1` and the `tasks.data_class`
+  column both require an explicit value — reject producers that omit it.
 - `local_only` payloads must never reach a cloud lane. `cloud_redacted` is pseudonymised before
   leaving the host. Hits of the data gate set the task to `blocked`.
 
@@ -111,7 +111,9 @@ type errors fail lint even when ruff is clean.
 
 ## References
 
-- Plan v1.1 (architecture and 18 stages): Google Doc ID `1RLpgiZpNknISYLdiGTMEllgVo9OIXsZ73DANPQt2XCk`.
+- Control Deck stage plan (architecture and 18 stages): maintained by the repository owner outside
+  this repo; ask the owner or use stage text pasted into the session — do not embed external doc IDs
+  in commits.
 - ADRs: `docs/DECISIONS/0001` to `0008`.
 - Database notes: `docs/DATENBANK.md`. Reference suite: `docs/REFERENCE_CASES.md`.
 - Review criteria: `REVIEW.md`. Build tickets: `/plan-ticket` (template `tasks/TEMPLATE.md`); session handover: `/handoff`.

@@ -18,13 +18,14 @@ from app.db.repository import record_gate_error
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import LeaseOwnershipError, TransitionActor, transition_task
 from app.privacy.gate import FileHash, PrivacyInputError, PrivacyInputUnavailable
-from app.redaction.artifacts import write_payload_sent
+from app.redaction.artifacts import PayloadArtifactError, write_payload_sent
 from app.redaction.engine import RedactionError
 from app.redaction.payload import LaneNotAllowedError, prepare_task_payload
 from app.routing.router import RoutingPlan
 from app.workers.contracts import PreparedAttempt
 
 _SHA256 = re.compile(r"[a-f0-9]{64}\Z")
+_MAX_PREPARATION_ATTEMPTS = 32
 
 
 class _DeferredPreparation(Exception):
@@ -184,57 +185,80 @@ def claim_prepared_attempt(
     runs_root: Path,
     holder: str | None = None,
 ) -> PreparedAttempt | None:
-    """Claim and prepare once; expose no envelope unless all local checks succeeded.
+    """Claim a safe transport, skipping a bounded number of immutable conflicts.
 
     The caller owns commit. Privacy mismatches consume a committed claim and
     block it; an attachment that disappears during final preparation rolls back
     the tentative claim and remains queued with a throttled, safe error event.
+    Conflicting artifacts block only their task; other artifact failures abort.
     """
-    try:
-        with session.begin_nested():
-            task = dequeue_next_queued_task(
-                session, worker=worker, lease_ttl=lease_ttl, holder=holder
+    for _ in range(_MAX_PREPARATION_ATTEMPTS):
+        try:
+            with session.begin_nested():
+                task = dequeue_next_queued_task(
+                    session, worker=worker, lease_ttl=lease_ttl, holder=holder
+                )
+                if task is None:
+                    return None
+                try:
+                    return prepare_claimed_task(session, task, runs_root=runs_root)
+                except (
+                    PrivacyInputError,
+                    RedactionError,
+                    LaneNotAllowedError,
+                    PayloadArtifactError,
+                ) as exc:
+                    code = getattr(exc, "code", "lane_not_allowed")
+                    artifact_conflict = isinstance(exc, PayloadArtifactError)
+                    if artifact_conflict and code != "artifact_conflict":
+                        raise
+                    if code == "file_unavailable":
+                        raise _DeferredPreparation(
+                            task.id, getattr(exc, "source", "task")
+                        ) from None
+                    if expire_task_if_due(session, task=task):
+                        if artifact_conflict:
+                            continue
+                        return None
+                    lease = session.scalar(select(Lease).where(Lease.task_id == task.id))
+                    if lease is None:
+                        raise LeaseOwnershipError(
+                            "Preparation no longer owns the task lease."
+                        ) from None
+                    if task.cancel_requested:
+                        transition_task(
+                            session,
+                            task=task,
+                            trigger=TaskTransition.CANCEL,
+                            lease_id=lease.lease_id,
+                            actor=TransitionActor.RUNNER,
+                            detail={"reason": "cancel_requested"},
+                        )
+                    else:
+                        transition_task(
+                            session,
+                            task=task,
+                            trigger=TaskTransition.BLOCK,
+                            lease_id=lease.lease_id,
+                            actor=TransitionActor.RUNNER,
+                            detail={
+                                "reason": "artifact_conflict"
+                                if artifact_conflict
+                                else "privacy_gate",
+                                "code": code,
+                            },
+                        )
+                    if not artifact_conflict:
+                        return None
+        except _DeferredPreparation as exc:
+            task = session.scalar(
+                select(Task).where(Task.id == exc.task_id).with_for_update(of=Task)
             )
-            if task is None:
-                return None
-            try:
-                return prepare_claimed_task(session, task, runs_root=runs_root)
-            except (PrivacyInputError, RedactionError, LaneNotAllowedError) as exc:
-                code = getattr(exc, "code", "lane_not_allowed")
-                if code == "file_unavailable":
-                    raise _DeferredPreparation(task.id, getattr(exc, "source", "task")) from None
-                if expire_task_if_due(session, task=task):
-                    return None
-                lease = session.scalar(select(Lease).where(Lease.task_id == task.id))
-                if lease is None:
-                    raise LeaseOwnershipError(
-                        "Preparation no longer owns the task lease."
-                    ) from None
-                if task.cancel_requested:
-                    transition_task(
-                        session,
-                        task=task,
-                        trigger=TaskTransition.CANCEL,
-                        lease_id=lease.lease_id,
-                        actor=TransitionActor.RUNNER,
-                        detail={"reason": "cancel_requested"},
-                    )
-                    return None
-                transition_task(
+            if task is not None:
+                record_gate_error(
                     session,
                     task=task,
-                    trigger=TaskTransition.BLOCK,
-                    lease_id=lease.lease_id,
-                    actor=TransitionActor.RUNNER,
-                    detail={"reason": "privacy_gate", "code": code},
+                    error=PrivacyInputUnavailable("file_unavailable", source=exc.source),
                 )
-                return None
-    except _DeferredPreparation as exc:
-        task = session.scalar(select(Task).where(Task.id == exc.task_id).with_for_update(of=Task))
-        if task is not None:
-            record_gate_error(
-                session,
-                task=task,
-                error=PrivacyInputUnavailable("file_unavailable", source=exc.source),
-            )
-        return None
+            return None
+    return None

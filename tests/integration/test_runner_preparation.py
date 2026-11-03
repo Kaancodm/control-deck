@@ -20,7 +20,7 @@ from app.db.repository import approve_task, create_task_from_v1
 from app.db.state_machine import TaskState
 from app.privacy import gate
 from app.privacy.files import FileInputError
-from app.redaction.artifacts import PayloadArtifactError
+from app.redaction.artifacts import PayloadArtifactError, write_payload_sent
 from app.workers import preparation
 from app.workers.preparation import claim_prepared_attempt, prepare_claimed_task
 from tests.integration.test_database import _minimal_task_payload
@@ -192,14 +192,15 @@ def test_file_disappearing_after_poll_reverts_tentative_claim_and_remains_retrya
     assert not runs.exists()
 
 
+@pytest.mark.parametrize("code", ["unsafe_directory", "unsafe_artifact", "artifact_unavailable"])
 def test_failed_artifact_publication_rolls_back_map_and_claim(
-    db_session: Session, paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    db_session: Session, paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, code: str
 ) -> None:
     _, runs = paths
     task = _approved(db_session, cloud=True)
 
     def fail(*args, **kwargs):
-        raise PayloadArtifactError("synthetic_artifact_failure")
+        raise PayloadArtifactError(code)
 
     monkeypatch.setattr(preparation, "write_payload_sent", fail)
     with pytest.raises(PayloadArtifactError):
@@ -268,8 +269,6 @@ def test_artifact_conflict_cannot_replace_a_previous_attempt_payload(
         db_session, worker=Worker.OLLAMA, lease_ttl=timedelta(seconds=60)
     )
     assert claim is not None
-    from app.redaction.artifacts import write_payload_sent
-
     write_payload_sent(
         runs, task_id=task.id, attempt=task.attempt, text="unsent incompatible bytes"
     )
@@ -305,3 +304,108 @@ def test_deadline_crossing_during_artifact_write_commits_expiry_without_transpor
     assert _count(db_session, RedactionMap) == _count(db_session, Lease) == 0
     assert db_session.scalar(select(Event).where(Event.event_type == "task.prepare")) is None
     assert db_session.scalar(select(Event).where(Event.event_type == "task.expire")) is not None
+
+
+def test_conflicting_artifact_blocks_only_its_task_and_prepares_next_in_same_pull(
+    db_session: Session, paths: tuple[Path, Path]
+) -> None:
+    _, runs = paths
+    conflicting = _approved(db_session, cloud=True)
+    next_task = _approved(db_session, cloud=True)
+    original = b"immutable unsent bytes\r\n"
+    artifact = write_payload_sent(
+        runs, task_id=conflicting.id, attempt=1, text=original.decode("utf-8")
+    )
+
+    prepared = _claim(db_session, runs, Worker.CLAUDE)
+    assert prepared is not None and prepared.task_id == next_task.id
+    db_session.commit()
+    db_session.refresh(conflicting)
+    assert conflicting.status == TaskState.BLOCKED and conflicting.attempt == 1
+    assert (runs / artifact.relative_path).read_bytes() == original
+    assert db_session.scalar(select(Lease).where(Lease.task_id == conflicting.id)) is None
+    assert (
+        db_session.scalar(select(RedactionMap).where(RedactionMap.task_id == conflicting.id))
+        is None
+    )
+    events = list(db_session.scalars(select(Event).where(Event.task_id == conflicting.id)))
+    assert sum(event.event_type == "task.acquire" for event in events) == 1
+    assert all(event.event_type != "task.prepare" for event in events)
+    blocked = next(event for event in events if event.event_type == "task.block")
+    assert blocked.detail["reason"] == blocked.detail["code"] == "artifact_conflict"
+    assert blocked.attempt == 1 and blocked.lease_id is not None
+    assert b"immutable" not in json.dumps(blocked.detail).encode()
+    assert db_session.scalar(select(RedactionMap).where(RedactionMap.task_id == next_task.id))
+
+    # Free capacity for a later pull: the poisoned task must never be retried.
+    from app.db.state_machine import TaskTransition
+    from app.db.transitions import TransitionActor, transition_task
+
+    transition_task(
+        db_session,
+        task=next_task,
+        trigger=TaskTransition.CANCEL,
+        actor=TransitionActor.RUNNER,
+        lease_id=prepared.lease_id,
+    )
+    db_session.commit()
+    assert _claim(db_session, runs, Worker.CLAUDE) is None
+    db_session.commit()
+    db_session.refresh(conflicting)
+    assert conflicting.status == TaskState.BLOCKED and conflicting.attempt == 1
+    assert (runs / artifact.relative_path).read_bytes() == original
+
+
+def test_conflicting_artifacts_limit_work_per_pull(
+    db_session: Session, paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, runs = paths
+    monkeypatch.setattr(preparation, "_MAX_PREPARATION_ATTEMPTS", 2)
+    tasks = [_approved(db_session) for _ in range(3)]
+    for task in tasks[:2]:
+        write_payload_sent(runs, task_id=task.id, attempt=1, text="incompatible bytes")
+    assert _claim(db_session, runs) is None
+    db_session.commit()
+    for task in tasks:
+        db_session.refresh(task)
+    assert [task.status for task in tasks] == [
+        TaskState.BLOCKED,
+        TaskState.BLOCKED,
+        TaskState.QUEUED,
+    ]
+    prepared = _claim(db_session, runs)
+    assert prepared is not None and prepared.task_id == tasks[2].id
+
+
+def test_conflicting_artifact_after_deadline_expires_task_and_prepares_next(
+    db_session: Session, paths: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    _, runs = paths
+    expiring = _approved(db_session, cloud=True)
+    next_task = _approved(db_session, cloud=True)
+    write_payload_sent(runs, task_id=expiring.id, attempt=1, text="immutable earlier bytes")
+    expiring.deadline_at = db_session.scalar(select(func.clock_timestamp())) + timedelta(
+        seconds=0.4
+    )
+    db_session.commit()
+    actual = preparation.write_payload_sent
+
+    def slow_conflict(*args, **kwargs):
+        if kwargs["task_id"] == expiring.id:
+            time.sleep(0.5)
+        return actual(*args, **kwargs)
+
+    monkeypatch.setattr(preparation, "write_payload_sent", slow_conflict)
+    prepared = _claim(db_session, runs, Worker.CLAUDE)
+    assert prepared is not None and prepared.task_id == next_task.id
+    db_session.commit()
+    db_session.refresh(expiring)
+    assert expiring.status == TaskState.EXPIRED and expiring.attempt == 1
+    assert (
+        db_session.scalar(select(RedactionMap).where(RedactionMap.task_id == expiring.id)) is None
+    )
+    events = list(db_session.scalars(select(Event).where(Event.task_id == expiring.id)))
+    assert any(event.event_type == "task.expire" for event in events)
+    assert not any(event.event_type in {"task.block", "task.prepare"} for event in events)

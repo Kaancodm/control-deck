@@ -61,8 +61,6 @@ def codex_command(model: str) -> tuple[str, ...]:
         "--config=mcp_servers={}",
         "--config=project_doc_max_bytes=0",
         "--config=check_for_update_on_startup=false",
-        "--config=model_providers.openai.request_max_retries=0",
-        "--config=model_providers.openai.stream_max_retries=0",
         "--config=features=" + features,
         "-",
     )

@@ -207,3 +207,78 @@ Quellenstand 2026-11-03:
 - [Headless und Bare Mode](https://code.claude.com/docs/en/headless)
 - [Variablen und Wiederholungen](https://code.claude.com/docs/en/env-vars)
 - [Offizielle Ergebnistypen](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/types.py)
+
+## Codex in Etappe 13
+
+`CodexExecutor` verwendet einen versionierten Textvertrag fuer die offizielle CLI
+**0.166.0**. Ausgefuehrt wird ausschliesslich die mitgelieferte Python-Fake-CLI durch den
+Reinraum-Simulator. Es gibt keine Auswahl eines echten Executables und keinen Schalter,
+der das Live-Profil aktiviert. Das Standardprofil bleibt
+`unavailable` / `live_profile_unavailable` ohne Prozessstart.
+
+```bash
+uv run python -m app.workers.runner_main --worker codex --simulate --once --executor codex-fake-cli
+```
+
+Modelle stammen aus `lanes.codex.models`. Eine falsche Worker-Lane wird vor dem DB-Zugriff
+abgewiesen. Die Queue und der Host-Rahmen geben `local_only` niemals an Codex weiter.
+Der Simulator verwendet ein eigenes Codex-Profil; es werden keine Host-Umgebungsvariablen,
+DB-Verbindungen oder CLI-Anmeldedaten vererbt. Der beschriebene Container-Befehl hat ein
+schreibgeschuetztes Dateisystem, einen Benutzer ohne Root-Rechte, begrenzte Ressourcen und
+`network=none`. Er wird nicht mit Docker ausgefuehrt. Die separat begrenzte Bereinigung
+des generierten Container-Namens bleibt auch bei Timeout und Abbruch aktiv.
+
+Der Aufrufvertrag nutzt `codex exec --strict-config --json --ephemeral --ignore-user-config
+--ignore-rules --skip-git-repo-check --sandbox read-only --color never --model <modell> -`.
+Das letzte `-` liest genau die archivierten Payload-Bytes von stdin; kein weiterer Prompt
+wird hinzugefuegt. Ausdrueckliche Konfiguration verlangt Subscription-Anmeldung und
+schaltet die dokumentierten Shell-, Code-, Plugin-, MCP-, Web- und Mehragenten-Funktionen
+im Kandidatenprofil ab. Diese Konfiguration ist kein vollstaendiger Tool-Sperrnachweis.
+
+Der Parser verlangt einen geordneten JSONL-Strom mit Thread-Start, Turn-Start, abgeschlossener
+Agenten-Nachricht und genau einem erfolgreichen Turn-Abschluss. Tokenzaehler sind begrenzte,
+nichtnegative Ganzzahlen. Doppelte JSON-Schluessel, unvollstaendige oder widerspruechliche
+Ereignisse, Tool-Aufrufe und ungueltiges UTF-8 werden abgewiesen. Ein Exit-Code null ersetzt
+keinen Abschluss. Reasoning, Teilantworten und rohe Fehlermeldungen werden nicht gespeichert.
+Nur die letzte vollstaendige Textnachricht wird zur lokalen Rueckabbildung und zentralen
+Acceptance weitergegeben. `output.files` bleibt leer; auch Code-Auftraege liefern nur Text.
+Es gibt weder `workspace-write` noch eine Ausfuehrung erzeugten Codes.
+
+Synthetische, versionierte Fehlerfixtures pruefen `auth_required`, `policy_blocked`,
+`rate_limited`, `worker_unavailable` und unbekannte Fehler (`internal`). Die Zuordnung ist
+eng und verwendet keine Teilstrings aus einem beliebigen Modelltext. Diese Fixtures sind
+technische Tests, keine aufgezeichneten echten Providerantworten und keine inhaltlichen
+Referenzfaelle. Backoff, Lane-Pause und Fallback entscheidet ausschliesslich Etappe 10;
+der Fake-Adapter startet pro Versuch genau einen CLI-Lauf.
+
+### Codex: Inbetriebnahme
+
+Das Build-Rezept unter `docker/lane-codex/` pinnt Linux/amd64, die offizielle CLI-Archivversion,
+deren SHA-256 sowie die Basis-Images. Archiv-Metadaten und der Pfad `bin/codex` wurden lesend
+geprueft; ein Image-Build, echter CLI-Aufruf oder Login wurde nicht ausgefuehrt.
+Vor Aktivierung sind unter anderem diese konkreten Grenzen nachzuweisen:
+
+- **Tool-Deaktivierung:** Im gepinnten Quellstand entfernt `shell_tool=false` die Shell-Werkzeuge,
+  aber `ApplyPatch` kann weiterhin anhand des Modellkatalogs registriert werden. Read-only,
+  verweigerte Rueckfragen und das nachtraegliche Ablehnen von Tool-Ereignissen beweisen keine
+  vorbeugende Tool-Sperre.
+- **Interne Retries:** Der eingebaute OpenAI-Provider uebernimmt aus
+  `model_providers.openai` nur die Katalog-Konfiguration. Dort gesetzte Request-/Stream-Retry-
+  Werte werden ignoriert. Solche wirkungslosen Schalter werden deshalb nicht mitgegeben.
+  Eine Subscription-Anbindung ohne versteckte Retries ist noch nicht nachgewiesen.
+- **Isolation:** Rootless Betrieb, Profiltrennung, begrenzte Provider-Netzverbindung ohne
+  Host-/Repo-/DB-Zugang, Dateisystemgrenzen und zuverlaessige Container-Bereinigung brauchen
+  eigene Live-Nachweise. Der geschlossene Simulationsvertrag hat bewusst keinen Providerzugang.
+- **Anmeldung:** Ein spaeterer Owner-Login mit `codex login --device-auth` gehoert ausschliesslich
+  ins isolierte Profil. `login status` mit Exit-Code null allein unterscheidet nicht zwischen
+  Subscription- und API-Key-Anmeldung; der verwendete Modus muss zusaetzlich geprueft werden.
+
+`simulation_ready` ist auch hier ausschliesslich ein Simulationsnachweis. Echte
+Anbieter-Kontingente, semantische Modellqualitaet und Produktionsbereitschaft bleiben offen.
+
+Quellenstand: [offizielle Version 0.166.0](https://github.com/openai/codex/releases/tag/rust-v0.166.0),
+Commit `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`:
+
+- [JSONL-Ereignisvertrag](https://github.com/openai/codex/blob/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs/exec/src/exec_events.rs)
+- [Tool-Registrierung](https://github.com/openai/codex/blob/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs/core/src/tools/spec_plan.rs)
+- [Provider-Konfiguration und eingebaute Overrides](https://github.com/openai/codex/blob/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs/model-provider-info/src/lib.rs)

@@ -225,7 +225,7 @@ def test_command_uses_exact_stdin_read_only_subscription_profile():
     assert command[command.index("--sandbox") + 1] == "read-only"
     assert "--ignore-user-config" in command and "--strict-config" in command
     assert '--config=forced_login_method="chatgpt"' in command
-    assert "--config=model_providers.openai.request_max_retries=0" in command
+    assert not any("model_providers.openai" in argument for argument in command)
     assert "workspace-write" not in command
 
 

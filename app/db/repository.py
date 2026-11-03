@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.schemas import DataClass, ResultV1, TaskV1
+from app.core.schemas import ResultV1, TaskV1
 from app.core.validate import validate_result, validate_task
 from app.db.models import Result, Task
 from app.db.state_machine import TaskState, TaskTransition
@@ -44,15 +44,8 @@ def create_task_from_api_payload(
     session: Session,
     payload: dict[str, Any],
 ) -> Task:
-    """
-    Validate ``task.v1``, persist a task awaiting owner approval, and audit.
-
-    Applies ``data_class=local_only`` when the field is omitted before validation.
-    """
+    """Validate ``task.v1``, persist a task awaiting owner approval, and audit."""
     data = dict(payload)
-    if "data_class" not in data:
-        data["data_class"] = DataClass.LOCAL_ONLY.value
-
     issues = validate_task(data)
     if issues:
         raise ValueError(issues)

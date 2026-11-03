@@ -50,11 +50,15 @@ Worker-Uebergaenge aus `leased`/`running` erfordern die passende `lease_id` (Fen
 Revision `20251103_0002` fuehrt `awaiting_approval` ein. **Legacy-Bestand:**
 
 - **`queued` ohne `approved_at`** → `awaiting_approval` (Owner-Freigabe noetig).
-- **`leased` / `running` ohne `approved_at`** → `approved_at = created_at` (Grandfathering: bereits laufende Arbeit bleibt dequeue-faehig nach Retry/Lease-Ablauf).
+- **`leased` / `running` ohne `approved_at`** → `approved_at` bleibt **NULL** (keine Auto-Freigabe); bei Lease-Ablauf oder Retry leitet die Laufzeit nach `awaiting_approval`.
 
 Laufzeit: `transition_task` leitet unapproved Requeues von `lease_expired`/`retry` nach `awaiting_approval` statt in ein blockiertes `queued`.
 
-Revision `20251103_0004` korrigiert idempotent DBs, die noch die **urspruengliche** 0002-Massen-Freigabe (`requires_approval = false`, gesetztes `approved_at` auf allen Zeilen) angewendet haben.
+Revision `20251103_0004` korrigiert idempotent DBs, die noch die **urspruengliche** 0002-Massen-Freigabe (`requires_approval = false`, gesetztes `approved_at` auf allen Zeilen) angewendet haben — inklusive **`leased` / `running`**.
+
+Revision `20251103_0005` entzieht DBs, die die alte Auto-Freigabe in 0002/0004 erhalten haben, `approved_at` wieder, wenn kein Audit-Event `task.approve` existiert.
+
+Revision `20251103_0006` setzt bei nicht-terminalen Tasks mit `requires_approval = false`, `approved_at IS NULL` und ohne `task.approve`-Event `requires_approval = true` (idle `queued` → `awaiting_approval`). Laufzeit-Requeue und Dequeue verlangen ein gesetztes `approved_at`.
 
 Alembic liegt im Projektroot (`alembic.ini`, `alembic/versions/`). Typischer Ablauf:
 

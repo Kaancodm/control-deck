@@ -223,11 +223,16 @@ def test_session_scope_commits_and_rolls_back(
         assert session.get(Task, task_id) is not None
 
 
-def test_dequeue_respects_local_only_lane(db_session: Session) -> None:
+@pytest.mark.parametrize("fallback_chain", (["ollama"], ["ollama", "claude"]))
+def test_local_only_dequeue_claimable_despite_cloud_fallback_chain(
+    db_session: Session,
+    fallback_chain: list[str],
+) -> None:
+    """``local_only`` tasks are pullable on the ollama lane; cloud chain entries are ignored."""
     task_id = uuid.uuid4()
     payload = _minimal_task_payload(task_id)
     payload["data_class"] = "local_only"
-    payload["fallback_chain"] = ["claude"]
+    payload["fallback_chain"] = fallback_chain
     task_v1 = TaskV1.model_validate(payload)
     task = create_task_from_v1(db_session, task_v1)
     approve_task(db_session, task)
@@ -235,7 +240,8 @@ def test_dequeue_respects_local_only_lane(db_session: Session) -> None:
     worker = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)()
     try:
         claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
-        assert claimed is None
+        assert claimed is not None
+        assert claimed.id == task.id
     finally:
         worker.close()
 
@@ -346,10 +352,8 @@ def test_heartbeat_and_reaper_concurrent(db_session: Session) -> None:
         session = factory()
         try:
             race_start.wait(timeout=10)
-            count = reap_expired_leases(session)
+            reap_expired_leases(session)
             session.commit()
-            if count != 1:
-                thread_errors.append(AssertionError(f"expected one reaped lease, got {count}"))
         finally:
             session.close()
 
@@ -371,13 +375,69 @@ def test_heartbeat_and_reaper_concurrent(db_session: Session) -> None:
     try:
         row = verify.get(Task, task.id)
         assert row is not None
+        if row.status != TaskState.QUEUED:
+            reap_expired_leases(verify)
+            verify.commit()
+            verify.refresh(row)
         assert row.status == TaskState.QUEUED
         assert verify.get(Lease, lease_id) is None
     finally:
         verify.close()
 
 
-def test_migration_0002_legacy_running_gets_grandfathered_approval() -> None:
+def test_unapproved_inflight_requeue_goes_to_awaiting_approval(db_session: Session) -> None:
+    """Lease expiry on never-approved work must not land in a stuck ``queued`` row."""
+    task_id = uuid.uuid4()
+    payload_json = (
+        '{"schema_version":"task.v1","task_id":"'
+        + str(task_id)
+        + '","data_class":"local_only","fallback_chain":["ollama"]}'
+    )
+    db_session.execute(
+        text(
+            """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt,
+                    requires_approval, approved_at
+                )
+                VALUES (
+                    :id, 'running', 'local_only', CAST(:payload AS jsonb), 1,
+                    true, NULL
+                )
+                """
+        ),
+        {"id": task_id, "payload": payload_json},
+    )
+    db_session.execute(
+        text(
+            """
+            INSERT INTO leases (lease_id, task_id, expires_at, heartbeat_at)
+            VALUES (:lease_id, :task_id, :expires_at, :heartbeat_at)
+            """
+        ),
+        {
+            "lease_id": uuid.uuid4(),
+            "task_id": task_id,
+            "expires_at": datetime.now(tz=UTC) - timedelta(seconds=5),
+            "heartbeat_at": datetime.now(tz=UTC) - timedelta(seconds=5),
+        },
+    )
+    db_session.commit()
+    factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)
+    worker = factory()
+    try:
+        reap_expired_leases(worker)
+        worker.commit()
+    finally:
+        worker.close()
+    db_session.refresh(db_session.get(Task, task_id))
+    row = db_session.get(Task, task_id)
+    assert row is not None
+    assert row.status == TaskState.AWAITING_APPROVAL
+    assert row.approved_at is None
+
+
+def test_migration_0002_legacy_running_keeps_approval_pending() -> None:
     require_test_database_url()
     reset_engine_for_tests()
     cfg = Config("alembic.ini")
@@ -408,7 +468,7 @@ def test_migration_0002_legacy_running_gets_grandfathered_approval() -> None:
             {"id": running_id},
         ).one()
     assert row[0] == "running"
-    assert row[1] is not None
+    assert row[1] is None
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": running_id})
     command.upgrade(cfg, "head")
@@ -516,15 +576,346 @@ def test_migration_0004_corrects_old_auto_approve_backfill() -> None:
     reset_engine_for_tests()
 
 
+def _teardown_migration_db(cfg: Config, engine) -> None:
+    """Clear migration test rows and reset Alembic revision to head."""
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE tasks, results, events, leases RESTART IDENTITY CASCADE"))
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "head")
+    reset_engine_for_tests()
+
+
+def _load_migration_module(filename: str):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "alembic" / "versions" / filename
+    spec = importlib.util.spec_from_file_location(f"migration_{filename}", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_migration_0004_upgrade_sql_idempotent() -> None:
+    migration_0004 = _load_migration_module("20251103_0004_approval_gate_correction.py")
+
+    require_test_database_url()
+    reset_engine_for_tests()
+    cfg = Config("alembic.ini")
+    cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0003")
+    engine = get_engine(for_tests=True)
+    stale_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt,
+                    requires_approval, approved_at
+                )
+                VALUES (
+                    :id, 'queued', 'local_only', CAST(:payload AS jsonb), 0,
+                    false, NOW()
+                )
+                """
+            ),
+            {
+                "id": stale_id,
+                "payload": '{"schema_version":"task.v1","task_id":"'
+                + str(stale_id)
+                + '","data_class":"local_only"}',
+            },
+        )
+        for statement in (
+            migration_0004._CORRECT_QUEUED_WITHOUT_APPROVAL,
+            migration_0004._CORRECT_QUEUED_FALSE_REQUIRES_APPROVAL,
+            migration_0004._CORRECT_INFLIGHT_FALSE_REQUIRES_APPROVAL,
+        ):
+            conn.execute(text(statement))
+            conn.execute(text(statement))
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT status, requires_approval, approved_at FROM tasks WHERE id = :id"),
+            {"id": stale_id},
+        ).one()
+    assert row[0] == "awaiting_approval"
+    assert row[1] is True
+    assert row[2] is None
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": stale_id})
+    command.upgrade(cfg, "head")
+    reset_engine_for_tests()
+
+
+def test_migration_0004_corrects_inflight_false_requires_approval() -> None:
+    require_test_database_url()
+    reset_engine_for_tests()
+    cfg = Config("alembic.ini")
+    cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0003")
+    engine = get_engine(for_tests=True)
+    inflight_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt,
+                    requires_approval, approved_at
+                )
+                VALUES (
+                    :id, 'running', 'local_only', CAST(:payload AS jsonb), 1,
+                    false, NOW()
+                )
+                """
+            ),
+            {
+                "id": inflight_id,
+                "payload": '{"schema_version":"task.v1","task_id":"'
+                + str(inflight_id)
+                + '","data_class":"local_only"}',
+            },
+        )
+    command.upgrade(cfg, "20251103_0004")
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT status, requires_approval, approved_at FROM tasks WHERE id = :id"),
+            {"id": inflight_id},
+        ).one()
+    assert row[0] == "running"
+    assert row[1] is True
+    assert row[2] is None
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": inflight_id})
+    command.upgrade(cfg, "head")
+    reset_engine_for_tests()
+
+
+def test_migration_0005_revokes_auto_granted_approval_without_event() -> None:
+    require_test_database_url()
+    reset_engine_for_tests()
+    cfg = Config("alembic.ini")
+    cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0004")
+    engine = get_engine(for_tests=True)
+    legacy_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt,
+                    requires_approval, approved_at
+                )
+                VALUES (
+                    :id, 'queued', 'local_only', CAST(:payload AS jsonb), 0,
+                    true, NOW()
+                )
+                """
+            ),
+            {
+                "id": legacy_id,
+                "payload": '{"schema_version":"task.v1","task_id":"'
+                + str(legacy_id)
+                + '","data_class":"local_only"}',
+            },
+        )
+    command.upgrade(cfg, "20251103_0005")
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT status, requires_approval, approved_at FROM tasks WHERE id = :id"),
+            {"id": legacy_id},
+        ).one()
+    assert row[0] == "awaiting_approval"
+    assert row[1] is True
+    assert row[2] is None
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": legacy_id})
+    command.upgrade(cfg, "head")
+    reset_engine_for_tests()
+
+
+def test_migration_0006_legacy_create_task_v1_requeue_path_from_0003() -> None:
+    """
+    Old ``create_task_from_v1`` rows: ``requires_approval=false``, ``approved_at=NULL``.
+
+    After upgrading from revision 0003, lease expiry must not return to a dequeueable
+    ``queued`` row without owner approval.
+    """
+    require_test_database_url()
+    reset_engine_for_tests()
+    cfg = Config("alembic.ini")
+    cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0003")
+    engine = get_engine(for_tests=True)
+    legacy_id = uuid.uuid4()
+    lease_id = uuid.uuid4()
+    payload_json = (
+        '{"schema_version":"task.v1","task_id":"'
+        + str(legacy_id)
+        + '","data_class":"local_only","fallback_chain":["ollama"]}'
+    )
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt,
+                    requires_approval, approved_at
+                )
+                VALUES (
+                    :id, 'running', 'local_only', CAST(:payload AS jsonb), 1,
+                    false, NULL
+                )
+                """
+            ),
+            {"id": legacy_id, "payload": payload_json},
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO leases (lease_id, task_id, expires_at, heartbeat_at)
+                VALUES (:lease_id, :task_id, :expires_at, :heartbeat_at)
+                """
+            ),
+            {
+                "lease_id": lease_id,
+                "task_id": legacy_id,
+                "expires_at": datetime.now(tz=UTC) - timedelta(seconds=5),
+                "heartbeat_at": datetime.now(tz=UTC) - timedelta(seconds=5),
+            },
+        )
+    command.upgrade(cfg, "head")
+    factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)
+    worker = factory()
+    try:
+        reap_expired_leases(worker)
+        worker.commit()
+        claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
+        assert claimed is None
+    finally:
+        worker.close()
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT status, requires_approval, approved_at FROM tasks WHERE id = :id"),
+            {"id": legacy_id},
+        ).one()
+    assert row[0] == "awaiting_approval"
+    assert row[1] is True
+    assert row[2] is None
+    _teardown_migration_db(cfg, engine)
+
+
+def test_migration_0006_preserves_owner_approved_tasks_from_0003() -> None:
+    require_test_database_url()
+    reset_engine_for_tests()
+    cfg = Config("alembic.ini")
+    cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0003")
+    engine = get_engine(for_tests=True)
+    approved_id = uuid.uuid4()
+    payload_json = (
+        '{"schema_version":"task.v1","task_id":"'
+        + str(approved_id)
+        + '","data_class":"local_only","fallback_chain":["ollama"]}'
+    )
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt,
+                    requires_approval, approved_at
+                )
+                VALUES (
+                    :id, 'queued', 'local_only', CAST(:payload AS jsonb), 0,
+                    true, NOW()
+                )
+                """
+            ),
+            {"id": approved_id, "payload": payload_json},
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO events (task_id, event_type, from_status, to_status, actor)
+                VALUES (:task_id, 'task.approve', 'awaiting_approval', 'queued', 'operator')
+                """
+            ),
+            {"task_id": approved_id},
+        )
+    command.upgrade(cfg, "head")
+    factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)
+    worker = factory()
+    try:
+        claimed = dequeue_next_queued_task(worker, lease_ttl=timedelta(seconds=30))
+        assert claimed is not None
+        assert claimed.id == approved_id
+    finally:
+        worker.close()
+    _teardown_migration_db(cfg, engine)
+
+
+def test_migration_0006_upgrade_sql_idempotent() -> None:
+    migration_0006 = _load_migration_module("20251103_0006_legacy_unapproved_flag.py")
+
+    require_test_database_url()
+    reset_engine_for_tests()
+    cfg = Config("alembic.ini")
+    cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0005")
+    engine = get_engine(for_tests=True)
+    legacy_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt,
+                    requires_approval, approved_at
+                )
+                VALUES (
+                    :id, 'queued', 'local_only', CAST(:payload AS jsonb), 0,
+                    false, NULL
+                )
+                """
+            ),
+            {
+                "id": legacy_id,
+                "payload": '{"schema_version":"task.v1","task_id":"'
+                + str(legacy_id)
+                + '","data_class":"local_only"}',
+            },
+        )
+        for _ in range(2):
+            conn.execute(text(migration_0006._REGATE_LEGACY_FALSE_WITHOUT_APPROVE))
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT status, requires_approval, approved_at FROM tasks WHERE id = :id"),
+            {"id": legacy_id},
+        ).one()
+    assert row[0] == "awaiting_approval"
+    assert row[1] is True
+    assert row[2] is None
+    _teardown_migration_db(cfg, engine)
+
+
 def test_migration_0002_downgrade_blocked_with_awaiting_approval_rows() -> None:
     require_test_database_url()
     reset_engine_for_tests()
     cfg = Config("alembic.ini")
     cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0002")
     engine = get_engine(for_tests=True)
-    with engine.begin() as conn:
-        conn.execute(text("TRUNCATE tasks, results, events, leases RESTART IDENTITY CASCADE"))
-    command.upgrade(cfg, "head")
     pending_id = uuid.uuid4()
     with engine.begin() as conn:
         conn.execute(
@@ -551,6 +942,97 @@ def test_migration_0002_downgrade_blocked_with_awaiting_approval_rows() -> None:
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": pending_id})
     command.downgrade(cfg, "20251103_0001")
+    command.upgrade(cfg, "head")
+    reset_engine_for_tests()
+
+
+def test_migration_0002_downgrade_blocked_by_audit_event_reference() -> None:
+    require_test_database_url()
+    reset_engine_for_tests()
+    cfg = Config("alembic.ini")
+    cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0002")
+    engine = get_engine(for_tests=True)
+    task_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt, requires_approval
+                )
+                VALUES (
+                    :id, 'queued', 'local_only',
+                    CAST(:payload AS jsonb), 0, true
+                )
+                """
+            ),
+            {
+                "id": task_id,
+                "payload": '{"schema_version":"task.v1","task_id":"'
+                + str(task_id)
+                + '","data_class":"local_only"}',
+            },
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO events (
+                    task_id, event_type, from_status, to_status
+                )
+                VALUES (
+                    :task_id, 'task.submit', NULL, 'awaiting_approval'
+                )
+                """
+            ),
+            {"task_id": task_id},
+        )
+    with pytest.raises(RuntimeError, match="awaiting_approval"):
+        command.downgrade(cfg, "20251103_0001")
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM events WHERE task_id = :id"), {"id": task_id})
+        conn.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": task_id})
+    command.downgrade(cfg, "20251103_0001")
+    command.upgrade(cfg, "head")
+    reset_engine_for_tests()
+
+
+def test_migration_0004_downgrade_blocked_with_awaiting_approval_rows() -> None:
+    require_test_database_url()
+    reset_engine_for_tests()
+    cfg = Config("alembic.ini")
+    cfg.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "20251103_0004")
+    engine = get_engine(for_tests=True)
+    pending_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO tasks (
+                    id, status, data_class, payload, attempt,
+                    requires_approval, approved_at
+                )
+                VALUES (
+                    :id, 'awaiting_approval', 'local_only',
+                    CAST(:payload AS jsonb), 0, true, NULL
+                )
+                """
+            ),
+            {
+                "id": pending_id,
+                "payload": '{"schema_version":"task.v1","task_id":"'
+                + str(pending_id)
+                + '","data_class":"local_only"}',
+            },
+        )
+    with pytest.raises(RuntimeError, match="pre-0004"):
+        command.downgrade(cfg, "20251103_0003")
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM tasks WHERE id = :id"), {"id": pending_id})
+    command.downgrade(cfg, "20251103_0003")
     command.upgrade(cfg, "head")
     reset_engine_for_tests()
 

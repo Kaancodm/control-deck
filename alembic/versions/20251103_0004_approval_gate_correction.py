@@ -17,44 +17,40 @@ down_revision: str | Sequence[str] | None = "20251103_0003"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+_CORRECT_QUEUED_WITHOUT_APPROVAL = """
+UPDATE tasks
+SET status = 'awaiting_approval',
+    requires_approval = true,
+    approved_at = NULL
+WHERE status = 'queued'
+  AND approved_at IS NULL
+"""
+
+_CORRECT_QUEUED_FALSE_REQUIRES_APPROVAL = """
+UPDATE tasks
+SET status = 'awaiting_approval',
+    requires_approval = true,
+    approved_at = NULL
+WHERE status = 'queued'
+  AND requires_approval = false
+  AND approved_at IS NOT NULL
+"""
+
+_CORRECT_INFLIGHT_FALSE_REQUIRES_APPROVAL = """
+UPDATE tasks
+SET requires_approval = true,
+    approved_at = NULL
+WHERE status IN ('leased', 'running')
+  AND requires_approval = false
+  AND approved_at IS NOT NULL
+"""
+
 
 def upgrade() -> None:
     # Idempotent: safe on fresh DBs and on DBs that ran the old 0002 mass auto-approve.
-    op.execute(
-        sa.text(
-            """
-            UPDATE tasks
-            SET approved_at = COALESCE(approved_at, created_at)
-            WHERE approved_at IS NULL
-              AND status IN ('leased', 'running')
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
-            UPDATE tasks
-            SET status = 'awaiting_approval',
-                requires_approval = true,
-                approved_at = NULL
-            WHERE status = 'queued'
-              AND approved_at IS NULL
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            """
-            UPDATE tasks
-            SET status = 'awaiting_approval',
-                requires_approval = true,
-                approved_at = NULL
-            WHERE status = 'queued'
-              AND requires_approval = false
-              AND approved_at IS NOT NULL
-            """
-        )
-    )
+    op.execute(sa.text(_CORRECT_QUEUED_WITHOUT_APPROVAL))
+    op.execute(sa.text(_CORRECT_QUEUED_FALSE_REQUIRES_APPROVAL))
+    op.execute(sa.text(_CORRECT_INFLIGHT_FALSE_REQUIRES_APPROVAL))
 
 
 def downgrade() -> None:

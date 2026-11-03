@@ -1,4 +1,7 @@
-.PHONY: lint test validate reference
+.PHONY: lint test validate reference set-password
+
+set-password:
+	uv run python scripts/set_password.py
 
 lint:
 	uv run ruff check --no-cache .

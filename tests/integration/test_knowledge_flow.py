@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.schemas import DataClass
 from app.db.models import Event, Task
 from app.db.session import get_engine
-from app.kb.contracts import KnowledgeError
+from app.kb.contracts import KnowledgeError, digest_text
 from app.kb.export import export_task
 from app.kb.repository import KnowledgeStore
 from app.kb.state import ContextSnapshot, KnowledgeExport
@@ -140,14 +140,22 @@ def test_local_context_cannot_be_submitted_for_cloud(api_client, knowledge_store
     assert response.status_code == 422
 
 
-def test_context_approval_digest_tampering_blocks_claim(api_client, knowledge_store):
+def test_context_snapshot_tampering_blocks_claim(api_client, knowledge_store):
     task_id = create_context_task(api_client, knowledge_store)
     approve(api_client, task_id)
     with Session(get_engine(for_tests=True)) as session:
-        event = session.scalar(
-            select(Event).where(Event.task_id == task_id, Event.event_type == "task.approve")
+        snapshot = session.scalar(select(ContextSnapshot).where(ContextSnapshot.task_id == task_id))
+        replacement = ContextSnapshot(
+            task_id=snapshot.task_id,
+            position=snapshot.position,
+            reference=snapshot.reference,
+            data_class=snapshot.data_class,
+            content="Changed after approval",
+            content_sha256=digest_text("Changed after approval"),
         )
-        event.detail = dict(event.detail) | {"context_hashes": []}
+        session.delete(snapshot)
+        session.flush()
+        session.add(replacement)
         session.commit()
     response = api_client.post("/api/v1/worker/lease", json={"worker": "ollama"}, headers=_worker())
     assert response.status_code == 404

@@ -25,6 +25,15 @@ from app.routing.router import route_task
 class CaseOutcome(StrEnum):
     PASS = "pass"
     FAIL = "fail"
+    SKIP = "skip"
+
+
+class CaseNotApplicable(Exception):
+    """An executor cannot exercise this case on its lane; the run counts it as skipped.
+
+    Executors raise it only after routing and the privacy gates have run, so blocked
+    traps still surface as ``blocked`` results and never as skipped cases.
+    """
 
 
 @dataclass(frozen=True)
@@ -236,6 +245,7 @@ class CaseRunResult:
     outcome: CaseOutcome
     duration_seconds: float
     failures: list[ExpectCheckFailure] = field(default_factory=list)
+    skip_reason: str | None = None
 
 
 @dataclass
@@ -251,6 +261,10 @@ class RunSummary:
         return sum(1 for r in self.results if r.outcome == CaseOutcome.FAIL)
 
     @property
+    def skipped(self) -> int:
+        return sum(1 for r in self.results if r.outcome == CaseOutcome.SKIP)
+
+    @property
     def total(self) -> int:
         return len(self.results)
 
@@ -263,14 +277,20 @@ def run_cases(
     for loaded in cases:
         started = time.perf_counter()
         failures: list[ExpectCheckFailure] = []
+        skip_reason: str | None = None
         try:
             task = TaskV1.model_validate(loaded.task_payload)
             execution = executor.execute(task)
             failures = evaluate_expect(loaded.case.expect, execution)
+        except CaseNotApplicable as exc:
+            skip_reason = str(exc) or "not applicable to this executor"
         except Exception as exc:  # noqa: BLE001 — per-case isolation for reference runs
             failures = [ExpectCheckFailure(rule="execution", detail=f"{type(exc).__name__}: {exc}")]
         duration = time.perf_counter() - started
-        outcome = CaseOutcome.PASS if not failures else CaseOutcome.FAIL
+        if skip_reason is not None:
+            outcome = CaseOutcome.SKIP
+        else:
+            outcome = CaseOutcome.PASS if not failures else CaseOutcome.FAIL
         results.append(
             CaseRunResult(
                 case_id=loaded.case.id,
@@ -278,6 +298,7 @@ def run_cases(
                 outcome=outcome,
                 duration_seconds=duration,
                 failures=failures,
+                skip_reason=skip_reason,
             )
         )
     return RunSummary(results=results)
@@ -290,7 +311,12 @@ def format_summary(summary: RunSummary) -> str:
         lines.append(
             f"[{status_label}] {result.case_id} ({result.category}) {result.duration_seconds:.3f}s"
         )
+        if result.skip_reason is not None:
+            lines.append(f"  - skipped: {result.skip_reason}")
         for failure in result.failures:
             lines.append(f"  - {failure.rule}: {failure.detail}")
-    lines.append(f"Summary: {summary.passed}/{summary.total} passed, {summary.failed} failed")
+    lines.append(
+        f"Summary: {summary.passed}/{summary.total} passed, "
+        f"{summary.failed} failed, {summary.skipped} skipped"
+    )
     return "\n".join(lines)

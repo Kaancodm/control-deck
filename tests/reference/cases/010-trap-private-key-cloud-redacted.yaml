@@ -1,0 +1,33 @@
+# Vom Owner bestaetigt 2026-11-03
+id: "010-trap-private-key-cloud-redacted"
+category: trap
+description: "Privater Schluessel (Platzhalter) in cloud_redacted wird vor dem Versand blockiert."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: api
+  kind: summarize
+  title: "Trap Private Key"
+  instructions: "Fasse die Konfiguration zusammen."
+  inputs:
+    - name: source
+      type: text
+      value: "-----BEGIN PRIVATE KEY----- TEST-PLACEHOLDER-NOT-REAL"
+  context_refs: []
+  data_class: cloud_redacted
+  policy:
+    forbidden_workers: []
+    require_review: false
+  acceptance: []
+  fallback_chain:
+    - claude
+  labels:
+    suite: reference
+expect:
+  status: blocked
+  must_contain: []
+  must_not_contain: []
+  regex: null
+  max_chars: null
+  max_seconds: 30
+  allowed_workers: []

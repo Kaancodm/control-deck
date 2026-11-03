@@ -11,7 +11,7 @@ from uuid import uuid4
 from app.core.schemas import ResultStatus, TaskV1, Worker
 from app.redaction.artifacts import PayloadArtifactError, write_payload_sent
 from app.redaction.payload import PayloadBuild
-from app.reference.runner import ExecutionResult, FakeExecutor
+from app.reference.runner import CaseNotApplicable, ExecutionResult, FakeExecutor
 from app.workers.contracts import AttemptContext
 from app.workers.lanes.ollama import OllamaExecutor, OllamaSimulation
 
@@ -40,7 +40,11 @@ class OllamaReferenceExecutor(FakeExecutor):
         self, task: TaskV1, payload: PayloadBuild, worker: Worker
     ) -> ExecutionResult:
         if worker != Worker.OLLAMA:
-            return ExecutionResult(ResultStatus.BLOCKED, "", worker, 0.0)
+            # Routing and the privacy gate already passed; the Ollama lane is local and
+            # never substitutes for a cloud lane, so the case is not applicable here.
+            raise CaseNotApplicable(
+                f"routed to {worker.value}; the Ollama lane does not execute cloud cases"
+            )
 
         try:
             with TemporaryDirectory(prefix="control-deck-reference-") as directory:

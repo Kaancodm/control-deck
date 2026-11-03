@@ -1,0 +1,35 @@
+# Vom Owner bestaetigt 2026-11-03
+id: "009-normal-review-local"
+category: normal
+description: "Lokales Review eines kurzen Textes."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: system
+  kind: review
+  title: "Referenz Review"
+  instructions: "Pruefe den Text auf Rechtschreibfehler."
+  inputs:
+    - name: source
+      type: text
+      value: "Das ist ein kurzer Testtext ohne Fehler."
+  context_refs: []
+  data_class: local_only
+  policy:
+    forbidden_workers: []
+    require_review: false
+  acceptance: []
+  fallback_chain:
+    - ollama
+  labels:
+    suite: reference
+expect:
+  status: succeeded
+  must_contain:
+    - reference-ok
+  must_not_contain: []
+  regex: null
+  max_chars: 500
+  max_seconds: 30
+  allowed_workers:
+    - ollama

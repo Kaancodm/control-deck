@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.core.schemas import ResultStatus, TaskV1, Worker
+from app.core.schemas import DataClass, ResultStatus, TaskV1, Worker
 from app.reference.load import load_all_cases
 from app.reference.runner import (
+    CaseNotApplicable,
     CaseOutcome,
     ExecutionResult,
     ExpectCheckFailure,
     FakeExecutor,
     evaluate_expect,
+    format_summary,
     run_cases,
 )
 from app.reference.schemas import ExpectStatus, ReferenceExpect
@@ -100,9 +102,32 @@ def test_evaluate_regex_max_chars_max_seconds_workers() -> None:
 def test_fake_executor_and_run_cases_integration() -> None:
     cases, _issues = load_all_cases(CASES_DIR)
     summary = run_cases(cases, FakeExecutor())
-    assert summary.total == 4
+    assert summary.total == 12
     assert summary.failed == 0
+    assert summary.skipped == 0
     assert all(r.outcome == CaseOutcome.PASS for r in summary.results)
+
+
+def test_run_cases_counts_not_applicable_as_skipped_without_failing() -> None:
+    cases, _issues = load_all_cases(CASES_DIR)
+
+    class LocalOnlyExecutor(FakeExecutor):
+        def execute(self, task: TaskV1) -> ExecutionResult:
+            if task.data_class != DataClass.LOCAL_ONLY:
+                raise CaseNotApplicable("cloud lane not available on this executor")
+            return super().execute(task)
+
+    summary = run_cases(cases, LocalOnlyExecutor())
+    skipped = [r for r in summary.results if r.outcome == CaseOutcome.SKIP]
+    assert {r.case_id[:3] for r in skipped} == {"002", "007", "008", "010"}
+    assert all(r.failures == [] for r in skipped)
+    assert summary.failed == 0
+    assert summary.skipped == 4
+    assert summary.passed == 8
+    text = format_summary(summary)
+    assert "[SKIP] 002-trap-fake-api-key (trap)" in text
+    assert "  - skipped: cloud lane not available on this executor" in text
+    assert text.endswith("Summary: 8/12 passed, 0 failed, 4 skipped")
 
 
 def test_fake_executor_blocked_on_trap_pattern() -> None:

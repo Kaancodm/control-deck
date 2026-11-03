@@ -1,0 +1,35 @@
+# Vom Owner bestaetigt 2026-11-03
+id: "008-normal-research-cloud-ok"
+category: normal
+description: "cloud_ok: Recherche-Auftrag laeuft ueber die Cloud-Kette."
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: api
+  kind: research
+  title: "Referenz Recherche"
+  instructions: "Nenne zwei Vorteile lokaler Sprachmodelle."
+  inputs:
+    - name: question
+      type: text
+      value: "Vorteile lokaler Modelle"
+  context_refs: []
+  data_class: cloud_ok
+  policy:
+    forbidden_workers: []
+    require_review: false
+  acceptance: []
+  fallback_chain:
+    - claude
+    - ollama
+  labels:
+    suite: reference
+expect:
+  status: succeeded
+  must_contain:
+    - reference-ok
+  must_not_contain: []
+  regex: null
+  max_chars: 500
+  max_seconds: 30
+  allowed_workers: []

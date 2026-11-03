@@ -15,13 +15,16 @@ from app.core.schemas import ResultStatus, TaskV1, Worker
 from app.redaction.artifacts import PayloadArtifactError
 from app.redaction.payload import render_payload
 from app.reference import ollama as reference_ollama
+from app.reference.load import load_all_cases
 from app.reference.ollama import OllamaReferenceExecutor
+from app.reference.runner import CaseNotApplicable, CaseOutcome, format_summary, run_cases
 from app.workers.contracts import AttemptContext
 from app.workers.lanes import ollama
 from app.workers.lanes.ollama import OllamaSimulation
 from scripts.run_reference import main
 
 MODEL = "reference-fixture:configured"
+CASES_DIR = Path(__file__).resolve().parents[1] / "reference" / "cases"
 
 
 def _task(**updates):
@@ -30,10 +33,62 @@ def _task(**updates):
     return TaskV1.model_validate(payload)
 
 
-@pytest.mark.parametrize("arguments", [[], ["--executor", "ollama-fake-cli", "--model", MODEL]])
-def test_reference_cli_preserves_all_existing_cases(arguments, capsys):
+@pytest.mark.parametrize(
+    ("arguments", "summary"),
+    [
+        ([], "Summary: 12/12 passed, 0 failed, 0 skipped"),
+        (
+            ["--executor", "ollama-fake-cli", "--model", MODEL],
+            "Summary: 10/12 passed, 0 failed, 2 skipped",
+        ),
+    ],
+)
+def test_reference_cli_preserves_all_existing_cases(arguments, summary, capsys):
     assert main(arguments) == 0
-    assert "Summary: 4/4 passed, 0 failed" in capsys.readouterr().out
+    assert summary in capsys.readouterr().out
+
+
+def test_reference_cli_counts_cloud_cases_as_skipped_and_keeps_traps_blocked(capsys):
+    assert main(["--executor", "ollama-fake-cli", "--model", MODEL]) == 0
+    out = capsys.readouterr().out
+    assert "[SKIP] 007-normal-summarize-redacted-pii (normal)" in out
+    assert "[SKIP] 008-normal-research-cloud-ok (normal)" in out
+    assert "[PASS] 002-trap-fake-api-key (trap)" in out
+    assert "[PASS] 010-trap-private-key-cloud-redacted (trap)" in out
+    assert "[PASS] 011-trap-token-in-local-only (trap)" in out
+    assert "[FAIL]" not in out
+
+
+def test_reference_run_cases_skips_cloud_routed_cases_only(monkeypatch):
+    cases, issues = load_all_cases(CASES_DIR)
+    assert issues == []
+    executed_models = []
+    original_run = ollama.run_process
+
+    def inspect_process(command, **kwargs):
+        if command[-2:] == ("run", MODEL):
+            executed_models.append(command[-1])
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(ollama, "run_process", inspect_process)
+    summary = run_cases(cases, OllamaReferenceExecutor(model=MODEL))
+    outcomes = {result.case_id: result.outcome for result in summary.results}
+    skipped = sorted(
+        case_id for case_id, outcome in outcomes.items() if outcome == CaseOutcome.SKIP
+    )
+    assert skipped == ["007-normal-summarize-redacted-pii", "008-normal-research-cloud-ok"]
+    assert outcomes["002-trap-fake-api-key"] == CaseOutcome.PASS
+    assert outcomes["010-trap-private-key-cloud-redacted"] == CaseOutcome.PASS
+    assert outcomes["011-trap-token-in-local-only"] == CaseOutcome.PASS
+    assert summary.failed == 0
+    assert summary.skipped == 2
+    assert summary.passed == summary.total - 2
+    # Only locally routed, gate-approved cases reach the fake CLI: 001, 004, 005, 006, 009.
+    assert len(executed_models) == 5
+    text = format_summary(summary)
+    assert "[SKIP] 007-normal-summarize-redacted-pii (normal)" in text
+    assert "  - skipped: " in text
+    assert text.endswith("Summary: 10/12 passed, 0 failed, 2 skipped")
 
 
 @pytest.mark.parametrize(
@@ -106,27 +161,59 @@ def test_reference_archives_exact_prepared_bytes_and_restores_output_only_on_hos
 
 
 @pytest.mark.parametrize(
-    ("updates", "worker"),
+    "updates",
     [
-        ({"data_class": "cloud_ok", "fallback_chain": ["claude", "ollama"]}, Worker.CLAUDE),
-        ({"data_class": "cloud_ok", "fallback_chain": ["codex", "ollama"]}, Worker.CODEX),
-        ({"fallback_chain": ["claude"], "policy": {"allowed_workers": ["claude"]}}, Worker.OLLAMA),
-        ({"policy": {"allowed_workers": []}}, Worker.OLLAMA),
+        {"data_class": "cloud_ok", "fallback_chain": ["claude", "ollama"]},
+        {"data_class": "cloud_ok", "fallback_chain": ["codex", "ollama"]},
+        {"data_class": "cloud_redacted", "fallback_chain": ["claude", "ollama"]},
     ],
 )
-def test_reference_never_substitutes_ollama_for_disallowed_or_other_routing(
-    updates, worker, monkeypatch
-):
+def test_reference_never_substitutes_ollama_for_cloud_routing(updates, monkeypatch):
     executor = OllamaReferenceExecutor(model=MODEL)
 
     def unexpected(*args, **kwargs):
-        pytest.fail("Blocked or non-Ollama routing must not execute")
+        pytest.fail("Non-Ollama routing must not execute")
+
+    monkeypatch.setattr(ollama, "run_process", unexpected)
+    with pytest.raises(CaseNotApplicable):
+        executor.execute(_task(**updates))
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"fallback_chain": ["claude"], "policy": {"allowed_workers": ["claude"]}},
+        {"policy": {"allowed_workers": []}},
+    ],
+)
+def test_reference_blocks_disallowed_routing_before_cli(updates, monkeypatch):
+    executor = OllamaReferenceExecutor(model=MODEL)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Blocked routing must not execute")
 
     monkeypatch.setattr(ollama, "run_process", unexpected)
     result = executor.execute(_task(**updates))
     assert result.status == ResultStatus.BLOCKED
     assert result.output_text == ""
-    assert result.worker == worker
+    assert result.worker == Worker.OLLAMA
+
+
+def test_reference_cloud_trap_is_blocked_not_skipped(monkeypatch):
+    executor = OllamaReferenceExecutor(model=MODEL)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Detected credentials must never reach any lane")
+
+    monkeypatch.setattr(ollama, "run_process", unexpected)
+    task = _task(
+        data_class="cloud_ok",
+        fallback_chain=["claude"],
+        instructions="credential=" + "synthetic-fixture-value",
+    )
+    result = executor.execute(task)
+    assert result.status == ResultStatus.BLOCKED
+    assert result.output_text == ""
 
 
 def test_reference_privacy_gate_runs_before_cli(monkeypatch):

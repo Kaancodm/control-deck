@@ -358,16 +358,23 @@ def test_acceptance_failure_returns_to_the_core_without_a_hidden_claude_retry(
     outcome = _runner(db_session, tmp_path, _executor()).run_once()
 
     assert outcome.action == "completed"
-    assert outcome.status == "queued"
+    # Contract (Etappe 10): acceptance_failed -> review, no retry.
+    assert outcome.status == "review"
     assert len(_runs(process_calls)) == 1
     result = _stored(db_session, task_id)
     assert result["error"]["code"] == "acceptance_failed"
     assert result["checks"][0]["passed"] is False
     assert db_session.get(Task, task_id).attempt == 1
-    retry = db_session.scalar(
-        select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.retry")
+    assert (
+        db_session.scalar(
+            select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.retry")
+        )
+        is None
     )
-    assert retry["reason"] == "acceptance_failed"
+    review = db_session.scalar(
+        select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.review")
+    )
+    assert review["reason"] == "acceptance_failed"
 
 
 @pytest.mark.parametrize(
@@ -390,6 +397,31 @@ def test_provider_errors_are_safe_results_and_health_observations(
     events = list(db_session.scalars(select(Event.detail).where(Event.task_id == task_id)))
     audit = json.dumps(events) + (tmp_path / "runs" / str(task_id) / "1" / "claude.log").read_text()
     assert "Synthetic provider failure" not in audit + json.dumps(result)
+
+
+def test_http_400_refusal_pauses_the_claude_lane_and_sets_the_lane_flag(
+    db_session, tmp_path, process_calls
+):
+    task_id = _task(db_session)
+    runner = _runner(db_session, tmp_path, _executor(behavior="policy_400"))
+
+    outcome = runner.run_once()
+
+    assert outcome.action == "completed"
+    assert len(_runs(process_calls)) == 1
+    result = _stored(db_session, task_id)
+    assert result["error"]["code"] == "policy_blocked"
+    assert result["output"] == {"text": "", "files": []}
+    assert read_settings(db_session).lane_paused[Worker.CLAUDE]
+    health = get_lane_status(db_session, lane=Worker.CLAUDE)
+    assert health.status == "paused"
+    assert health.reason == "simulation_policy_blocked"
+    db_session.commit()
+    calls_before = len(process_calls)
+
+    _task(db_session)
+    assert runner.run_once().error_code == "lane_paused"
+    assert len(process_calls) == calls_before
 
 
 def test_paused_poll_preserves_authentication_failure_until_owner_resumes(
@@ -554,19 +586,18 @@ def test_claude_rate_limit_backoff_survives_new_runners_then_advances(
     assert len(_runs(process_calls)) == 3
 
 
-def test_empty_claude_completion_exhausts_same_lane_without_fallback(
+def test_empty_claude_completion_goes_to_review_without_fallback(
     db_session, tmp_path, router_file, process_calls
 ):
     _enable_fallback(router_file)
     task_id = _task(db_session, max_attempts=2)
-    assert _runner(db_session, tmp_path, _executor(behavior="empty")).run_once().status == "queued"
+    assert _runner(db_session, tmp_path, _executor(behavior="empty")).run_once().status == "review"
     assert _ollama_runner(db_session, tmp_path).run_once().action == "idle"
-    assert _runner(db_session, tmp_path, _executor(behavior="empty")).run_once().status == "failed"
     db_session.expire_all()
     task = db_session.get(Task, task_id)
-    assert task.attempt == 2 and task.retry_state["pinned_worker"] == "claude"
+    assert task.attempt == 1 and task.retry_state["pinned_worker"] == "claude"
     assert task.deadline_at is None
-    assert len(_runs(process_calls)) == 2
+    assert len(_runs(process_calls)) == 1
     results = list(db_session.scalars(select(Result.payload).where(Result.task_id == task_id)))
     assert all(result["error"]["code"] == "acceptance_failed" for result in results)
 

@@ -349,6 +349,42 @@ def test_protocol_rejects_incomplete_tool_or_invalid_usage_results(change):
     assert parse_claude_response(json.dumps(message).encode(), 0).error == ErrorCode.INTERNAL
 
 
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (400, ErrorCode.POLICY_BLOCKED),
+        (401, ErrorCode.AUTH_REQUIRED),
+        (403, ErrorCode.POLICY_BLOCKED),
+        (429, ErrorCode.RATE_LIMITED),
+        (500, ErrorCode.WORKER_UNAVAILABLE),
+        (502, ErrorCode.WORKER_UNAVAILABLE),
+        (503, ErrorCode.WORKER_UNAVAILABLE),
+        (529, ErrorCode.WORKER_UNAVAILABLE),
+    ],
+)
+def test_status_table_covers_400_401_403_429_and_server_codes(status, code):
+    message = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": True,
+        "api_error_status": status,
+    }
+    response = parse_claude_response(json.dumps(message).encode(), 1)
+    assert response.error == code
+    assert response.text == ""
+
+
+def test_http_400_is_policy_blocked_and_not_internal(context, monkeypatch):
+    calls = observe(monkeypatch)
+    result = executor("policy_400").execute(context)
+    assert result.status == ResultStatus.FAILED
+    assert result.error.code == ErrorCode.POLICY_BLOCKED
+    assert result.error.code != ErrorCode.INTERNAL
+    assert result.output.text == ""
+    assert [command[2] for command, _ in calls] == ["info", "run", "rm"]
+    assert_valid(result)
+
+
 def test_zero_exit_does_not_hide_structured_rate_limit():
     response = parse_claude_response(
         b'{"type":"result","subtype":"success","is_error":true,"api_error_status":429}', 0

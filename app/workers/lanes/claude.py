@@ -89,6 +89,7 @@ def parse_claude_response(raw: bytes, returncode: int | None) -> ClaudeResponse:
             status = message.get("api_error_status")
             if type(status) is int:
                 errors = {
+                    400: ErrorCode.POLICY_BLOCKED,
                     401: ErrorCode.AUTH_REQUIRED,
                     403: ErrorCode.POLICY_BLOCKED,
                     429: ErrorCode.RATE_LIMITED,

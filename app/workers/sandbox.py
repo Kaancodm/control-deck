@@ -163,6 +163,7 @@ class CleanroomSimulation:
                 "empty",
                 "auth",
                 "policy",
+                "policy_400",
                 "rate_limit",
                 "unavailable",
                 "internal",

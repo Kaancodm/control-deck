@@ -44,7 +44,13 @@ def main() -> int:
         "permission_denials": [],
         "usage": {"input_tokens": 7, "output_tokens": 3},
     }
-    codes = {"auth": 401, "policy": 403, "rate_limit": 429, "unavailable": 503}
+    codes = {
+        "auth": 401,
+        "policy": 403,
+        "policy_400": 400,
+        "rate_limit": 429,
+        "unavailable": 503,
+    }
     if behavior in codes or behavior in {"internal", "error_zero"}:
         result.update(is_error=True, result="", api_error_status=codes.get(behavior, 500))
         if behavior in {"internal", "error_zero"}:

@@ -405,3 +405,11 @@ Offen bleiben reale Tailnet-/TLS-Bindung, externe Erreichbarkeit, private Konfig
 Betriebsrechte und echte Login-Einrichtung. Keine Netzwerk-Scans, echten Logins,
 Anbieter-/Modellaufrufe, API-Keys, produktiven DB-Verbindungen oder Serveraenderungen.
 Details: [SECURITY.md](SECURITY.md), [UI.md](UI.md). Keine neuen inhaltlichen Referenzfaelle.
+
+## Etappe 16: Betriebsvorlagen in Arbeit
+
+Gestapelt auf Etappe 15. Sichere Backup-/Restore-Werkzeuge, explizite Retention,
+Betriebsereignisse und systemd-Benutzervorlagen werden ausschliesslich als Repo-Code
+mit Fake-Prozessen und isolierten Testdatenbanken entwickelt. Noch nicht reviewbereit.
+Keine Installation, Dienststarts oder Serverzugriffe. Host-Bindung, Lingering,
+Backup-Ziel und echte Lane-Prozesse bleiben Inbetriebnahme.

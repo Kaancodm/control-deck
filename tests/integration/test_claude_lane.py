@@ -373,6 +373,24 @@ def test_provider_errors_are_safe_results_and_health_observations(
     assert "Synthetic provider failure" not in audit + json.dumps(result)
 
 
+def test_paused_poll_preserves_authentication_failure_until_owner_resumes(
+    db_session, tmp_path, process_calls
+):
+    _task(db_session)
+    runner = _runner(db_session, tmp_path, _executor(behavior="auth"))
+    assert runner.run_once().action == "completed"
+    update_settings(db_session, {"lanes.claude.paused": True})
+    db_session.commit()
+    calls_before = len(process_calls)
+
+    assert runner.run_once().error_code == "lane_paused"
+    db_session.expire_all()
+    health = get_lane_status(db_session, lane=Worker.CLAUDE)
+    assert health.status == "auth_required"
+    assert health.reason == "simulation_auth_required"
+    assert len(process_calls) == calls_before
+
+
 @pytest.mark.parametrize("control", ["cancel", "deadline", "lease_loss"])
 def test_active_claude_stops_on_owner_control_or_lease_loss_without_late_result(
     db_session, tmp_path, monkeypatch, control

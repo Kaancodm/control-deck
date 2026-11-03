@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.core.schemas import ErrorCode, Worker
+from app.core.schemas import ErrorCode, ResultStatus, Worker
 
 _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "simulation_ready",
@@ -45,6 +45,34 @@ class AttemptHealth:
     last_error_at: datetime | None = None
     last_attempt_at: datetime | None = None
     last_attempt_success_at: datetime | None = None
+
+
+def completed_attempt(
+    previous: AttemptHealth,
+    *,
+    status: ResultStatus,
+    error_code: ErrorCode | None,
+    recorded_at: datetime,
+) -> AttemptHealth:
+    """Apply one finally accepted result; callers enforce uniqueness and fencing."""
+    if recorded_at.tzinfo is None or not isinstance(status, ResultStatus):
+        raise ValueError("Invalid completed attempt metadata")
+    failed = status in (ResultStatus.FAILED, ResultStatus.BLOCKED)
+    succeeded = status == ResultStatus.SUCCEEDED
+    return AttemptHealth(
+        completed_attempts=previous.completed_attempts + 1,
+        consecutive_failures=(
+            previous.consecutive_failures + 1
+            if failed
+            else 0
+            if succeeded
+            else previous.consecutive_failures
+        ),
+        last_error_code=(error_code or ErrorCode.INTERNAL) if failed else previous.last_error_code,
+        last_error_at=recorded_at if failed else previous.last_error_at,
+        last_attempt_at=recorded_at,
+        last_attempt_success_at=recorded_at if succeeded else previous.last_attempt_success_at,
+    )
 
 
 class LaneHealthView(BaseModel):

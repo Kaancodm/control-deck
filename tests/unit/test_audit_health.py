@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.audit.health import AttemptHealth, LaneObservation, lane_health_view
-from app.core.schemas import ErrorCode, Worker
+from app.audit.health import AttemptHealth, LaneObservation, completed_attempt, lane_health_view
+from app.core.schemas import ErrorCode, ResultStatus, Worker
 
 NOW = datetime(2026, 1, 2, tzinfo=UTC)
 
@@ -112,3 +112,75 @@ def test_unknown_stored_reason_never_becomes_a_message():
 def test_negative_local_budget_is_rejected(changes):
     with pytest.raises(ValueError, match="Invalid local claim counters"):
         view(**changes)
+
+
+def test_three_failed_attempts_then_success_reset_only_the_series():
+    state = AttemptHealth()
+    for index in range(3):
+        state = completed_attempt(
+            state,
+            status=ResultStatus.FAILED,
+            error_code=ErrorCode.TIMEOUT,
+            recorded_at=NOW + timedelta(seconds=index),
+        )
+    assert state.completed_attempts == state.consecutive_failures == 3
+    failed_at = state.last_error_at
+    recovered = completed_attempt(
+        state,
+        status=ResultStatus.SUCCEEDED,
+        error_code=None,
+        recorded_at=NOW + timedelta(seconds=3),
+    )
+    assert recovered.completed_attempts == 4 and recovered.consecutive_failures == 0
+    assert recovered.last_error_code == ErrorCode.TIMEOUT
+    assert recovered.last_error_at == failed_at
+    assert recovered.last_attempt_success_at == NOW + timedelta(seconds=3)
+
+
+def test_cancellation_is_neither_failure_nor_success():
+    previous = AttemptHealth(
+        completed_attempts=2,
+        consecutive_failures=2,
+        last_error_code=ErrorCode.ACCEPTANCE_FAILED,
+        last_error_at=NOW,
+    )
+    result = completed_attempt(
+        previous,
+        status=ResultStatus.CANCELLED,
+        error_code=None,
+        recorded_at=NOW + timedelta(seconds=1),
+    )
+    assert result.completed_attempts == 3 and result.consecutive_failures == 2
+    assert result.last_error_at == NOW and result.last_attempt_success_at is None
+
+
+@pytest.mark.parametrize("code", list(ErrorCode))
+def test_safe_final_error_code_is_retained(code):
+    result = completed_attempt(
+        AttemptHealth(),
+        status=ResultStatus.FAILED,
+        error_code=code,
+        recorded_at=NOW,
+    )
+    assert result.last_error_code == code and result.last_error_at == NOW
+
+
+def test_unclassified_blocked_result_does_not_invent_success():
+    result = completed_attempt(
+        AttemptHealth(),
+        status=ResultStatus.BLOCKED,
+        error_code=None,
+        recorded_at=NOW,
+    )
+    assert result.last_error_code == ErrorCode.INTERNAL
+    assert result.consecutive_failures == 1 and result.last_attempt_success_at is None
+
+
+def test_naive_attempt_timestamp_is_rejected():
+    with pytest.raises(ValueError, match="Invalid completed attempt metadata"):
+        completed_attempt(
+            AttemptHealth(),
+            status=ResultStatus.SUCCEEDED,
+            error_code=None,
+            recorded_at=datetime(2026, 1, 1),
+        )

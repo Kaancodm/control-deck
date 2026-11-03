@@ -15,6 +15,7 @@ from sqlalchemy import (
     literal,
     select,
     table,
+    true,
     union_all,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -91,14 +92,32 @@ def audit_selection(filters: AuditFilter) -> Select[Any]:
 
 def list_audit(session: Session, filters: AuditFilter) -> AuditPage:
     """Return one stable page and total without locks, writes or task sweeps."""
-    selected = audit_selection(filters).subquery()
+    selected = audit_selection(filters).cte("selected_audit")
+    total_query = select(func.count().label("total")).select_from(selected).subquery()
+    page_query = (
+        select(selected)
+        .order_by(selected.c.created_at.desc(), selected.c.source, selected.c.id.desc())
+        .limit(filters.limit)
+        .offset(filters.offset)
+        .subquery()
+    )
     with session.no_autoflush:
-        total = session.scalar(select(func.count()).select_from(selected)) or 0
-        rows = session.execute(
-            select(selected)
-            .order_by(selected.c.created_at.desc(), selected.c.source, selected.c.id.desc())
-            .limit(filters.limit)
-            .offset(filters.offset)
-        ).mappings()
-        items = [project_record({str(key): value for key, value in row.items()}) for row in rows]
+        # Total and page share one READ COMMITTED snapshot, even beyond the end.
+        rows = (
+            session.execute(
+                select(total_query.c.total, page_query)
+                .select_from(total_query.outerjoin(page_query, true()))
+                .order_by(
+                    page_query.c.created_at.desc(), page_query.c.source, page_query.c.id.desc()
+                )
+            )
+            .mappings()
+            .all()
+        )
+        total = int(rows[0]["total"])
+        items = [
+            project_record({str(key): value for key, value in row.items()})
+            for row in rows
+            if row["id"] is not None
+        ]
     return AuditPage(items=items, total=total, limit=filters.limit, offset=filters.offset)

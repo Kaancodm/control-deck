@@ -143,7 +143,8 @@ def test_queries_have_no_writes_or_row_locks(db_session: Session, records):
     finally:
         event.remove(connection, "before_cursor_execute", capture)
     assert page.total == 5 and page.items == []
-    assert len(statements) == 2
+    assert len(statements) == 1
     assert all(
-        statement.startswith("SELECT") and "FOR UPDATE" not in statement for statement in statements
+        statement.startswith("WITH SELECTED_AUDIT AS") and "FOR UPDATE" not in statement
+        for statement in statements
     )

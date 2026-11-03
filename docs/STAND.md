@@ -356,21 +356,44 @@ Dimension sowie semantische Suchqualitaet bleiben offen. Das Live-Profil ist ges
 Keine echten Logins, API-Keys, Anbieteraufrufe, Serveraenderungen oder neuen inhaltlichen
 Referenzfaelle. Details: [WISSENS_DB.md](WISSENS_DB.md).
 
-## Etappe 15: gesicherter Zwischenstand, pausiert
+## Etappe 15: lokal abgeschlossen
 
-Draft-PR #30, Branch `stage/15-hardening`. Gestapelt auf dem frueheren Etappe-14-Stand
-`56998cc`; der Rebase auf den finalen Vorgaenger ist noch offen. Kein Merge.
+Draft-PR: [#30](https://github.com/Kaancodm/control-deck/pull/30), Branch
+`stage/15-hardening`, auf den finalen Etappe-14-Head `150cd43` rebased.
 
-Implementiert: validierter HTTP-Start, Host-/Origin- und Request-Grenzen auch fuer Chunked-Body,
-sichere Fehlerantworten, geschuetztes Passwort-Hash-Werkzeug sowie Migration `0014` fuer
-Passwortbindung, Inaktivitaetsablauf, dauerhafte Login-Sperre und sichere Auth-Ereignisse.
-Eine globale Session-Abmeldung existiert als DB-Service; die UI-Anbindung bleibt offen.
+Die vollstaendige Owner-UI ist mit der aeussersten HTTP-Schutzmiddleware integriert.
+Validierte Host-/Origin-Grenzen, begrenzte Requests, sichere Konfigurations- und
+Bindungspruefungen sowie redigierte Fehler gelten vor den Handlern. Die UI verwendet
+bei konfigurierter Public-Origin denselben validierten Wert; Forwarding-Header verleihen
+keine Rechte.
 
-Nachweis dieses Zwischenstands: **137 gezielte Tests bestanden**, keine Skips oder xfail;
-eine bestehende Starlette/httpx-Warnung. `make lint`, zentraler Alembic-Check und
-separater Wissens-DB-Alembic-Check sind gruen. Isolierte PostgreSQL-/pgvector-Testdatenbanken.
-Dies ist keine abschliessende Gesamttestzahl. Vollstaendiges `make test`, Referenzlaeufe,
-Browser-Integration und CI sind nach dem finalen Eltern-Rebase noch auszufuehren.
+Migration `0014` und ihre UI-Anbindung liefern Passwortbindung, 30 Minuten Inaktivitaetsablauf,
+eine unverlaengerbare absolute 12-Stunden-Grenze, dauerhafte Login-Sperre nach 20 Fehlern
+in 24 Stunden und sichere Auth-Ereignisse. Die Sperre bleibt nach Neustart bestehen und
+erscheint mit HTTP 423 ohne Passwortformular. Entsperrung bleibt eine ausdrueckliche lokale
+Aktion. «Ueberall abmelden» widerruft alle bestehenden Sessions mit Owner-/CSRF-Pruefung.
+Die Sperrreihenfolge bleibt Login-State vor Session, auch in der HTTP-Anbindung.
 
-Noch nicht reviewbereit. Echte Tailnet-/TLS-Pruefungen bleiben Inbetriebnahme;
-keine Netzwerk-Scans, echten Logins, Anbieteraufrufe oder Serveraenderungen.
+Frischer Gesamtlauf auf dem Code- und Teststand von `b904e60`: **2081 bestanden**, keine
+Skips oder xfail; eine bestehende Starlette/httpx-Deprecation-Warnung. `make lint`, zentraler
+Alembic-Check, separate KB-Migration samt Check und Hook-Pruefungen sind gruen.
+`make reference` und Ollama-Fake-CLI-Referenzmodus: jeweils **4/4**. Enthalten sind
+Chromium-Laeufe bei 390 Pixeln mit und 1024 Pixeln ohne JavaScript, mit globaler Abmeldung
+zweier Browser-Sessions, Sperranzeige nach Neuladen und erneuter Anmeldung nach Entsperrung.
+Zentrale und KB-Testdatenbank sind getrennte isolierte PostgreSQL-17-/pgvector-Datenbanken.
+
+Ein vorheriger Gesamtlauf hatte **2080 bestandene Tests und einen Fehlschlag**: ein geerbter
+Codex-Poll-Test erhielt beim ersten Queue-Poll unerwartet `idle`. Die Ursache konnte nicht
+reproduziert werden. Der gezielte komplette Codex-Lauf bestand mit 26 Tests, der frische
+Gesamtlauf mit 2081. Sichere Zustandsdiagnostik wurde ergaenzt; keine Assertion wurde
+abgeschwaecht und kein Retry hinzugefuegt. Die Anomalie bleibt fuer das externe Review sichtbar.
+Die [CI von `516a770`](https://github.com/Kaancodm/control-deck/actions/runs/41616630244)
+ist gruen; der finale Head mit Diagnostik und Dokumentation wird im PR separat ausgewiesen.
+Externes Review bleibt offen, der PR bleibt Draft. Kein Merge.
+
+### Inbetriebnahme
+
+Offen bleiben reale Tailnet-/TLS-Bindung, externe Erreichbarkeit, private Konfiguration,
+Betriebsrechte und echte Login-Einrichtung. Keine Netzwerk-Scans, echten Logins,
+Anbieter-/Modellaufrufe, API-Keys, produktiven DB-Verbindungen oder Serveraenderungen.
+Details: [SECURITY.md](SECURITY.md), [UI.md](UI.md). Keine neuen inhaltlichen Referenzfaelle.

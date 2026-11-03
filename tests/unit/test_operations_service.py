@@ -21,6 +21,9 @@ def _configuration(tmp_path: Path) -> Path:
     path = parent / "env"
     path.write_text("DECK_EXAMPLE=simulation\n")
     path.chmod(0o600)
+    runner = parent / "env.runner"
+    runner.write_text("DECK_RUNS_DIR=runs\n")
+    runner.chmod(0o600)
     return path
 
 
@@ -184,3 +187,30 @@ def test_restore_timer_is_only_a_weekly_dry_run_reminder(tmp_path):
     assert timer["Timer"]["OnCalendar"] == "weekly"
     assert "--apply" not in unit["Service"]["ExecStart"]
     assert unit["Service"]["ExecStart"].endswith("app.operations.main restore-probe")
+
+
+def test_runner_unit_uses_own_environment_file_without_api_secrets(tmp_path):
+    api_env = tmp_path / "api.env"
+    runner_env = tmp_path / "runner.env"
+    rendered = service.render_units(Path.cwd(), api_env, runner_env)
+    runner = rendered["deck-runner@.service"].decode()
+    assert f"EnvironmentFile={runner_env}" in runner
+    assert str(api_env) not in runner
+    assert "DECK_OWNER_TOKEN" not in runner and "DECK_SECRET_KEY" not in runner
+    assert f"EnvironmentFile={api_env}" in rendered["deck-api.service"].decode()
+    assert str(runner_env) not in rendered["deck-api.service"].decode()
+
+
+def test_runner_env_example_contains_only_daemon_allowlist():
+    from app.workers.daemon import _ENVIRONMENT
+
+    lines = (Path.cwd() / "deploy" / "runner.env.example").read_text().splitlines()
+    names = {line.split("=")[0] for line in lines if line and not line.startswith("#")}
+    assert names == set(_ENVIRONMENT)
+
+
+def test_install_requires_private_runner_environment_file(tmp_path):
+    environment = _configuration(tmp_path)
+    (environment.parent / "env.runner").unlink()
+    with pytest.raises((OperationError, FileNotFoundError)):
+        service.install_units(tmp_path / "repository", environment, tmp_path / "units")

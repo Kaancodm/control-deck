@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from typing import Any
 from unittest.mock import patch
@@ -268,3 +269,43 @@ def test_invalid_worker_protocol_fails_closed_and_reaps_child(
     assert report.passed is False
     assert report.checks[0].detail == "Acceptance evaluator unavailable."
     _assert_children_reaped(evaluator_children)
+
+
+def test_child_environment_is_allowlisted_and_session_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core import acceptance
+
+    for name in ("DECK_OWNER_TOKEN", "DECK_SECRET_KEY", "DECK_DATABASE_URL"):
+        monkeypatch.setenv(name, "must-not-leak")
+    captured: dict[str, Any] = {}
+    original_popen = acceptance.subprocess.Popen
+
+    def recording_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        captured.update(kwargs)
+        return original_popen(*args, **kwargs)
+
+    monkeypatch.setattr(acceptance.subprocess, "Popen", recording_popen)
+    report = evaluate_acceptance([_rule("regex", r"^ok$")], "ok")
+    assert report.passed
+    env = captured["env"]
+    assert not any(name.startswith("DECK_") for name in env)
+    assert "must-not-leak" not in env.values()
+    assert set(env) <= {"PATH", "LANG", "LC_ALL", "PYTHONPATH"}
+    assert captured["start_new_session"] is True
+    assert captured["cwd"] != os.getcwd()
+
+
+def test_real_child_never_sees_api_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core import acceptance
+
+    monkeypatch.setenv("DECK_OWNER_TOKEN", "must-not-leak")
+    monkeypatch.setattr(
+        acceptance,
+        "_WORKER_PROGRAM",
+        "import os,sys;sys.stdout.buffer.write(b'READY\\n');sys.stdout.buffer.flush();"
+        "sys.stdin.read();print(__import__('json').dumps("
+        "[{'type':'regex','passed':'DECK_OWNER_TOKEN' not in os.environ,'detail':''}]))",
+    )
+    report = evaluate_acceptance([_rule("regex", "x")], "x")
+    assert report.checks[0].passed is True

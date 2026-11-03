@@ -7,10 +7,14 @@ import logging
 import os
 import re
 import selectors
+import signal
 import subprocess
 import sys
+import tempfile
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, NoReturn
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -111,18 +115,42 @@ def _wait_for_worker_ready(process: subprocess.Popen[bytes]) -> None:
         raise ValueError("Unexpected acceptance evaluator readiness marker")
 
 
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_CHILD_ENVIRONMENT_KEYS = ("PATH", "LANG", "LC_ALL")
+
+
+def _child_environment(source: Mapping[str, str]) -> dict[str, str]:
+    """Allowlist for the evaluator child; never forwards API or database secrets."""
+    environment = {key: source[key] for key in _CHILD_ENVIRONMENT_KEYS if key in source}
+    environment["PYTHONPATH"] = str(_REPOSITORY_ROOT)
+    return environment
+
+
+def _kill_group(process: subprocess.Popen[bytes]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        process.kill()
+
+
 def _evaluate_isolated(rules: list[AcceptanceRule], text: str) -> list[ResultCheck]:
     payload = json.dumps(
         {"rules": [rule.model_dump(mode="json") for rule in rules], "text": text}
     ).encode("utf-8")
     phase = "startup"
     try:
-        with subprocess.Popen(
-            [sys.executable, "-c", _WORKER_PROGRAM],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        ) as process:
+        with (
+            tempfile.TemporaryDirectory(prefix="deck-acceptance-") as workdir,
+            subprocess.Popen(
+                [sys.executable, "-c", _WORKER_PROGRAM],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=_child_environment(os.environ),
+                cwd=workdir,
+                start_new_session=True,
+            ) as process,
+        ):
             try:
                 _wait_for_worker_ready(process)
                 phase = "evaluation"
@@ -132,8 +160,9 @@ def _evaluate_isolated(rules: list[AcceptanceRule], text: str) -> list[ResultChe
             finally:
                 # Popen's context manager closes pipes, but does not kill a stuck
                 # child. Reap it before leaving on every error or timeout path.
+                # Kill the whole session so grandchildren cannot outlive a timeout.
                 if process.poll() is None:
-                    process.kill()
+                    _kill_group(process)
                 process.wait()
         data = json.loads(stdout)
         checks = [ResultCheck.model_validate(item) for item in data]

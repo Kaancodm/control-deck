@@ -48,6 +48,10 @@ Chromium mit dem gelockten Playwright-Paket; die Tests erlauben nur die isoliert
   seine Migrationstabelle und pgvector; die passende Erweiterung muss im Restore-Server
   verfuegbar sein. Die echten Proben verwenden PostgreSQL 17 mit pgvector und passende
   `pg_dump`-/`pg_restore`-Clients einschliesslich `pg_dump --extension=vector`.
+- pgvector muss mindestens Version 0.8.2 haben (CVE-2026-3172). Die CI verwendet das
+  Image `pgvector/pgvector:0.8.7-pg17`, festgelegt per Digest in `.github/workflows/ci.yml`;
+  ein Test (`tests/unit/test_ci_workflow.py`) prueft diese Festlegung. Produktive Server
+  werden ausserhalb dieses Repos gepflegt und muessen dieselbe Mindestversion erfuellen.
 - HTMX 2.0.8 liegt lokal unter `app/ui/static/vendor/`. Herkunft, SHA-256 und BSD-2-Clause-
   Lizenz stehen in der benachbarten `VENDOR.md` und `LICENSE`; es gibt keinen CDN-Aufruf.
 - systemd und Restic gehoeren zu den Betriebswerkzeugen ab Etappe 16. Repo-Tests pruefen

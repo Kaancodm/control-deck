@@ -5,7 +5,8 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=@REPOSITORY@
-EnvironmentFile=@ENVIRONMENT@
+# Runner-only settings; never the API file holding the owner token and secret key.
+EnvironmentFile=@RUNNER_ENVIRONMENT@
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=@PYTHON@ -m app.workers.daemon --worker %i
 Restart=on-failure

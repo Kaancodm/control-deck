@@ -1,5 +1,20 @@
 # Stand des Repositorys
 
+## Etappe 8 in Arbeit, gestapelt auf Etappe 7
+
+Branch: `stage/08-runner`, Basis: `stage/07-router` (`924d3d4`, Draft-PR #22).
+Der Owner hat die gestapelte Umsetzung von Etappe 7 bis 17 ohne Warten auf Review oder
+Merge freigegeben. Etappe 18 wird ausschliesslich als Abnahme-Checkliste vorbereitet.
+
+Geplant: lanegebundene Claims, expliziter Start, sichere Payload-Uebergabe, Heartbeat und
+Steuerentscheide, Pause/Not-Aus, Parallelitaetsgrenze und Host-Runner mit Fake-Executor.
+Inhaltliche Referenzfaelle bleiben Owner-Aufgabe. Kein Merge durch den Agenten.
+
+### Inbetriebnahme
+
+Echte Logins, Anbieteraufrufe, Modelllaeufe, Serveraenderungen und Deployment sind nicht
+Teil dieser Umsetzung. Alle neuen Laufzeittests verwenden Simulationen oder Fake-CLIs.
+
 ## Etappe 7 bereit fuer externes Review
 
 Draft-PR: [#22](https://github.com/Kaancodm/control-deck/pull/22).

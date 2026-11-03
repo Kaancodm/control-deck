@@ -1,7 +1,9 @@
 # Wissens-DB: Etappe 14
 
-Status: Kernvertrag und Kontext-/Export-Anbindung umgesetzt, Integrationspruefung laeuft.
-Der Branch ist auf Etappe 13 gestapelt; die finale UI und Pflichtchecks folgen nach dem Rebase.
+Status: Kernvertrag, Kontext-/Export-Anbindung und Oberflaeche sind umgesetzt. Auf Owner-Wunsch
+ist ein Zwischenstand gesichert; keine Pruefung laeuft weiter. Der Branch ist auf Etappe 13
+gestapelt. Finaler Eltern-Rebase, Gesamtchecks und CI-Abschluss stehen noch aus.
+**Noch nicht reviewbereit.**
 
 Der vorgeschlagene Vertrag `deck_kb.v1` wird ausschliesslich gegen isolierte Testdatenbanken
 entwickelt. Er ist kein Nachweis fuer die Kompatibilitaet einer bestehenden Wissens-DB.
@@ -71,3 +73,12 @@ Der Python-Adapter benoetigt keine neue Dependency; pgvector ist eine Test-DB-Er
 Offen bleiben bestaetigtes Zielschema, Schreibrechte, lokales Embedding-Modell und Dimension
 sowie eine gepruefte echte Anbindung. Live-Zugriffe bleiben gesperrt. Es gibt keine echten
 Logins, API-Keys, Anbieteraufrufe, Serveraenderungen oder automatischen Modell-Downloads.
+
+## Oberflaeche
+
+Unter `/ui/knowledge` sucht der eingeloggte Owner mit ausdruecklicher Datenklasse. Eine
+Auswahl fuellt einen neuen Auftragsentwurf; sie gibt weder einen Auftrag frei noch exportiert
+sie Wissen. Die Detailseite zeigt die unveraenderlichen Kontexte vor der Start-Freigabe.
+Der Export aus `done` verlangt ein eigenes Formular mit Datenklasse, Bestaetigung und CSRF.
+Die Oberflaeche verwendet die bestehenden CSS-Variablen und Partials; das spaetere Design
+bleibt separat. Browserpruefungen bestehen bei 390 und 1024 Pixeln, am Desktop ohne JavaScript.

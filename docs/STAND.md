@@ -318,10 +318,33 @@ getestet oder ausgefuehrt. Dafuer erforderliche Pruefungen bleiben in jedem Etap
 explizit als Inbetriebnahme offen. Die lokalen Pflichtchecks verwenden nur Simulationen
 und isolierte Testdatenbanken.
 
-## Etappe 14: Wissens-DB in Arbeit
+## Etappe 14: gesicherter Zwischenstand, nicht reviewbereit
 
-Gestapelt auf Etappe 13. Versionierter Testvertrag, lokale Fake-Embeddings und 48 gezielte Tests sind umgesetzt
-(28 Unit, 20 echte pgvector-Integrationstests). Expliziter Owner-Export und freigabegebundene
-Kontext-Snapshots sind im Code; ihre zentrale DB-/UI-Integration wird nach dem Eltern-Rebase
-geprueft. Noch nicht reviewbereit.
-Echte Schema-Kompatibilitaet und Schreibrechte bleiben Inbetriebnahme; keine Live-Zugriffe.
+Draft-PR [#29](https://github.com/Kaancodm/control-deck/pull/29), Branch `stage/14-knowledge`.
+Aktuelle Elternbasis: Etappe 13, `fef8c6ee9906a618c62a18dc8b3aeaecfc5df82c`.
+Auf Owner-Wunsch ist die Arbeit als nachvollziehbarer Zwischenstand gesichert.
+
+Umgesetzt sind der vorgeschlagene versionierte `deck_kb.v1`-Testvertrag mit eigener
+Migrationskette, echte pgvector-Abfragen mit Klassenfilter vor der Rangfolge, unveraenderliche
+Dokumente, explizite Datenklasse ohne Default und ausschliesslich lokale Fake-Embeddings.
+Migration `0013` bindet Kontext-Snapshots und wiederaufnehmbare Owner-Exporte an Tasks.
+Freigabe-Digests sichern exakte Kontextbytes; jeder Versuch scannt und redigiert sie erneut.
+Owner-API und Oberflaeche bieten Suche, Kontextvorschau vor Freigabe und einen separaten
+Export aus `done` mit Pflichtklasse, Bestaetigung und CSRF. Sicherer Inbox-Import ist vorhanden.
+
+Belegt vor dem letzten Eltern-Rebase: **88 gezielte Etappe-14-Tests** in fokussierten Laeufen
+(**35 Unit**, **53 Integration**, einschliesslich echter pgvector-Abfragen und zwei
+Chromium-Laeufen bei 390/1024 Pixeln; Desktop ohne JavaScript). Ein zusaetzlicher Lauf mit
+betroffenen bestehenden Datenschranken-/Runner-Tests bestand mit 114 Tests. Zentrale
+Alembic-Pruefung und separate KB-Migrationspruefung waren sauber; geschuetzte Downgrades,
+Wiederaufnahme nach Teilfehlern und parallele Exporte wurden geprueft.
+
+Nach dem letzten Rebase auf `fef8c6e`: `make lint` gruen (Ruff, Format, Mypy mit 100
+Quelldateien). Der komplette Testlauf und Referenzlauf wurden fuer diesen Zwischenstand
+noch nicht ausgefuehrt; CI ist noch nicht abschliessend beurteilt. Deshalb **nicht
+reviewbereit**. Offen: finalen Etappe-13-Head uebernehmen, alle Pflichtchecks einschliesslich
+KB-Check ausfuehren, finale Testzahl/CI im PR dokumentieren.
+
+Echte Schema-Kompatibilitaet, Schreibrechte, Embedding-Modell und Dimension bleiben
+**Inbetriebnahme**. Das Live-Profil ist gesperrt. Keine echten Logins, API-Keys,
+Anbieteraufrufe, Serveraenderungen oder neuen inhaltlichen Referenzfaelle. Nicht gemergt.

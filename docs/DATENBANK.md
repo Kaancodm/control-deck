@@ -6,7 +6,7 @@ Etappe `03-db-schema` fuehrt PostgreSQL als persistente Queue und Audit-Store ei
 
 | Tabelle | Zweck |
 |---------|--------|
-| `tasks` | Unveraenderlicher `task.v1`-Payload (JSONB), Laufstatus, `data_class`, Versuchszaehler |
+| `tasks` | Unveraenderlicher `task.v1`-Payload (JSONB), Laufstatus, `data_class`, Versuchszaehler, Freigabe (`requires_approval`, `approved_at`) |
 | `results` | `result.v1`-Snapshots pro Versuch (eindeutig pro `task_id` + `attempt`) |
 | `events` | Append-only Audit-Log (Uebergaenge, Metadaten in JSONB) |
 | `leases` | Pull-Lease pro Task (`lease_id`, `expires_at`, `heartbeat_at`, optional `holder`) |
@@ -19,7 +19,8 @@ Pflichtfeld in `task.v1` gemaess ADR 0005 (kein Schema-Default). Erlaubte Werte:
 
 | Status | Bedeutung |
 |--------|-----------|
-| `queued` | Validiert, wartet auf Lease |
+| `awaiting_approval` | Validiert, wartet auf Owner-Freigabe (HTTP-API) |
+| `queued` | Freigegeben, wartet auf Lease |
 | `leased` | Runner haelt Lease, Start steht aus |
 | `running` | Ausfuehrung aktiv |
 | `succeeded` | Erfolgreich abgeschlossen |
@@ -38,11 +39,22 @@ Wichtige Pfade:
 
 Runner ziehen Arbeit mit `SELECT … FOR UPDATE SKIP LOCKED` auf dem aeltesten `queued`-Task (Index `status`, `created_at`). Die Funktion `dequeue_next_queued_task` nutzt zentral `transition_task` (Audit-Event, `attempt += 1`, `updated_at`) und ersetzt die Lease-Zeile re-acquire-sicher (ADR 0001, 0004). Abgelaufene Leases holt `reap_expired_leases` per `SKIP LOCKED` zurueck in die Queue.
 
-Persistenz neuer Auftraege: `create_task_from_v1` validiert `TaskV1` und leitet `id` / `data_class` aus dem Payload ab (DB-CHECKs auf Konsistenz).
+Persistenz neuer Auftraege: `create_task_from_v1` validiert `TaskV1`, leitet `id` / `data_class` aus dem Payload ab und startet in `awaiting_approval` (Owner-Freigabe via `approve_task` / HTTP-Approve).
 
 Worker-Uebergaenge aus `leased`/`running` erfordern die passende `lease_id` (Fencing). Retry respektiert `policy.max_attempts`; danach Dead-Letter via `failed`.
 
 ## Migrationen
+
+### Freigabe-Gate (Revision 0002 / 0004)
+
+Revision `20251103_0002` fuehrt `awaiting_approval` ein. **Legacy-Bestand:**
+
+- **`queued` ohne `approved_at`** → `awaiting_approval` (Owner-Freigabe noetig).
+- **`leased` / `running` ohne `approved_at`** → `approved_at = created_at` (Grandfathering: bereits laufende Arbeit bleibt dequeue-faehig nach Retry/Lease-Ablauf).
+
+Laufzeit: `transition_task` leitet unapproved Requeues von `lease_expired`/`retry` nach `awaiting_approval` statt in ein blockiertes `queued`.
+
+Revision `20251103_0004` korrigiert idempotent DBs, die noch die **urspruengliche** 0002-Massen-Freigabe (`requires_approval = false`, gesetztes `approved_at` auf allen Zeilen) angewendet haben.
 
 Alembic liegt im Projektroot (`alembic.ini`, `alembic/versions/`). Typischer Ablauf:
 
@@ -68,4 +80,13 @@ Alembic waehlt **nicht** still `DECK_TEST_DATABASE_URL`: fuer Tests `-x target=t
 
 ## Betrieb (Hinweis)
 
-Die produktive Instanz (Port 5433, Datenbank `controldeck`) wird ausserhalb dieses Repos verwaltet. Agents legen keine DB-Rollen an und greifen nicht auf Server zu — nur Schema, Migrationen und Tests im Repository.
+Die produktive PostgreSQL-Instanz wird ausserhalb dieses Repos verwaltet. Agents legen keine DB-Rollen an und greifen nicht auf Server zu — nur Schema, Migrationen und Tests im Repository.
+
+Alembic waehlt **nicht** still `DECK_TEST_DATABASE_URL`: fuer Tests `-x target=test` (siehe `tests/integration/conftest.py`). Sind Runtime- und Test-URL gleichzeitig gesetzt, bricht `alembic upgrade` ohne explizites Ziel ab.
+
+## Integritaet
+
+- CHECKs auf `task.v1` / `result.v1`-Felder in JSONB (inkl. NOT NULL auf Pflicht-Keys)
+- Trigger `tasks_immutable_payload`: kein UPDATE von `payload`, `data_class`, `id`, `created_at`
+- Trigger `events_append_only`: kein UPDATE/DELETE auf Events; FK `RESTRICT` (Tasks werden nicht geloescht)
+- Spalten `cancel_requested`, `cancel_reason`; Events mit `actor`, `attempt`, `lease_id`

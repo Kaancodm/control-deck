@@ -48,6 +48,7 @@
     },
     "title": {
       "type": "string",
+      "minLength": 1,
       "maxLength": 120
     },
     "instructions": {
@@ -164,7 +165,7 @@
     "policy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["forbidden_workers"],
+      "required": [],
       "properties": {
         "allowed_workers": {
           "type": ["array", "null"],

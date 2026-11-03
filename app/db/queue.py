@@ -5,12 +5,25 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import Lease, Task
 from app.db.state_machine import TaskState, TaskTransition
-from app.db.transitions import transition_task, upsert_lease
+from app.db.transitions import TransitionActor, transition_task, upsert_lease
+
+_LOCAL_ONLY_LANE_ELIGIBLE = text(
+    """
+    (
+        data_class::text <> 'local_only'
+        OR NOT EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(payload->'fallback_chain') AS chain(worker)
+            WHERE chain.worker <> 'ollama'
+        )
+    )
+    """
+)
 
 
 def dequeue_next_queued_task(
@@ -26,7 +39,11 @@ def dequeue_next_queued_task(
     """
     stmt = (
         select(Task)
-        .where(Task.status == TaskState.QUEUED)
+        .where(
+            Task.status == TaskState.QUEUED,
+            (Task.requires_approval.is_(False)) | (Task.approved_at.is_not(None)),
+            _LOCAL_ONLY_LANE_ELIGIBLE,
+        )
         .order_by(Task.created_at.asc())
         .limit(1)
         .with_for_update(skip_locked=True)
@@ -40,7 +57,6 @@ def dequeue_next_queued_task(
         task=task,
         trigger=TaskTransition.ACQUIRE,
         detail={"holder": holder} if holder else None,
-        skip_lease_check=True,
     )
 
     now = datetime.now(tz=UTC)
@@ -79,6 +95,16 @@ def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
     leases = list(session.scalars(stmt).all())
     for lease in leases:
         task = lease.task
+        if task.cancel_requested:
+            transition_task(
+                session,
+                task=task,
+                trigger=TaskTransition.CANCEL,
+                lease_id=lease.lease_id,
+                actor=TransitionActor.SYSTEM,
+                detail={"reaper": True, "reason": "cancel_requested"},
+            )
+            continue
         transition_task(
             session,
             task=task,

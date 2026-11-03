@@ -52,11 +52,11 @@ type errors fail lint even when ruff is clean.
 - `awaiting_approval` is the **initial state before `queued`**. A new task waits there until the
   owner approves it (`approve -> queued`). `review` stays after `running` as in Plan v1.1.
 - Every transition is an audit event (`task.<trigger>`); forbidden transitions must raise.
-- Implementation status: the state machine in `app/db/state_machine.py` on `main` has
-  `queued, leased, running, succeeded, failed, blocked, cancelled`. PR #5 adds
-  `awaiting_approval` (migration `0002`, `requires_approval`, `approved_at`). `review`, `done`,
-  and `expired` are not in the enum yet; the code uses `succeeded` where the plan says `done`.
-  Check the current enum before relying on a state name.
+- Implementation status: `app/db/state_machine.py` on `main` includes `awaiting_approval` (migration
+  `0002`, `requires_approval`, `approved_at`) plus `queued`, `leased`, `running`, `succeeded`,
+  `failed`, `blocked`, `cancelled`. `review`, `done`, and `expired` are not in the enum yet; the
+  code uses `succeeded` where the plan says `done`. Check the current enum before relying on a
+  state name.
 
 ### Data classes
 

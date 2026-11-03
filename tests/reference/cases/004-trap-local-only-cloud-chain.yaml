@@ -1,0 +1,29 @@
+id: "004-trap-local-only-cloud-chain"
+category: trap
+description: local_only darf nicht an Cloud-Worker in der fallback_chain gehen
+task:
+  schema_version: task.v1
+  parent_task_id: null
+  requested_by: system
+  kind: custom
+  title: Local-only cloud chain trap
+  instructions: Dieser Auftrag muss blockiert werden.
+  inputs:
+    - name: brief
+      type: text
+      value: ok
+  context_refs: []
+  data_class: local_only
+  policy:
+    forbidden_workers: []
+  acceptance: []
+  fallback_chain: ["claude"]
+  labels: {}
+expect:
+  status: blocked
+  must_contain: []
+  must_not_contain: []
+  regex: null
+  max_chars: null
+  max_seconds: null
+  allowed_workers: []

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -15,7 +16,7 @@ from alembic import command
 from app.core.schemas import DataClass, TaskV1
 from app.db.models import Event, Lease, Task
 from app.db.queue import dequeue_next_queued_task, reap_expired_leases
-from app.db.repository import create_task_from_v1
+from app.db.repository import approve_task, create_task_from_v1
 from app.db.session import get_engine, reset_engine_for_tests
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import (
@@ -51,10 +52,14 @@ def _insert_task(
     task_id: uuid.UUID | None = None,
     *,
     max_attempts: int = 3,
+    approved: bool = True,
 ) -> Task:
     task_id = task_id or uuid.uuid4()
     task_v1 = TaskV1.model_validate(_minimal_task_payload(task_id, max_attempts=max_attempts))
-    return create_task_from_v1(session, task_v1)
+    task = create_task_from_v1(session, task_v1)
+    if approved and task.status == TaskState.AWAITING_APPROVAL:
+        approve_task(session, task)
+    return task
 
 
 def test_alembic_upgrade_and_downgrade_roundtrip() -> None:
@@ -62,6 +67,7 @@ def test_alembic_upgrade_and_downgrade_roundtrip() -> None:
     require_test_database_url()
     reset_engine_for_tests()
     alembic_cfg = Config("alembic.ini")
+    alembic_cfg.cmd_opts = argparse.Namespace(x=["target=test"])
     command.downgrade(alembic_cfg, "base")
     command.upgrade(alembic_cfg, "head")
     reset_engine_for_tests()
@@ -150,6 +156,9 @@ def test_reacquire_after_lease_expired(db_session: Session) -> None:
     try:
         db_task = worker2.get(Task, task.id)
         assert db_task is not None
+        assert db_task.lease is not None
+        db_task.lease.expires_at = datetime.now(tz=UTC) - timedelta(seconds=5)
+        worker2.flush()
         transition_task(
             worker2,
             task=db_task,
@@ -296,7 +305,7 @@ def test_parallel_dequeue_threads(db_session: Session) -> None:
     assert set(claimed_ids) == set(task_ids)
 
 
-def test_data_class_defaults_to_local_only(db_session: Session) -> None:
+def test_create_task_persists_explicit_data_class(db_session: Session) -> None:
     task_id = uuid.uuid4()
     task_v1 = TaskV1.model_validate(_minimal_task_payload(task_id))
     task = create_task_from_v1(db_session, task_v1)

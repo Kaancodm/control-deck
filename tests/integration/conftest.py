@@ -7,11 +7,10 @@ from collections.abc import Generator
 
 import pytest
 from alembic.config import Config
-from sqlalchemy import delete
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from alembic import command
-from app.db.base import Base
 from app.db.session import get_engine, reset_engine_for_tests
 from tests.integration.helpers import require_test_database_url
 
@@ -39,7 +38,6 @@ def db_session(migrated_database: None) -> Generator[Session, None, None]:
         yield session
     finally:
         session.rollback()
-        for table in reversed(Base.metadata.sorted_tables):
-            session.execute(delete(table))
+        session.execute(text("TRUNCATE tasks, results, events, leases RESTART IDENTITY CASCADE"))
         session.commit()
         session.close()

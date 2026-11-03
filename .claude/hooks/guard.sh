@@ -12,8 +12,10 @@ fi
 GUARD_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 export GUARD_PROJECT_DIR
 
-input="$(cat)"
-export GUARD_HOOK_INPUT="$input"
+hook_input_file="$(mktemp)"
+trap 'rm -f "$hook_input_file"' EXIT
+cat >"$hook_input_file"
+export GUARD_HOOK_INPUT_FILE="$hook_input_file"
 
 result="$(python3 <<'PY'
 import json
@@ -21,7 +23,13 @@ import os
 import sys
 
 project = os.path.realpath(os.environ.get("GUARD_PROJECT_DIR", os.getcwd()))
-raw = os.environ.get("GUARD_HOOK_INPUT", "")
+input_path = os.environ.get("GUARD_HOOK_INPUT_FILE", "")
+try:
+    with open(input_path, encoding="utf-8") as handle:
+        raw = handle.read()
+except OSError as exc:
+    print(f"READ_ERROR\t{exc}")
+    sys.exit(0)
 
 try:
     data = json.loads(raw)
@@ -35,11 +43,9 @@ if not isinstance(tool_input, dict):
     sys.exit(0)
 
 file_path = tool_input.get("file_path")
-if not isinstance(file_path, str) or not file_path.strip():
+if not isinstance(file_path, str) or file_path == "":
     print("MISSING_FILE_PATH")
     sys.exit(0)
-
-file_path = file_path.strip()
 
 
 def is_secret_path(resolved: str) -> bool:
@@ -90,6 +96,10 @@ case "$result" in
     ;;
   MISSING_FILE_PATH)
     echo "guard.sh: missing file_path in tool_input; blocking write" >&2
+    exit 2
+    ;;
+  READ_ERROR*)
+    echo "guard.sh: cannot read hook input (${result#READ_ERROR	}); blocking" >&2
     exit 2
     ;;
   OUTSIDE_REPO*)

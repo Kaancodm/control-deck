@@ -39,11 +39,22 @@ Wichtige Pfade:
 
 Runner ziehen Arbeit mit `SELECT … FOR UPDATE SKIP LOCKED` auf dem aeltesten `queued`-Task (Index `status`, `created_at`). Die Funktion `dequeue_next_queued_task` nutzt zentral `transition_task` (Audit-Event, `attempt += 1`, `updated_at`) und ersetzt die Lease-Zeile re-acquire-sicher (ADR 0001, 0004). Abgelaufene Leases holt `reap_expired_leases` per `SKIP LOCKED` zurueck in die Queue.
 
-Persistenz neuer Auftraege: `create_task_from_v1` validiert `TaskV1` und leitet `id` / `data_class` aus dem Payload ab (DB-CHECKs auf Konsistenz).
+Persistenz neuer Auftraege: `create_task_from_v1` validiert `TaskV1`, leitet `id` / `data_class` aus dem Payload ab und startet in `awaiting_approval` (Owner-Freigabe via `approve_task` / HTTP-Approve).
 
 Worker-Uebergaenge aus `leased`/`running` erfordern die passende `lease_id` (Fencing). Retry respektiert `policy.max_attempts`; danach Dead-Letter via `failed`.
 
 ## Migrationen
+
+### Freigabe-Gate (Revision 0002 / 0004)
+
+Revision `20251103_0002` fuehrt `awaiting_approval` ein. **Legacy-Bestand:**
+
+- **`queued` ohne `approved_at`** → `awaiting_approval` (Owner-Freigabe noetig).
+- **`leased` / `running` ohne `approved_at`** → `approved_at = created_at` (Grandfathering: bereits laufende Arbeit bleibt dequeue-faehig nach Retry/Lease-Ablauf).
+
+Laufzeit: `transition_task` leitet unapproved Requeues von `lease_expired`/`retry` nach `awaiting_approval` statt in ein blockiertes `queued`.
+
+Revision `20251103_0004` korrigiert idempotent DBs, die noch die **urspruengliche** 0002-Massen-Freigabe (`requires_approval = false`, gesetztes `approved_at` auf allen Zeilen) angewendet haben.
 
 Alembic liegt im Projektroot (`alembic.ini`, `alembic/versions/`). Typischer Ablauf:
 

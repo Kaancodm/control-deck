@@ -82,6 +82,23 @@ def resolve_trigger(task: Task, trigger: TaskTransition) -> TaskTransition:
     return trigger
 
 
+def _resolve_requeue_target(
+    task: Task,
+    trigger: TaskTransition,
+    to_state: TaskState,
+) -> TaskState:
+    """
+    Unapproved tasks return to ``awaiting_approval`` instead of a stuck ``queued`` row.
+    """
+    if to_state != TaskState.QUEUED:
+        return to_state
+    if trigger not in (TaskTransition.LEASE_EXPIRED, TaskTransition.RETRY):
+        return to_state
+    if task.requires_approval and task.approved_at is None:
+        return TaskState.AWAITING_APPROVAL
+    return to_state
+
+
 def _touch_updated_at(task: Task, *, now: datetime) -> None:
     task.updated_at = now
 
@@ -280,6 +297,14 @@ def transition_task(
         return result
 
     result = apply_transition(current, effective_trigger)
+    target_state = _resolve_requeue_target(task, effective_trigger, result.to_state)
+    if target_state != result.to_state:
+        result = TaskTransitionResult(
+            transition=result.transition,
+            from_state=result.from_state,
+            to_state=target_state,
+            event_type=result.event_type,
+        )
 
     if effective_trigger == TaskTransition.ACQUIRE:
         updated = _atomic_acquire(session, task_id=task.id, now=now)

@@ -16,7 +16,7 @@ from alembic import command
 from app.core.schemas import DataClass, TaskV1
 from app.db.models import Event, Lease, Task
 from app.db.queue import dequeue_next_queued_task, reap_expired_leases
-from app.db.repository import create_task_from_v1
+from app.db.repository import approve_task, create_task_from_v1
 from app.db.session import get_engine, reset_engine_for_tests
 from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import (
@@ -52,10 +52,14 @@ def _insert_task(
     task_id: uuid.UUID | None = None,
     *,
     max_attempts: int = 3,
+    approved: bool = True,
 ) -> Task:
     task_id = task_id or uuid.uuid4()
     task_v1 = TaskV1.model_validate(_minimal_task_payload(task_id, max_attempts=max_attempts))
-    return create_task_from_v1(session, task_v1)
+    task = create_task_from_v1(session, task_v1)
+    if approved and task.status == TaskState.AWAITING_APPROVAL:
+        approve_task(session, task)
+    return task
 
 
 def test_alembic_upgrade_and_downgrade_roundtrip() -> None:

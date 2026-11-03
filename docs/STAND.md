@@ -1,6 +1,6 @@
 # Stand des Repositorys
 
-## Etappe 9 in Arbeit
+## Etappe 9 bereit fuer externes Review
 
 Draft-PR: [#24](https://github.com/Kaancodm/control-deck/pull/24).
 Branch: `stage/09-ollama`, nach den externen Review-Korrekturen auf
@@ -10,9 +10,15 @@ Umgesetzt sind ein begrenzter Ollama-CLI-Prozessadapter, Lane-Gesundheit mit Mig
 `0010`, simulierte Host-E2E-Laeufe und der ausdrueckliche Referenz-Schalter
 `--executor ollama-fake-cli --model <simulationskennung>`. Die neue Executor-Identitaet,
 Pflicht-Lane und Artefaktkonflikt-Behandlung aus der korrigierten Etappe 8 bleiben erhalten.
-Gezielte Tests und Alembic-Check sind gruen; die vollstaendigen Pflichtchecks laufen.
-Beide Referenz-Selector bestehen die vier bestehenden Faelle; neue inhaltliche Faelle
-wurden nicht erstellt.
+
+Pflichtchecks vom 2026-11-03: `make lint` gruen (Ruff ohne Cache, Format, Mypy),
+`uv run alembic -x target=test check` ohne Schemaabweichung, `make test` mit
+**1264 bestandenen Tests** (**425 Integration**, **839 Unit**), **keine xfail oder Skips**.
+Eine bestehende Starlette/httpx-Deprecation-Warnung. `make reference`: **4/4**;
+der zusaetzliche Ollama-Fake-CLI-Referenzlauf ebenfalls **4/4**. Isolierte PostgreSQL-17-
+Testdatenbank. Zwei parallele Fake-CLI-Runner schliessen 20 Auftraege jeweils genau einmal
+ab. Neue inhaltliche Referenzfaelle wurden nicht erstellt. Die CI des finalen Heads wird
+im PR ausgewiesen; externes Review und Merge bleiben beim Owner.
 
 ### Inbetriebnahme
 

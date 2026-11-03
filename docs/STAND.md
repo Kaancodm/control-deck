@@ -1,5 +1,35 @@
 # Stand des Repositorys
 
+## Etappe 12 bereit fuer externes Review
+
+Branch: `stage/12-claude`, gestapelt auf Etappe 11 (`stage/11-ui-chat`, PR #26).
+Draft-PR: [#27](https://github.com/Kaancodm/control-deck/pull/27).
+Umgesetzt sind ein versionierter Claude-CLI-Vertrag, streng begrenzte Reinraum-Befehle
+und Simulationen mit Fake-Container und Fake-CLI. Es werden nur gepruefte
+Versandbytes uebergeben; `local_only` bleibt bei Ollama. Das Live-Profil bleibt gesperrt,
+bis Werkzeugabschaltung, Rootless-Isolation und Netzgrenzen bei der Inbetriebnahme belegt
+sind. Auth-/Policy-Fehler pausieren die ausfuehrende Lane und fuehren ueber die zentrale
+Fehlerlogik zum zulaessigen Fallback. Rate-Limits erhalten 60/240 Sekunden Backoff ueber
+Runner-Neustarts hinweg; Acceptance bleibt innerhalb des Budgets auf derselben Lane.
+Abbruch, Deadline und Lease-Verlust stoppen den Versuch; Cleanup hat ein eigenes Budget.
+
+Nach Rebase auf Etappe 11: `make lint` gruen, `uv run alembic -x target=test check`
+ohne Schemaabweichung, **1714 Tests bestanden** (**575 Integration**, **1139 Unit**),
+keine Skips oder xfail. Davon sind **136 neue Etappe-12-Tests** (26 Integration, 110 Unit).
+`make reference`: **4/4**. Eigene isolierte PostgreSQL-17-Testdatenbank; eine bestehende
+Starlette/httpx-Deprecation-Warnung. Die Vollsuite lief auf `d47827a`; der letzte Eltern-
+Rebase aenderte ausschliesslich Dokumentation und zwei historische Migrationstests,
+die danach erneut bestanden. Anwendung, Migrationen und Konfiguration sind identisch.
+Die CI des finalen Heads und die geprueften Commits stehen im PR.
+
+### Inbetriebnahme
+
+Die gepinnte Image-Vorlage ist nicht gebaut. Keine echten Container-/CLI-/Anbieteraufrufe,
+Logins, API-Keys oder Serveraenderungen. Das Live-Profil bleibt gesperrt; Rootless-,
+Werkzeug-/MCP-/Hook- und Netzgrenzen sowie Konto-/Abo- und Protokollverhalten muessen
+separat nachgewiesen werden. Simulation bestaetigt keine Live-Bereitschaft. Keine neuen
+inhaltlichen Referenzfaelle, kein Self-Merge. Details: [LANES.md](LANES.md).
+
 ## Etappe 11 bereit fuer externes Review
 
 Draft-PR: [#26](https://github.com/Kaancodm/control-deck/pull/26).

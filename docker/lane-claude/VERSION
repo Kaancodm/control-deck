@@ -1,0 +1,6 @@
+claude-code=2.1.317
+platform=linux/amd64
+archive_sha256=153511cf79cd27c55c9f9c919cc532eb90647f7893cb3f4e78dac776991714e0
+runtime_image_sha256=9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
+build_image_sha256=923320b891f20d5f4bd43ed3a72eeee2f3323d481d6f4bd8d0b2c96d1c0758bc
+runtime_profile=disabled

@@ -1,5 +1,14 @@
 # Stand des Repositorys
 
+## Etappe 17: in Arbeit
+
+Audit und Gesundheit entstehen als gestapelter Draft-PR auf Etappe 16. Geschuetzte
+Ansichten zeigen sichere Ereignis-Metadaten, Queue, konfigurierte Budgets und Lane-Zustand.
+Anbieter-Kontingente bleiben ohne belegte Daten unbekannt; Simulation wird nicht als
+Live-Bereitschaft dargestellt. Es gibt keine echten Anbieterpruefungen, Logins oder
+Serveraenderungen. Finale Pflichtchecks folgen nach dem Rebase auf den fertigen
+Etappe-16-Stand. Inbetriebnahme und Gesamt-Abnahme bleiben offen.
+
 ## Etappe 13 implementiert und lokal geprueft
 
 Die Codex-Lane ist im gestapelten [Draft-PR #28](https://github.com/Kaancodm/control-deck/pull/28)

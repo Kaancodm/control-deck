@@ -2,12 +2,15 @@
 
 ## Etappe 17: in Arbeit
 
-Audit und Gesundheit entstehen als gestapelter Draft-PR auf Etappe 16. Geschuetzte
-Ansichten zeigen sichere Ereignis-Metadaten, Queue, konfigurierte Budgets und Lane-Zustand.
-Anbieter-Kontingente bleiben ohne belegte Daten unbekannt; Simulation wird nicht als
-Live-Bereitschaft dargestellt. Es gibt keine echten Anbieterpruefungen, Logins oder
-Serveraenderungen. Finale Pflichtchecks folgen nach dem Rebase auf den fertigen
-Etappe-16-Stand. Inbetriebnahme und Gesamt-Abnahme bleiben offen.
+Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.
+Der Zwischenstand enthaelt begrenzte Audit-Projektionen, Filter, CSV-Schutz und reine
+Gesundheits-/Versuchsentscheidungen. **66 Unit- und 11 SQL-Integrationstests** bestehen;
+gezielte Ruff-/Mypy-Pruefungen sind gruen. Das ist keine finale Validierung des gestapelten
+PRs. UI-/API-Anbindung, Zaehler-Migration und Ergebnis-Fencing folgen nach dem fertigen
+Vorgaenger; danach werden alle Pflichtchecks und die CI erneut ausgefuehrt.
+Anbieter-Kontingente bleiben unbekannt; Simulation ist kein Nachweis fuer Live-Bereitschaft.
+Keine echten Anbieterpruefungen, Logins oder Serveraenderungen. Inbetriebnahme und
+Gesamt-Abnahme bleiben offen.
 
 ## Etappe 13 implementiert und lokal geprueft
 

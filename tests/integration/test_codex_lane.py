@@ -359,16 +359,23 @@ def test_acceptance_failure_returns_to_the_core_without_a_hidden_codex_retry(
     outcome = _runner(db_session, tmp_path, _executor()).run_once()
 
     assert outcome.action == "completed"
-    assert outcome.status == "queued"
+    # Contract (Etappe 10): acceptance_failed -> review, no retry.
+    assert outcome.status == "review"
     assert len(_runs(process_calls)) == 1
     result = _stored(db_session, task_id)
     assert result["error"]["code"] == "acceptance_failed"
     assert result["checks"][0]["passed"] is False
     assert db_session.get(Task, task_id).attempt == 1
-    retry = db_session.scalar(
-        select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.retry")
+    assert (
+        db_session.scalar(
+            select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.retry")
+        )
+        is None
     )
-    assert retry["reason"] == "acceptance_failed"
+    review = db_session.scalar(
+        select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.review")
+    )
+    assert review["reason"] == "acceptance_failed"
 
 
 @pytest.mark.parametrize(
@@ -553,19 +560,18 @@ def test_codex_rate_limits_persist_backoff_across_runners_then_advance(
     assert len(_runs(process_calls)) == 3
 
 
-def test_empty_codex_completion_stays_on_lane_until_attempt_budget_exhausted(
+def test_empty_codex_completion_goes_to_review_without_fallback(
     db_session, tmp_path, router_file, process_calls
 ):
     _enable_fallback(router_file)
     task_id = _task(db_session, max_attempts=2)
-    assert _runner(db_session, tmp_path, _executor(behavior="empty")).run_once().status == "queued"
+    assert _runner(db_session, tmp_path, _executor(behavior="empty")).run_once().status == "review"
     assert _ollama_runner(db_session, tmp_path).run_once().action == "idle"
-    assert _runner(db_session, tmp_path, _executor(behavior="empty")).run_once().status == "failed"
     db_session.expire_all()
     task = db_session.get(Task, task_id)
-    assert task.attempt == 2 and task.retry_state["pinned_worker"] == "codex"
+    assert task.attempt == 1 and task.retry_state["pinned_worker"] == "codex"
     assert task.deadline_at is None
-    assert len(_runs(process_calls)) == 2
+    assert len(_runs(process_calls)) == 1
     stored = list(db_session.scalars(select(Result.payload).where(Result.task_id == task_id)))
     assert all(item["error"]["code"] == "acceptance_failed" for item in stored)
 

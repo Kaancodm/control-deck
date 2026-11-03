@@ -10,6 +10,7 @@ Etappe `03-db-schema` fuehrt PostgreSQL als persistente Queue und Audit-Store ei
 | `results` | `result.v1`-Snapshots pro Versuch (eindeutig pro `task_id` + `attempt`) |
 | `events` | Append-only Audit-Log (Uebergaenge, Metadaten in JSONB) |
 | `leases` | Pull-Lease pro Task (`lease_id`, `expires_at`, `heartbeat_at`, optional `holder`) |
+| `redaction_maps` | Lokale, taskgebundene Zuordnung stabiler Platzhalter zu exakten Originalwerten |
 
 ### `data_class`
 
@@ -49,6 +50,12 @@ Erreicht eine Owner-Deadline erst nach dem begrenzten Sweep das Zeitlimit, behan
 
 Persistenz neuer Auftraege: `create_task_from_v1` validiert `TaskV1`, leitet `id` / `data_class` aus dem Payload ab und startet in `awaiting_approval` (Owner-Freigabe via `approve_task` / HTTP-Approve).
 
+Ein voruebergehend unlesbarer Anhang verbraucht keinen Versuch und erzeugt keine Lease.
+`task.gate_error` protokolliert den Fehler ohne Statuswechsel. System-/Lease-Polls speichern
+identische Fehler pro Task, Code und Quelle hoechstens einmal in 60 Sekunden. Der Task-Lock
+serialisiert diese Entscheidung; Zeitfenster und Event-Zeitstempel verwenden die aktuelle
+DB-Uhr. Owner-Aktionen bleiben einzeln auditiert.
+
 Worker-Uebergaenge aus `leased`/`running` erfordern die passende `lease_id` (Fencing). Retry respektiert `policy.max_attempts`; danach Dead-Letter via `failed`.
 
 ### Owner-Deadline und Review
@@ -84,6 +91,43 @@ Der partielle Index `ix_tasks_active_deadline` auf `(deadline_at, id)` enthaelt 
 
 Ein Downgrade wird verweigert, solange Tasks oder Audit-Events einen der drei neuen Status verwenden oder eine Owner-Deadline gespeichert ist. Die betreffenden Daten muessen vorher explizit migriert werden; Audit-Events werden nicht automatisch umgeschrieben oder geloescht. Nach erfolgreicher Pruefung werden die neuen Enum-Werte und die Deadline-Spalte entfernt.
 
+### Lokale Redaction-Maps (Revision 0008)
+
+Revision `20251103_0008` ergaenzt ausschliesslich `redaction_maps`; die eingefrorenen Task- und
+Ergebnisformate bleiben unveraendert.
+
+| Spalte | Bedeutung |
+|--------|-----------|
+| `id` | UUID als Primaerschluessel |
+| `task_id` | Fremdschluessel auf `tasks.id`, `ON DELETE RESTRICT` |
+| `placeholder` | Taskgebundener Platzhalter `[[CD_<task_id.hex>_<KIND>_<N>]]` |
+| `kind` | `EMAIL`, `PHONE`, `IBAN`, `AHV`, `IP` oder `TERM` |
+| `original` | Exakter Originalwert, lokal im Klartext |
+| `original_sha256` | SHA-256 der UTF-8-Bytes des Originalwerts |
+| `first_attempt` | Positiver Versuch, in dem die Zuordnung erstmals gespeichert wurde |
+| `created_at` | Erstellungszeitpunkt mit Zeitzone |
+
+Eindeutig sind `(task_id, placeholder)` und `(task_id, original_sha256)`. Der Hash ermoeglicht
+den Vergleich auch langer Originalwerte ohne einen B-Tree-Index auf dem Rohtext. Die Datenbank
+prueft den Hash gegen den Originalwert sowie Kind, positive Versuchszahl und Taskbindung des
+Platzhalters. Ein Hashkonflikt mit einem anderen Originalwert wird vom Repository abgewiesen.
+Der Index `ix_redaction_maps_task_id` unterstuetzt das taskgebundene Laden.
+
+`redact_for_task` sperrt zuerst die Task-Zeile mit `FOR UPDATE`, laedt deren Map und ergaenzt
+neue Zuordnungen atomar. Damit verwenden parallele Vorbereitungen und spaetere Versuche
+dieselben Platzhalter. Die erste Klassifikation eines exakten Originalwerts bleibt erhalten.
+Der Aufrufer kontrolliert den Commit; ein Rollback entfernt neu angelegte Zuordnungen.
+
+Der Trigger `redaction_maps_immutable` verweigert jedes `UPDATE`. Ein Task mit Map kann wegen
+des Fremdschluessels nicht geloescht werden. Aufbewahrung und ausdrueckliche Bereinigung folgen
+in Etappe 16; automatische Loeschung ist hier nicht enthalten. Maps werden nicht ueber die
+normalen Task-/Ergebnis-/Event-Serializer ausgegeben.
+
+Der Downgrade nimmt einen exklusiven Tabellen-Lock und verweigert das Entfernen einer nicht
+leeren Map-Tabelle. Originalwerte werden nicht still verworfen. Ein leerer Bestand laesst sich
+auf Revision 0007 zurueckfuehren und erneut migrieren. Der fachliche Ablauf steht in
+[REDAKTION.md](REDAKTION.md).
+
 Alembic liegt im Projektroot (`alembic.ini`, `alembic/versions/`). Typischer Ablauf:
 
 ```bash
@@ -118,3 +162,4 @@ Alembic waehlt **nicht** still `DECK_TEST_DATABASE_URL`: fuer Tests `-x target=t
 - Trigger `tasks_immutable_payload`: kein UPDATE von `payload`, `data_class`, `id`, `created_at`
 - Trigger `events_append_only`: kein UPDATE/DELETE auf Events; FK `RESTRICT` (Tasks werden nicht geloescht)
 - Spalten `cancel_requested`, `cancel_reason`; Events mit `actor`, `attempt`, `lease_id`
+- Redaction-Maps: Taskbindung, eindeutige Originalhashes und Platzhalter, unveraenderliche Eintraege

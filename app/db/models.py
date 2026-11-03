@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -205,3 +206,43 @@ class Lease(Base):
     task: Mapped[Task] = relationship(back_populates="lease")
 
     __table_args__ = (Index("ix_leases_expires_at", "expires_at"),)
+
+
+class RedactionMap(Base):
+    """Local, immutable task-scoped originals; never included in API serializers."""
+
+    __tablename__ = "redaction_maps"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False
+    )
+    placeholder: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    original: Mapped[str] = mapped_column(Text, nullable=False)
+    original_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    first_attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "placeholder", name="uq_redaction_maps_task_placeholder"),
+        UniqueConstraint("task_id", "original_sha256", name="uq_redaction_maps_task_original_hash"),
+        Index("ix_redaction_maps_task_id", "task_id"),
+        CheckConstraint(
+            "kind IN ('EMAIL', 'PHONE', 'IBAN', 'AHV', 'IP', 'TERM')",
+            name="ck_redaction_maps_kind",
+        ),
+        CheckConstraint("first_attempt >= 1", name="ck_redaction_maps_first_attempt"),
+        CheckConstraint("original <> ''", name="ck_redaction_maps_original_not_empty"),
+        CheckConstraint(
+            "original_sha256 = encode(sha256(convert_to(original, 'UTF8')), 'hex')",
+            name="ck_redaction_maps_original_hash",
+        ),
+        CheckConstraint(
+            r"placeholder ~ ('^\[\[CD_' || replace(task_id::text, '-', '') || '_' || "
+            r"kind || '_[1-9][0-9]{0,9}\]\]$')",
+            name="ck_redaction_maps_placeholder_scope",
+        ),
+    )

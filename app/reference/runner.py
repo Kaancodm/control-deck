@@ -8,10 +8,13 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
+from uuid import UUID
 
-from app.core.schemas import DataClass, ResultStatus, TaskV1, Worker
+from app.core.schemas import DataClass, ResultStatus, TaskKind, TaskV1, Worker
 from app.privacy.config import PrivacySettings
-from app.privacy.gate import PrivacyInputError, inspect_task
+from app.privacy.gate import PrivacyInputError
+from app.redaction.engine import RedactionError, rehydrate
+from app.redaction.payload import LaneNotAllowedError, build_payload
 from app.reference.schemas import ReferenceExpect
 from app.reference.validate import LoadedReferenceCase
 
@@ -43,6 +46,7 @@ class FakeExecutor:
     privacy_settings: PrivacySettings = field(
         default_factory=lambda: PrivacySettings(inbox=Path("inbox"), blocklist_configured=True)
     )
+    _maps: dict[UUID, dict[str, str]] = field(default_factory=dict, init=False, repr=False)
 
     def execute(self, task: TaskV1) -> ExecutionResult:
         worker = task.fallback_chain[0]
@@ -56,10 +60,15 @@ class FakeExecutor:
             )
 
         try:
-            blocked = inspect_task(task, settings=self.privacy_settings).blocked
-        except PrivacyInputError:
-            blocked = True
-        if blocked:
+            mapping = self._maps.setdefault(task.task_id, {})
+            payload = build_payload(
+                task,
+                lane=worker,
+                settings=self.privacy_settings,
+                existing=mapping,
+                mapping_sink=mapping,
+            )
+        except (PrivacyInputError, RedactionError, LaneNotAllowedError):
             return ExecutionResult(
                 status=ResultStatus.BLOCKED,
                 output_text="",
@@ -75,10 +84,12 @@ class FakeExecutor:
                 wall_seconds=self.fixed_wall_seconds,
             )
 
-        if task.kind.value == "summarize":
-            text = "reference-ok: Kurzfassung des Eingabetexts."
-        else:
-            text = "reference-ok: Ausfuehrung abgeschlossen."
+        text = self._execute_payload(payload.text, kind=task.kind)
+        if task.data_class == DataClass.CLOUD_REDACTED:
+            try:
+                text = rehydrate(text, task_id=task.task_id, mapping=mapping)
+            except RedactionError:
+                return ExecutionResult(ResultStatus.FAILED, "", worker, self.fixed_wall_seconds)
 
         return ExecutionResult(
             status=ResultStatus.SUCCEEDED,
@@ -86,6 +97,12 @@ class FakeExecutor:
             worker=worker,
             wall_seconds=self.fixed_wall_seconds,
         )
+
+    def _execute_payload(self, text: str, *, kind: TaskKind) -> str:
+        """The fake worker receives only prepared text, never the original task or map."""
+        if kind == TaskKind.SUMMARIZE:
+            return "reference-ok: Kurzfassung des Eingabetexts."
+        return "reference-ok: Ausfuehrung abgeschlossen."
 
 
 def _is_empty_input(task: TaskV1) -> bool:

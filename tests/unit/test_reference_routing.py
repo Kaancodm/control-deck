@@ -6,10 +6,10 @@ import json
 from pathlib import Path
 
 import pytest
-from app.routing.config import RouterConfig
 
 from app.core.schemas import ResultStatus, TaskV1, Worker
 from app.reference.runner import FakeExecutor
+from app.routing.config import RouterConfig
 
 
 def _task(**updates):

@@ -6,10 +6,10 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app.routing.config import RouterConfig
 from sqlalchemy import event, func, select
 
 from app.db.models import Event, Lease, RedactionMap, Result, Task
+from app.routing.config import RouterConfig
 from tests.integration.test_data_gate import (
     _OWNER,
     _WORKER,

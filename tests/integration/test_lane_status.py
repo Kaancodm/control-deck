@@ -23,6 +23,7 @@ from app.workers.lane_status import (
     list_lane_status,
     update_lane_status,
 )
+from tests.integration.helpers import migration_head
 
 
 def test_missing_health_is_unknown_without_persisting_defaults(db_session: Session) -> None:
@@ -197,5 +198,5 @@ def test_lane_health_migration_roundtrip_and_guarded_downgrade(db_session: Sessi
     db_session.commit()
     with pytest.raises(RuntimeError, match="lane health observations would be lost"):
         command.downgrade(config, "20251103_0009")
-    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20251103_0011"
+    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == migration_head()
     assert get_lane_status(db_session, lane=Worker.OLLAMA).reason == "live_profile_unavailable"

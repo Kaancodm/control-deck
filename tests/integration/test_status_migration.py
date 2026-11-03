@@ -26,7 +26,7 @@ from app.db.transitions import (
     fenced_transition_task,
     transition_task,
 )
-from tests.integration.helpers import require_test_database_url
+from tests.integration.helpers import migration_head, require_test_database_url
 from tests.integration.test_database import _insert_task, _minimal_task_payload
 from tests.integration.test_issue_fixes import _task_state_enum_labels, _teardown_migration_db
 
@@ -145,7 +145,7 @@ def test_migration_0007_refuses_downgrade_with_new_task_states(
         with engine.begin() as conn:
             assert (
                 conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == "20251103_0011"
+                == migration_head()
             )
 
 

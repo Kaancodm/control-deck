@@ -9,7 +9,12 @@ from urllib.parse import urlsplit
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.core.bind import DeploymentConfigurationError, normalize_host
+from app.core.bind import (
+    DeploymentConfigurationError,
+    load_deployment_settings,
+    normalize_host,
+    validate_public_origin,
+)
 
 SECURITY_HEADERS = {
     "Cache-Control": "no-store",
@@ -27,6 +32,7 @@ SECURITY_HEADERS = {
 @dataclass(frozen=True)
 class RequestLimits:
     allowed_hosts: tuple[str, ...]
+    public_origin: str | None = None
     max_body_bytes: int = 6 * 1024 * 1024
     body_timeout_seconds: float = 10
     max_header_bytes: int = 16384
@@ -44,12 +50,16 @@ class RequestLimits:
             or not 1 <= self.max_headers <= 200
         ):
             raise DeploymentConfigurationError("invalid_request_limits")
+        if self.public_origin is not None:
+            validate_public_origin(self.public_origin, self.allowed_hosts)
 
 
 def _authority(value: bytes) -> tuple[str, int | None]:
     try:
         text = value.decode("ascii")
-        if not text or any(char in text for char in " /\\@?#,%"):
+        if not text or any(
+            ord(char) < 33 or ord(char) > 126 or char in "/\\@?#,%" for char in text
+        ):
             raise ValueError
         parsed = urlsplit("//" + text)
         if parsed.path or parsed.query or parsed.fragment or not parsed.hostname:
@@ -104,6 +114,17 @@ class HttpBoundaryMiddleware:
         values: dict[bytes, list[bytes]] = {}
         for key, value in headers:
             values.setdefault(key.lower(), []).append(value)
+        if any(
+            len(values.get(name, [])) > 1
+            for name in (
+                b"authorization",
+                b"x-deck-worker-token",
+                b"x-csrf-token",
+                b"sec-fetch-site",
+            )
+        ):
+            await self._reject(send, 400, "ambiguous_security_header")
+            return
         try:
             hosts = values.get(b"host", [])
             if len(hosts) != 1:
@@ -115,8 +136,24 @@ class HttpBoundaryMiddleware:
             await self._reject(send, 400, "invalid_host")
             return
         origins = values.get(b"origin", [])
+        if self.limits.public_origin:
+            public = urlsplit(self.limits.public_origin)
+            origin_host = _authority(public.netloc.encode("ascii"))
+            origin_scheme = public.scheme
+        else:
+            origin_host, origin_scheme = host, scope.get("scheme", "http")
+        # Chromium can suppress a same-origin form's Origin under no-referrer.
+        # Only UI form handlers accept this pair, and still require explicit CSRF.
+        opaque_ui_form = (
+            origins == [b"null"]
+            and scope.get("path", "").startswith("/ui/")
+            and scope.get("method") in {"POST", "PUT", "PATCH", "DELETE"}
+            and values.get(b"sec-fetch-site") == [b"same-origin"]
+        )
         if len(origins) > 1 or (
-            origins and not _same_origin(origins[0], host, scope.get("scheme", "http"))
+            origins
+            and not opaque_ui_form
+            and not _same_origin(origins[0], origin_host, origin_scheme)
         ):
             await self._reject(send, 403, "invalid_origin")
             return
@@ -171,8 +208,12 @@ class HttpBoundaryMiddleware:
                 return {"type": "http.request", "body": bytes(body), "more_body": False}
             return await receive()
 
+        response_started = False
+
         async def secure_send(message: Message) -> None:
+            nonlocal response_started
             if message["type"] == "http.response.start":
+                response_started = True
                 protected = {name.lower().encode() for name in SECURITY_HEADERS}
                 filtered = [
                     (key, value)
@@ -185,6 +226,7 @@ class HttpBoundaryMiddleware:
         # Forwarding metadata is never an authentication or origin authority.
         safe_scope = {
             **scope,
+            "state": {**scope.get("state", {}), "public_origin": self.limits.public_origin},
             "headers": [
                 (key, value)
                 for key, value in headers
@@ -192,7 +234,13 @@ class HttpBoundaryMiddleware:
                 not in {b"forwarded", b"x-forwarded-for", b"x-forwarded-host", b"x-forwarded-proto"}
             ],
         }
-        await self.app(safe_scope, replay, secure_send)
+        try:
+            await self.app(safe_scope, replay, secure_send)
+        except Exception:
+            if response_started:
+                # The server must close a partial stream; expose no original exception text.
+                raise RuntimeError("HTTP response stream interrupted.") from None
+            await self._reject(send, 500, "internal_error")
 
     @staticmethod
     async def _reject(send: Send, status: int, code: str) -> None:
@@ -215,3 +263,17 @@ class HttpBoundaryMiddleware:
 
 def _security_headers() -> list[tuple[bytes, bytes]]:
     return [(name.lower().encode(), value.encode()) for name, value in SECURITY_HEADERS.items()]
+
+
+class ConfiguredHttpBoundary(HttpBoundaryMiddleware):
+    """Validate deployment when the ASGI stack starts, not during module imports."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        settings = load_deployment_settings()
+        super().__init__(
+            app,
+            limits=RequestLimits(
+                allowed_hosts=settings.allowed_hosts,
+                public_origin=settings.public_origin,
+            ),
+        )

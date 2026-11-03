@@ -132,3 +132,23 @@ def test_config_errors_do_not_echo_values(tmp_path: Path) -> None:
     with pytest.raises(DeploymentConfigurationError) as caught:
         load_deployment_settings(environment(DECK_ENV_FILE=str(private_path)))
     assert str(private_path) not in str(caught.value)
+
+
+def test_explicit_proxy_origin_must_be_allowed_and_secure_for_nonlocal_bind() -> None:
+    assert (
+        load_deployment_settings(environment(DECK_PUBLIC_ORIGIN="https://testserver")).public_origin
+        == "https://testserver"
+    )
+    for origin in (
+        "https://foreign.invalid",
+        "https://testserver/path",
+        "null",
+        "https://user@testserver",
+    ):
+        with pytest.raises(DeploymentConfigurationError, match="invalid_public_origin"):
+            load_deployment_settings(environment(DECK_PUBLIC_ORIGIN=origin))
+    with pytest.raises(DeploymentConfigurationError, match="insecure_public_origin"):
+        load_deployment_settings(
+            environment(DECK_BIND_HOST=TAILNET_STUB, DECK_PUBLIC_ORIGIN="http://testserver"),
+            interface_addresses=lambda: frozenset({ipaddress.ip_address(TAILNET_STUB)}),
+        )

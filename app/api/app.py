@@ -17,6 +17,7 @@ from app.ui.knowledge import router as knowledge_ui_router
 from app.ui.middleware import UiSecurityMiddleware
 from app.ui.routes import UiError, ui_error_handler
 from app.ui.routes import router as ui_router
+from app.api.security import ConfiguredHttpBoundary
 
 
 def create_app() -> FastAPI:
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
         name="ui-static",
     )
     app.include_router(knowledge.router, prefix="/api/v1")
+    app.add_middleware(ConfiguredHttpBoundary)
     return app
 
 

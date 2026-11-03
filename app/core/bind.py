@@ -11,6 +11,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 Address = ipaddress.IPv4Address | ipaddress.IPv6Address
 _DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
@@ -121,6 +122,29 @@ class DeploymentSettings:
     port: int
     allowed_hosts: tuple[str, ...]
     cookie_secure: bool
+    public_origin: str | None = None
+
+
+def validate_public_origin(value: str, allowed_hosts: tuple[str, ...]) -> str:
+    """An explicit TLS proxy origin replaces header-derived proxy trust."""
+    try:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or parsed.username is not None
+            or parsed.password is not None
+            or normalize_host(parsed.hostname) not in allowed_hosts
+            or parsed.port is not None
+            and not 1 <= parsed.port <= 65535
+        ):
+            raise ValueError
+    except (ValueError, DeploymentConfigurationError):
+        raise DeploymentConfigurationError("invalid_public_origin") from None
+    return value
 
 
 def load_deployment_settings(
@@ -152,4 +176,9 @@ def load_deployment_settings(
         raise DeploymentConfigurationError("insecure_nonlocal_cookie")
     if config_file := env.get("DECK_ENV_FILE"):
         validate_private_config(Path(config_file))
-    return DeploymentSettings(str(address), port, hosts, secure == "true")
+    origin = env.get("DECK_PUBLIC_ORIGIN")
+    if origin:
+        origin = validate_public_origin(origin, hosts)
+        if not (mapped or address).is_loopback and not origin.startswith("https://"):
+            raise DeploymentConfigurationError("insecure_public_origin")
+    return DeploymentSettings(str(address), port, hosts, secure == "true", origin)

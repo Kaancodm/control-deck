@@ -9,7 +9,9 @@ import pytest
 from app.api.security import SECURITY_HEADERS, HttpBoundaryMiddleware, RequestLimits
 
 
-def exercise(*, headers=None, chunks=None, limits=None, scheme="http", delayed=False):
+def exercise(
+    *, headers=None, chunks=None, limits=None, scheme="http", delayed=False, path="/api/v1/tasks"
+):
     seen = []
     sent = []
     source = list(chunks or [{"type": "http.request", "body": b"", "more_body": False}])
@@ -43,7 +45,7 @@ def exercise(*, headers=None, chunks=None, limits=None, scheme="http", delayed=F
                 "method": "POST",
                 "scheme": scheme,
                 "headers": [(b"host", b"testserver"), *(headers or [])],
-                "path": "/api/v1/tasks",
+                "path": path,
             },
             receive,
             send,
@@ -158,3 +160,31 @@ def test_header_limit_covers_all_names_and_values() -> None:
         limits=RequestLimits(("testserver",), max_header_bytes=100),
     )
     assert not seen and sent[0]["status"] == 431
+
+
+@pytest.mark.parametrize(
+    "name", [b"authorization", b"x-deck-worker-token", b"x-csrf-token", b"sec-fetch-site"]
+)
+def test_duplicate_security_headers_rejected(name: bytes) -> None:
+    seen, sent = exercise(headers=[(name, b"synthetic"), (name, b"synthetic")])
+    assert not seen and sent[0]["status"] == 400
+
+
+def test_opaque_same_origin_ui_form_reaches_csrf_handler_only() -> None:
+    headers = [(b"origin", b"null"), (b"sec-fetch-site", b"same-origin")]
+    seen, sent = exercise(headers=headers, path="/ui/login")
+    assert seen and sent[0]["status"] == 200
+    seen, sent = exercise(headers=headers)
+    assert not seen and sent[0]["status"] == 403
+    seen, sent = exercise(headers=[(b"origin", b"null")], path="/ui/login")
+    assert not seen and sent[0]["status"] == 403
+
+
+def test_explicit_proxy_origin_is_configuration_not_forwarded_header() -> None:
+    limits = RequestLimits(("testserver",), public_origin="https://testserver")
+    seen, sent = exercise(headers=[(b"origin", b"https://testserver")], limits=limits)
+    assert seen and sent[0]["status"] == 200
+    seen, sent = exercise(
+        headers=[(b"origin", b"http://testserver"), (b"x-forwarded-proto", b"http")], limits=limits
+    )
+    assert not seen and sent[0]["status"] == 403

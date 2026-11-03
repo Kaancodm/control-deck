@@ -87,8 +87,9 @@ der Metadaten macht einen spaeteren Geheimnistreffer nicht zulaessig.
 
 ### Unicode-Schattenkopie
 
-Vor der Musterpruefung werden Zeichen der Unicode-Kategorie `Cf` entfernt und eine
-NFKC-Schattenkopie gebildet. Dabei werden auch geschuetzte und schmale geschuetzte Leerzeichen
+Vor der Musterpruefung werden Zeichen der Unicode-Kategorie `Cf` sowie die Menge
+`Default_Ignorable_Code_Point` aus Unicode 15.0 entfernt und eine NFKC-Schattenkopie gebildet.
+Dazu gehoeren auch CGJ, Variation Selectors, Hangul Filler und weitere unsichtbare Marken. Dabei werden auch geschuetzte und schmale geschuetzte Leerzeichen
 zu gewoehnlichen Leerzeichen. Dieselbe Normalisierung gilt fuer Blocklist-Literale. So werden
 unter anderem kombinierte Schreibweisen, Vollbreitzeichen und Formatzeichen innerhalb eines
 Treffers erkannt.
@@ -112,7 +113,9 @@ Hex- oder URL-kodierten Geheimnisse.
 | `DECK_INBOX_DIR` | Eingangsverzeichnis fuer Dateien; ohne Einstellung `inbox` |
 
 Die Blockliste enthaelt ein Literal pro Zeile, keine regulaeren Ausdruecke. Der Vergleich
-ignoriert Gross-/Kleinschreibung und verwendet Wortgrenzen. Leere Zeilen und
+ignoriert Gross-/Kleinschreibung und verwendet Wortgrenzen. Zwischen den Woertern eines
+Mehrwort-Literals sind beliebige nichtleere Leerraumfolgen erlaubt, einschliesslich
+Zeilenumbruechen und Tabs; Metazeichen bleiben woertlich. Leere Zeilen und
 Zeilen mit fuehrendem `#` werden ignoriert, aeussere Leerzeichen entfernt und identische
 normalisierte Eintraege zusammengefasst. Nach der Normalisierung leere oder mehr als 256
 Zeichen lange Eintraege sind ungueltig. Namen und Organisationen traegt der Owner ausschliesslich lokal

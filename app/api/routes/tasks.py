@@ -3,26 +3,45 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import JSONResponse
+from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession, OwnerAuth
 from app.api.errors import problem_response
-from app.api.schemas import TaskCreateOut, TaskDetailOut, TaskListOut, TaskReviewRequest
+from app.api.schemas import (
+    DryRunFindingOut,
+    LaneBudgetOut,
+    TaskCreateOut,
+    TaskDetailOut,
+    TaskDryRunOut,
+    TaskListOut,
+    TaskReviewRequest,
+)
 from app.api.serializers import task_detail, task_summary
-from app.core.schemas import DataClass
+from app.core.schemas import DataClass, TaskV1, Worker
+from app.core.validate import validate_task
 from app.db.models import Task
 from app.db.queue import expire_overdue_tasks, expire_task_if_due
 from app.db.repository import approve_task, create_task_from_api_payload
+from app.db.routing import routing_snapshot
 from app.db.state_machine import InvalidTaskTransitionError, TaskState, TaskTransition
 from app.db.transitions import TransitionActor, request_operator_cancel, transition_task
 from app.privacy.config import PrivacyConfigurationError
-from app.privacy.gate import PrivacyInputError, PrivacyInputUnavailable, PrivacyViolation
+from app.privacy.gate import (
+    PrivacyInputError,
+    PrivacyInputUnavailable,
+    PrivacyViolation,
+    inspect_task,
+)
+from app.routing.config import RouterConfigurationError, get_router_config
+from app.routing.router import route_task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -36,6 +55,9 @@ def create_task(
     """Validate ``task.v1``, persist awaiting approval, and record audit events."""
     try:
         task = create_task_from_api_payload(session, body)
+    except RouterConfigurationError:
+        session.rollback()
+        return _routing_unavailable()
     except PrivacyConfigurationError:
         return problem_response(
             status=503,
@@ -73,6 +95,94 @@ def create_task(
         )
     session.refresh(task, attribute_names=["events", "results"])
     return TaskCreateOut(task=task_detail(task))
+
+
+def _routing_unavailable() -> JSONResponse:
+    return problem_response(
+        status=503,
+        title="Routing configuration unavailable",
+        detail="The local routing configuration must be available before planning tasks.",
+    )
+
+
+@router.post("/dry-run", response_model=TaskDryRunOut)
+def dry_run_task(
+    body: dict[str, Any],
+    session: DbSession,
+    _owner: OwnerAuth,
+) -> TaskDryRunOut | JSONResponse:
+    """Preview current admission and routing without persisting or executing anything."""
+    try:
+        data = dict(body)
+        raw_deadline = data.pop("deadline_at", None)
+        if raw_deadline is not None and not isinstance(raw_deadline, str):
+            raise ValueError("Invalid deadline type")
+        deadline_at = TypeAdapter(AwareDatetime | None).validate_python(
+            datetime.fromisoformat(raw_deadline) if raw_deadline is not None else None
+        )
+        if validate_task(data):
+            raise ValueError("Invalid task payload")
+        task = TaskV1.model_validate(data)
+        config = get_router_config()
+        snapshot = routing_snapshot(session)
+        if deadline_at is not None and deadline_at <= snapshot.now:
+            raise ValueError("Deadline elapsed")
+        gate = inspect_task(task)
+        if gate.has_secrets:
+            raise PrivacyViolation(gate)
+        plan = route_task(
+            task, config=config, usage=snapshot.usage, budget_date=snapshot.budget_date
+        )
+    except RouterConfigurationError:
+        return _routing_unavailable()
+    except PrivacyConfigurationError:
+        return problem_response(
+            status=503,
+            title="Privacy configuration unavailable",
+            detail="The local privacy configuration must be available before planning tasks.",
+        )
+    except PrivacyInputError as exc:
+        return problem_response(
+            status=422,
+            title="Task rejected by privacy gate",
+            detail="Task input failed privacy checks; nothing was stored or executed.",
+            errors=[{"code": exc.code, "source": exc.source}],
+        )
+    except ValueError:
+        return problem_response(
+            status=422,
+            title="Invalid task.v1",
+            detail="Task payload failed schema validation.",
+            errors=[{"code": "invalid_task", "message": "Check task fields and deadline_at."}],
+        )
+    budgets: dict[Worker, LaneBudgetOut] = {}
+    for worker in Worker:
+        limit = config.lanes[worker].daily_attempt_limit
+        used = snapshot.usage.get(worker, 0)
+        budgets[worker] = LaneBudgetOut(
+            used=used,
+            limit=limit,
+            remaining=max(0, limit - used) if limit is not None else None,
+        )
+    # This mirrors the current intake gate. It does not claim that a planned
+    # redaction-capable lane can already receive a raw task through the legacy API.
+    return TaskDryRunOut(
+        status="blocked" if gate.blocked else plan.status,
+        reason="privacy_gate" if gate.blocked else plan.reason,
+        plan=plan,
+        gate_status="blocked" if gate.blocked else "clear",
+        findings=[
+            DryRunFindingOut(
+                kind=item.kind.value,
+                rule=item.rule,
+                source=item.source,
+                start=item.start,
+                end=item.end,
+            )
+            for item in gate.findings
+        ],
+        budgets=budgets,
+    )
 
 
 @router.get("", response_model=TaskListOut)
@@ -182,6 +292,9 @@ def approve_task_endpoint(
             detail="Approval was deferred; restore the attachment and retry.",
             errors=[{"code": exc.code, "source": exc.source}],
         )
+    except RouterConfigurationError:
+        session.rollback()
+        return _routing_unavailable()
     except PrivacyConfigurationError:
         return problem_response(
             status=503,

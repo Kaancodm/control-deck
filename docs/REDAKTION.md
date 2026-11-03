@@ -50,7 +50,7 @@ Dadurch ist der Roundtrip aus Ersetzen und Rueckabbilden verlustfrei.
 
 Bekannte kanonische Platzhalter derselben Map sind idempotent: erneutes Redigieren veraendert
 sie nicht. Unbekannte, fremde oder fehlerhafte Platzhalter im reservierten Format werden
-abgewiesen. Das gilt auch fuer mit Cf-Zeichen oder NFKC-Varianten veraenderte Schreibweisen.
+abgewiesen. Das gilt auch fuer mit ignorierten Unicode-Zeichen oder NFKC-Varianten veraenderte Schreibweisen.
 Map-Originale duerfen selbst keine reservierten Platzhalter enthalten. Rueckabbildung erfolgt
 in einem einzigen Durchlauf; wiederhergestellte Originalwerte werden nicht nochmals als
 Platzhalter interpretiert.

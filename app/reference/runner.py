@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -17,6 +18,8 @@ from app.redaction.engine import RedactionError, rehydrate
 from app.redaction.payload import LaneNotAllowedError, build_payload
 from app.reference.schemas import ReferenceExpect
 from app.reference.validate import LoadedReferenceCase
+from app.routing.config import RouterConfig
+from app.routing.router import route_task
 
 
 class CaseOutcome(StrEnum):
@@ -46,12 +49,20 @@ class FakeExecutor:
     privacy_settings: PrivacySettings = field(
         default_factory=lambda: PrivacySettings(inbox=Path("inbox"), blocklist_configured=True)
     )
+    router_config: RouterConfig = field(default_factory=RouterConfig)
     _maps: dict[UUID, dict[str, str]] = field(default_factory=dict, init=False, repr=False)
 
     def execute(self, task: TaskV1) -> ExecutionResult:
-        worker = task.fallback_chain[0]
-
-        if task.data_class == DataClass.LOCAL_ONLY and worker != Worker.OLLAMA:
+        plan = route_task(task, config=self.router_config, usage={}, budget_date=date(2000, 1, 1))
+        # A blocked fake result records the intended local lane without executing it.
+        worker = (
+            plan.chain[0]
+            if plan.chain
+            else (
+                Worker.OLLAMA if task.data_class == DataClass.LOCAL_ONLY else task.fallback_chain[0]
+            )
+        )
+        if plan.status != "ready":
             return ExecutionResult(
                 status=ResultStatus.BLOCKED,
                 output_text="",

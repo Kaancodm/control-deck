@@ -66,8 +66,9 @@ Regressionstests. Sie ersetzen die vom Owner verfassten Referenzfaelle nicht.
 - In Etappe 5 ruft dieser die echte Datenschranke auf, mit einer ausdruecklich leeren
   Blockliste nur fuer den lokalen Testlauf. Worker-Ausfuehrung und Ergebnistext bleiben
   simuliert; der Lauf bestaetigt keine produktive Konfiguration oder Cloud-Anbindung.
-- Die bestehenden vier YAML-Faelle bleiben in Etappe 5 unveraendert. Fall `004` wird erst
-  mit dem Router-Vertrag auf den Ollama-Override angepasst.
+- Die bestehenden vier YAML-Faelle blieben in Etappe 5 und 6 unveraendert. In Etappe 7
+  prueft Fall `004` gemaess Owner-Vorgabe den Ollama-Override: eine vorgeschlagene Cloud-Kette
+  bei `local_only` wird lokal ausgefuehrt, sofern die Policy Ollama erlaubt.
 - Ein Lauf endet mit Exit-Code `0`, wenn alle Faelle `pass` melden, sonst `1`.
 
 ## Ausfuehrung

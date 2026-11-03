@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from pathlib import Path
 from random import Random
@@ -14,8 +15,14 @@ from app.privacy.scanner import FindingKind, scan_text
 
 
 def _expected(text: str) -> str:
+    # The non-Cf members of the Unicode 15.0 default-ignorable property.
+    invisible = re.compile(
+        r"[\u034f\u115f-\u1160\u17b4-\u17b5\u180b-\u180d\u180f"
+        r"\u2065\u3164\ufe00-\ufe0f\uffa0\ufff0-\ufff8\U000e0000-\U000e0fff]"
+    )
+    stripped = invisible.sub("", text)
     return unicodedata.normalize(
-        "NFKC", "".join(char for char in text if unicodedata.category(char) != "Cf")
+        "NFKC", "".join(char for char in stripped if unicodedata.category(char) != "Cf")
     )
 
 

@@ -42,6 +42,15 @@ Wichtige Pfade:
 - Retry oder Lease-Ablauf: zurueck nach `queued` (`retry`, `lease_expired`), ohne Freigabe nach `awaiting_approval`, bei erschoepften Versuchen nach `failed`
 - Eine abgelaufene Owner-Deadline fuehrt aus `awaiting_approval`, `queued`, `leased`, `running` oder `review` nach `expired`
 
+## Routing-Laufzeitdaten
+
+`tasks.plan` und `tasks.lane` enthalten ab Etappe 7 den versionierten Routing-Entscheid.
+Der Auftrag bleibt unveraendert. Claims speichern Lane und UTC-Budgettag in `task.acquire`;
+dieses append-only Protokoll zaehlt auch Versuche ohne Ergebnis. Konfigurierte Tagesgrenzen
+werden mit einem transaktionsgebundenen Advisory-Lock vor den Task-Locks geprueft.
+Rollback verwirft Claim und Verbrauch gemeinsam. Es gibt fuer Etappe 7 keine neue Tabelle
+oder Migration. Details: [ROUTING.md](ROUTING.md).
+
 ## Queue (SKIP LOCKED)
 
 Runner ziehen Arbeit mit `SELECT … FOR UPDATE SKIP LOCKED` auf dem aeltesten `queued`-Task (Index `status`, `created_at`). Die Funktion `dequeue_next_queued_task` nutzt zentral `transition_task` (Audit-Event, `attempt += 1`, `updated_at`) und ersetzt die Lease-Zeile re-acquire-sicher (ADR 0001, 0004). Abgelaufene Leases holt `reap_expired_leases` per `SKIP LOCKED` zurueck in die Queue.

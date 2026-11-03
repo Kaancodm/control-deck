@@ -15,6 +15,7 @@ Basis-Pfad fuer versionierte Endpunkte: **`/api/v1`**. OpenAPI: `/api/v1/docs`, 
 | `DECK_OWNER_TOKEN` | Gemeinsames Geheimnis fuer Owner-Endpunkte (`Authorization: Bearer …`); Login folgt in Etappe 15 |
 | `DECK_LEASE_TTL_SECONDS` | Default-Lease-Dauer beim Pull (Default `900`) |
 | `DECK_HEARTBEAT_EXTEND_SECONDS` | Verlaengerung bei Heartbeat (Default `300`) |
+| `DECK_ROUTER_FILE` | Optionale lokale Router-Konfiguration mit Regeln, Modellen und Tagesgrenzen |
 | `DECK_INBOX_DIR` | Eingangsverzeichnis fuer Textdateien (Default `inbox`) |
 | `DECK_BLOCKLIST_PATH` | Lokale UTF-8-Literalliste ausserhalb des Repositories; fuer Cloud-Auftraege Pflicht |
 
@@ -29,6 +30,7 @@ Fehlerantworten verwenden **RFC 7807** (`Content-Type: application/problem+json`
 | Methode | Pfad | Beschreibung |
 |---------|------|--------------|
 | `POST` | `/tasks` | `task.v1` und Datenschranke pruefen; fehlende `data_class` → **422** (Pflichtfeld gemaess ADR 0005). Zulaessige Tasks starten in **`awaiting_approval`**, Cloud-Tasks mit nicht geheimen Datenschutztreffern in **`blocked`**. |
+| `POST` | `/tasks/dry-run` | Owner-Vorschau fuer Routing, Datenschranke und lokale Tagesbudgets; keine Speicherung, Reservierung oder Ausfuehrung. |
 | `GET` | `/tasks` | Liste mit Query `status`, `data_class`, Pagination `limit` (1–200, Default 50), `offset`. |
 | `GET` | `/tasks/{id}` | Detail inkl. `events` und `results`. |
 | `POST` | `/tasks/{id}/approve` | Datenschranke erneut pruefen; bei Erfolg `awaiting_approval` → `queued`, setzt `approved_at`. Neue Sperrtreffer fuehren zu `blocked`. |
@@ -39,6 +41,14 @@ Interne Persistenz (`create_task_from_v1`, `POST /tasks`) verwendet dieselbe Dat
 Gespeicherte Tasks erhalten zuerst **`awaiting_approval`** und `task.submit`; bei einer
 Datenschutzsperre folgt noch in derselben Transaktion **`blocked`** mit `task.block`.
 **`queued`** ist nur nach Owner-Freigabe (`POST /tasks/{id}/approve` mit Bearer-Token) erreichbar.
+
+### Routing-Vorschau
+
+`POST /tasks/dry-run` validiert denselben Body wie das Anlegen, einschliesslich optionaler
+Owner-Deadline. Es liefert nur sichere Entscheidungsmetadaten. Der Auftrag und gefundene
+Rohwerte erscheinen nicht in der Antwort. Die Vorschau ist keine Freigabe und reserviert
+kein Tagesbudget. Der Claim prueft Konfiguration, Schranke und Verbrauch erneut.
+Regeln, Antwortbedeutung und Grenzen: [ROUTING.md](ROUTING.md).
 
 ### Datenschranke
 

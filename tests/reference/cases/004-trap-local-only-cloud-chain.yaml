@@ -7,7 +7,7 @@ task:
   requested_by: system
   kind: custom
   title: Local-only cloud chain trap
-  instructions: Dieser Auftrag muss blockiert werden.
+  instructions: Dieser Auftrag muss ausschliesslich lokal ausgefuehrt werden.
   inputs:
     - name: brief
       type: text
@@ -20,10 +20,10 @@ task:
   fallback_chain: ["claude"]
   labels: {}
 expect:
-  status: blocked
+  status: succeeded
   must_contain: []
   must_not_contain: []
   regex: null
   max_chars: null
   max_seconds: null
-  allowed_workers: []
+  allowed_workers: ["ollama"]

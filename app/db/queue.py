@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Lease, Task
 from app.db.repository import record_gate_error
+from app.db.routing import persist_task_route, routing_snapshot, try_lock_budget_admission
 from app.db.state_machine import (
     TERMINAL_STATES,
     InvalidTaskTransitionError,
@@ -24,6 +25,7 @@ from app.db.transitions import (
     upsert_lease,
 )
 from app.privacy.gate import PrivacyInputUnavailable, inspect_stored_task
+from app.routing.config import get_router_config
 
 
 def dequeue_next_queued_task(
@@ -37,6 +39,9 @@ def dequeue_next_queued_task(
 
     Uses ``FOR UPDATE SKIP LOCKED`` so concurrent workers receive distinct rows.
     """
+    config = get_router_config()
+    if not try_lock_budget_admission(session, config):
+        return None
     expire_overdue_tasks(session)
     stmt = (
         select(Task)
@@ -73,12 +78,33 @@ def dequeue_next_queued_task(
                 if not expire_task_if_due(session, task=task):
                     raise
             continue
+        snapshot = routing_snapshot(session)
+        plan = persist_task_route(session, task, config=config, snapshot=snapshot)
+        if plan.status == "blocked":
+            try:
+                transition_task(
+                    session,
+                    task=task,
+                    trigger=TaskTransition.BLOCK,
+                    detail={"reason": "routing", "code": plan.reason},
+                )
+            except InvalidTaskTransitionError:
+                if not expire_task_if_due(session, task=task):
+                    raise
+            continue
+        if plan.status == "deferred":
+            # A daily ceiling is temporary, unlike a terminal policy block.
+            unavailable_ids.add(task.id)
+            continue
+        detail = {"lane": task.lane, "budget_date": snapshot.budget_date.isoformat()}
+        if holder:
+            detail["holder"] = holder
         try:
             transition_task(
                 session,
                 task=task,
                 trigger=TaskTransition.ACQUIRE,
-                detail={"holder": holder} if holder else None,
+                detail=detail,
             )
             break
         except TransitionFencingError:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from array import array
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from io import StringIO
 
@@ -12,6 +13,39 @@ _MAX_SHADOW_CHARACTERS = 5 * 1024 * 1024
 _MAX_COMBINING_CHARACTERS = 1024
 _BUFFER_CHARACTERS = 4096
 _TEXT_RUNS = re.compile(r"[\x00-\x7f]+|[^\x00-\x7f]")
+
+# Unicode 15.0 UCD DerivedCoreProperties.txt, Default_Ignorable_Code_Point.
+# Keep reserved members too: category-based filtering alone misses these and
+# visible-category fillers. Adjacent property ranges are coalesced, not inferred.
+_DEFAULT_IGNORABLE_RANGES = (
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+)
+_DEFAULT_IGNORABLE_STARTS = tuple(start for start, _ in _DEFAULT_IGNORABLE_RANGES)
+
+
+def _is_ignored(char: str) -> bool:
+    """Drop all format characters and the complete pinned default-ignorable set."""
+    if unicodedata.category(char) == "Cf":
+        return True
+    scalar = ord(char)
+    index = bisect_right(_DEFAULT_IGNORABLE_STARTS, scalar) - 1
+    return index >= 0 and scalar <= _DEFAULT_IGNORABLE_RANGES[index][1]
 
 
 class NormalizationError(ValueError):
@@ -142,9 +176,9 @@ def _normalize(text: str, *, positions: bool) -> NormalizedText:
                     starts.extend(range(middle_start, middle_end))
                     ends.extend(range(middle_start + 1, middle_end + 1))
             continue
-        if unicodedata.category(original) != "Cf":
+        if not _is_ignored(original):
             for char in unicodedata.normalize("NFKD", original):
-                if unicodedata.category(char) != "Cf":
+                if not _is_ignored(char):
                     feed(char, index)
     if run:
         emit(_compose(run))
@@ -154,7 +188,7 @@ def _normalize(text: str, *, positions: bool) -> NormalizedText:
 
 
 def normalize_shadow(text: str) -> NormalizedText:
-    """Remove format characters, apply NFKC, and preserve original match spans.
+    """Remove format/default-ignorable characters and apply NFKC with source spans.
 
     Canonical ordering is bounded and stable; no growing prefixes are repeatedly
     normalized. ASCII returns an identity view without allocating position maps.

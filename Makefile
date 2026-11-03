@@ -1,7 +1,7 @@
 .PHONY: lint test validate reference
 
 lint:
-	uv run ruff check .
+	uv run ruff check --no-cache .
 	uv run ruff format --check .
 	uv run mypy app/
 

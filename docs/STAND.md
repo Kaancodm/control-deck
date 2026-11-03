@@ -1,9 +1,45 @@
 # Stand des Repositorys
 
-## Etappe 6 bereit fuer externes Review
+## Etappe 7 bereit fuer externes Review
+
+Draft-PR: [#22](https://github.com/Kaancodm/control-deck/pull/22).
+Branch: `stage/07-router`, nach Squash-Merge von PR #21 auf `main 323d727` rebased.
+
+Umgesetzt: reine Routing-Funktion, lokale Regeln und Modellwahl, Tagesbudgets je Lane,
+Dry-run ohne Speicherung und dieselbe Routing-Entscheidung im Referenz-Runner.
+`local_only` verwendet ausschliesslich Ollama unter Beachtung der Policy; keine zulaessige
+Lane fuehrt zu `blocked`, ausgeschoepfte Tagesbudgets verschieben nur die Ausfuehrung.
+Der Claim zaehlt atomar mit DB-Zeit, auch bei Absturz oder fehlendem Ergebnis.
+
+Review-Nacharbeit aus PR #21 in eigenen Commits:
+
+- `4b5a509`: Mehrwort-Blocklisten erkennen beliebigen Leerraum, einschliesslich Tab und
+  Zeilenumbruch; Originalpositionen und Rueckabbildung bleiben exakt.
+- `fa4bb07`: zusaetzlich zu Cf wird die vollstaendige Unicode-15.0-Menge
+  `Default_Ignorable_Code_Point` entfernt, einschliesslich CGJ, Variation Selectors und
+  Hangul Filler. Tests sichern Secret-Erkennung und vollstaendige E-Mail-Ersetzung ab.
+
+Pflichtchecks vom 2026-11-03: `make lint` gruen (Ruff, Format, Mypy),
+`uv run alembic -x target=test check` ohne Schemaabweichung, `make test` mit
+**916 bestandenen Tests** (**255 Integration**, **661 Unit**) und **2 bekannten strict xfail**
+zur Worker-Identitaet; eine bestehende Starlette/httpx-Warnung. `make reference`: **4/4**.
+Isolierte PostgreSQL-17-Testdatenbank, keine produktive Verbindung.
+Die CI des finalen Heads wird im PR ausgewiesen. Details: [ROUTING.md](ROUTING.md).
+
+Der Owner hat die gestapelte Fortsetzung bis Etappe 17 ohne Warten auf Review oder Merge
+freigegeben. Jede Etappe behaelt einen eigenen Draft-PR. Review-Korrekturen erfolgen im
+betroffenen Basis-PR, danach werden nachfolgende Etappen rebased. Kein automatischer Merge.
+Etappe 18 wird ausschliesslich als Abnahme-Checkliste vorbereitet und nicht ausgefuehrt.
+
+Folgepunkte aus PR #21: veraenderte Platzhalter, ein zwischen Versuchen aus der Blockliste
+entfernter Begriff und eine begrenzte Eskalation wiederholter `task.gate_error`-Events.
+Die Worker-Identitaet und sichere Runner-Anbindung werden in Etappe 8 geschlossen.
+
+## Etappe 6 gemergt
 
 Basis: `main 7bf0e1a`, nach Merge von PR #19. Branch: `feat/etappe-6`.
-Draft-PR: [#21](https://github.com/Kaancodm/control-deck/pull/21).
+PR: [#21](https://github.com/Kaancodm/control-deck/pull/21), extern reviewt und vom Owner
+als `323d727` nach main squash-gemergt.
 
 Der erste Commit `f4e0f8f` nimmt die beiden Folgepunkte aus Etappe 5 auf:
 
@@ -39,8 +75,8 @@ Lokale Pflichtchecks vom 2026-11-03:
   Eine bestehende Starlette/httpx-Deprecation-Warnung.
 - `make reference`: **4/4** bestehende Faelle bestanden.
 
-Die GitHub-CI des aktuellen Heads wird im PR ausgewiesen. Externes Review und Owner-Merge
-stehen aus; kein Merge durch den Agenten.
+Die GitHub-CI des Etappe-6-Heads war gruen. Das externe Review und der Owner-Merge sind
+abgeschlossen; die beiden P2-Nacharbeiten sind in Etappe 7 separat behoben.
 
 ## Grenze zum Host-Runner
 
@@ -53,3 +89,10 @@ versenden. Dieser PR aktiviert keinen ungeschuetzten Cloud-Versand.
 Die zwei strikten `xfail`-Tests zur Worker-Identitaet bleiben ein Pflichtpunkt fuer Etappe 8.
 Inhaltliche Referenzfaelle schreibt der Owner; die vier vorhandenen YAML-Faelle bleiben erhalten.
 Es gibt keine Server-Eingriffe, produktiven DB-Verbindungen oder echten Anbieteraufrufe.
+
+## Inbetriebnahme
+
+Echte Logins, CLI-/Modellaufrufe, Anbieter-Kontingente und Serverinstallation werden nicht
+getestet oder ausgefuehrt. Dafuer erforderliche Pruefungen bleiben in jedem Etappen-PR
+explizit als Inbetriebnahme offen. Die lokalen Pflichtchecks verwenden nur Simulationen
+und isolierte Testdatenbanken.

@@ -52,11 +52,13 @@ type errors fail lint even when ruff is clean.
 - `awaiting_approval` is the **initial state before `queued`**. A new task waits there until the
   owner approves it (`approve -> queued`). `review` stays after `running` as in Plan v1.1.
 - Every transition is an audit event (`task.<trigger>`); forbidden transitions must raise.
-- Implementation status: `app/db/state_machine.py` on `main` includes `awaiting_approval` (migration
-  `0002`, `requires_approval`, `approved_at`) plus `queued`, `leased`, `running`, `succeeded`,
-  `failed`, `blocked`, `cancelled`. `review`, `done`, and `expired` are not in the enum yet; the
-  code uses `succeeded` where the plan says `done`. Check the current enum before relying on a
-  state name.
+- Implementation status: `app/db/state_machine.py` includes `awaiting_approval`, `queued`,
+  `leased`, `running`, `review`, `done`, `expired`, `failed`, `blocked`, and `cancelled`.
+  Migration `0007` adds review states and the optional owner-set `deadline_at`. Historical
+  `succeeded` rows remain terminal; new successful attempts enter `review`, or `done` only
+  when `require_review=false` and no `human` acceptance rule applies.
+- Only an elapsed owner-set `deadline_at` causes `expired`. Lease expiry and worker timeouts
+  do not create a deadline. Owner review approves to `done` or rejects to `failed`.
 
 ### Data classes
 

@@ -52,6 +52,7 @@ _TRANSITION_TABLE: dict[TaskState | None, dict[TaskTransition, TaskState]] = {
         TaskTransition.BLOCK: TaskState.BLOCKED,
         TaskTransition.CANCEL: TaskState.CANCELLED,
     },
+    # LEASED → failed/blocked intentionally omitted: runner must START or release lease first.
     TaskState.LEASED: {
         TaskTransition.START: TaskState.RUNNING,
         TaskTransition.LEASE_EXPIRED: TaskState.QUEUED,

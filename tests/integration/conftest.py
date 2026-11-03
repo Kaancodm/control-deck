@@ -12,15 +12,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from alembic import command
 from app.db.base import Base
 from app.db.session import get_engine, reset_engine_for_tests
-from tests.integration.helpers import require_database_url
+from tests.integration.helpers import require_test_database_url
 
 
 @pytest.fixture(scope="session")
 def migrated_database() -> Generator[None, None, None]:
-    """Apply Alembic migrations once per test session."""
-    require_database_url()
+    """Apply Alembic migrations once per test session against the test database."""
+    require_test_database_url()
     reset_engine_for_tests()
-    get_engine()
+    get_engine(for_tests=True)
 
     alembic_cfg = Config("alembic.ini")
     command.upgrade(alembic_cfg, "head")
@@ -31,7 +31,7 @@ def migrated_database() -> Generator[None, None, None]:
 @pytest.fixture
 def db_session(migrated_database: None) -> Generator[Session, None, None]:
     """Session with row cleanup after each test."""
-    factory = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False)
+    factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False, autocommit=False)
     session = factory()
     try:
         yield session

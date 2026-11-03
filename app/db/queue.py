@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Lease, Task
-from app.db.state_machine import TaskState, TaskTransition, apply_transition
+from app.db.state_machine import TaskState, TaskTransition
+from app.db.transitions import transition_task, upsert_lease
 
 
 def dequeue_next_queued_task(
@@ -34,16 +35,56 @@ def dequeue_next_queued_task(
     if task is None:
         return None
 
-    transition = apply_transition(task.status, TaskTransition.ACQUIRE)
-    task.status = transition.to_state
+    transition_task(
+        session,
+        task=task,
+        trigger=TaskTransition.ACQUIRE,
+        detail={"holder": holder} if holder else None,
+        skip_lease_check=True,
+    )
 
     now = datetime.now(tz=UTC)
-    lease = Lease(
-        lease_id=uuid.uuid4(),
+    lease_id = uuid.uuid4()
+    upsert_lease(
+        session,
         task_id=task.id,
+        lease_id=lease_id,
         expires_at=now + lease_ttl,
         heartbeat_at=now,
         holder=holder,
     )
-    session.add(lease)
+    session.refresh(task, attribute_names=["lease"])
+    session.flush()
     return task
+
+
+def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
+    """
+    Return expired leases to the queue (``LEASE_EXPIRED``) using ``SKIP LOCKED``.
+
+    Only tasks in ``leased`` or ``running`` with ``expires_at < now()`` are processed.
+    """
+    now = datetime.now(tz=UTC)
+    stmt = (
+        select(Lease)
+        .join(Task, Task.id == Lease.task_id)
+        .where(
+            Lease.expires_at < now,
+            Task.status.in_((TaskState.LEASED, TaskState.RUNNING)),
+        )
+        .order_by(Lease.expires_at.asc())
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    leases = list(session.scalars(stmt).all())
+    for lease in leases:
+        task = lease.task
+        transition_task(
+            session,
+            task=task,
+            trigger=TaskTransition.LEASE_EXPIRED,
+            lease_id=lease.lease_id,
+            detail={"reaper": True, "expired_at": lease.expires_at.isoformat()},
+        )
+    session.flush()
+    return len(leases)

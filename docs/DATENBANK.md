@@ -36,7 +36,11 @@ Wichtige Pfade:
 
 ## Queue (SKIP LOCKED)
 
-Runner ziehen Arbeit mit `SELECT … FOR UPDATE SKIP LOCKED` auf dem aeltesten `queued`-Task (Index `status`, `created_at`). Die Funktion `dequeue_next_queued_task` setzt den Status auf `leased` und legt eine Lease-Zeile an (ADR 0001, 0004).
+Runner ziehen Arbeit mit `SELECT … FOR UPDATE SKIP LOCKED` auf dem aeltesten `queued`-Task (Index `status`, `created_at`). Die Funktion `dequeue_next_queued_task` nutzt zentral `transition_task` (Audit-Event, `attempt += 1`, `updated_at`) und ersetzt die Lease-Zeile re-acquire-sicher (ADR 0001, 0004). Abgelaufene Leases holt `reap_expired_leases` per `SKIP LOCKED` zurueck in die Queue.
+
+Persistenz neuer Auftraege: `create_task_from_v1` validiert `TaskV1` und leitet `id` / `data_class` aus dem Payload ab (DB-CHECKs auf Konsistenz).
+
+Worker-Uebergaenge aus `leased`/`running` erfordern die passende `lease_id` (Fencing). Retry respektiert `policy.max_attempts`; danach Dead-Letter via `failed`.
 
 ## Migrationen
 
@@ -55,10 +59,10 @@ uv run alembic downgrade base
 
 ## Tests
 
-- **Unit:** State-Machine ohne Datenbank (`tests/unit/test_state_machine.py`).
-- **Integration:** GitHub Actions startet `postgres:17`; Tests setzen `DECK_DATABASE_URL` und pruefen Migrationen sowie SKIP LOCKED mit zwei Sessions.
+- **Unit:** State-Machine und Transition-Helfer ohne Datenbank.
+- **Integration:** nur gegen `DECK_TEST_DATABASE_URL`; der Datenbankname **muss auf `_test` enden** (Schutz vor destruktiven Laeufen auf Produktions-DBs). CI startet `postgres:17`, legt `controldeck_test` an, fuehrt `alembic upgrade` + `alembic check` aus.
 
-Lokal ohne Postgres werden Integrationstests uebersprungen; `make test` bleibt gruen.
+Lokal ohne `DECK_TEST_DATABASE_URL` werden Integrationstests uebersprungen; `make test` bleibt gruen.
 
 ## Betrieb (Hinweis)
 

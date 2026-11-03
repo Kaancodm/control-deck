@@ -80,6 +80,14 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),
+        sa.CheckConstraint(
+            "(payload->>'data_class') = data_class::text",
+            name="ck_tasks_payload_data_class",
+        ),
+        sa.CheckConstraint(
+            "(payload->>'task_id')::uuid = id",
+            name="ck_tasks_payload_task_id",
+        ),
     )
     op.create_index("ix_tasks_data_class", "tasks", ["data_class"], unique=False)
     op.create_index("ix_tasks_status_created_at", "tasks", ["status", "created_at"], unique=False)
@@ -98,6 +106,7 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["task_id"], ["tasks.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sa.CheckConstraint("attempt >= 1", name="ck_results_attempt_min"),
     )
     op.create_index("ix_results_task_id_attempt", "results", ["task_id", "attempt"], unique=True)
 
@@ -106,8 +115,8 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("task_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("event_type", sa.String(length=64), nullable=False),
-        sa.Column("from_status", sa.String(length=32), nullable=True),
-        sa.Column("to_status", sa.String(length=32), nullable=False),
+        sa.Column("from_status", task_state, nullable=True),
+        sa.Column("to_status", task_state, nullable=False),
         sa.Column("detail", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column(
             "created_at",

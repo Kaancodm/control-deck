@@ -10,6 +10,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.db import models as _models  # noqa: F401 — register ORM metadata
 from app.db.base import Base
+from app.db.config import get_test_database_url
 
 config = context.config
 
@@ -20,9 +21,12 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
+    test = os.environ.get("DECK_TEST_DATABASE_URL", "").strip()
+    if test:
+        return get_test_database_url()
     url = os.environ.get("DECK_DATABASE_URL", "").strip()
     if not url:
-        raise RuntimeError("DECK_DATABASE_URL must be set to run Alembic")
+        raise RuntimeError("DECK_DATABASE_URL or DECK_TEST_DATABASE_URL must be set to run Alembic")
     return url
 
 

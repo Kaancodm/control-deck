@@ -24,6 +24,7 @@ from sqlalchemy.sql import Select
 
 from app.audit.presentation import AuditFilter, AuditPage, project_record
 from app.db.models import Event
+from app.db.ui_auth import AuthEvent
 
 # This projection does not register another ORM table or own its migrations.
 # Etappe 16 owns the append-only operations table and its write validation.
@@ -43,7 +44,8 @@ def audit_selection(filters: AuditFilter) -> Select[Any]:
     """Build a parameterized selection; source and identifiers are never SQL text."""
     tasks = select(
         literal("task").label("source"),
-        Event.id,
+        cast(Event.id, Text).label("id"),
+        Event.id.label("sort_id"),
         Event.created_at,
         Event.event_type,
         Event.task_id,
@@ -58,7 +60,8 @@ def audit_selection(filters: AuditFilter) -> Select[Any]:
     )
     operations = select(
         literal("operation").label("source"),
-        _OPERATIONS.c.id,
+        cast(_OPERATIONS.c.id, Text).label("id"),
+        _OPERATIONS.c.id.label("sort_id"),
         _OPERATIONS.c.created_at,
         (literal("operation.") + _OPERATIONS.c.operation_type).label("event_type"),
         _OPERATIONS.c.task_id,
@@ -71,7 +74,23 @@ def audit_selection(filters: AuditFilter) -> Select[Any]:
         _OPERATIONS.c.detail,
         cast(literal(None), Text).label("lane"),
     )
-    combined = union_all(tasks, operations).subquery()
+    authentication = select(
+        literal("auth").label("source"),
+        cast(AuthEvent.id, Text).label("id"),
+        cast(literal(0), BigInteger).label("sort_id"),
+        AuthEvent.created_at,
+        AuthEvent.event_type,
+        cast(literal(None), UUID(as_uuid=True)).label("task_id"),
+        cast(literal(None), UUID(as_uuid=True)).label("operation_id"),
+        cast(literal(None), Text).label("actor"),
+        cast(literal(None), Integer).label("attempt"),
+        cast(literal(None), Text).label("from_status"),
+        cast(literal(None), Text).label("to_status"),
+        cast(literal(None), Text).label("phase"),
+        func.jsonb_build_object("sessions", AuthEvent.affected_sessions).label("detail"),
+        cast(literal(None), Text).label("lane"),
+    )
+    combined = union_all(tasks, operations, authentication).subquery()
     statement = select(combined)
     if filters.source != "all":
         statement = statement.where(combined.c.source == filters.source)
@@ -96,7 +115,12 @@ def list_audit(session: Session, filters: AuditFilter) -> AuditPage:
     total_query = select(func.count().label("total")).select_from(selected).subquery()
     page_query = (
         select(selected)
-        .order_by(selected.c.created_at.desc(), selected.c.source, selected.c.id.desc())
+        .order_by(
+            selected.c.created_at.desc(),
+            selected.c.source,
+            selected.c.sort_id.desc(),
+            selected.c.id.desc(),
+        )
         .limit(filters.limit)
         .offset(filters.offset)
         .subquery()
@@ -108,7 +132,10 @@ def list_audit(session: Session, filters: AuditFilter) -> AuditPage:
                 select(total_query.c.total, page_query)
                 .select_from(total_query.outerjoin(page_query, true()))
                 .order_by(
-                    page_query.c.created_at.desc(), page_query.c.source, page_query.c.id.desc()
+                    page_query.c.created_at.desc(),
+                    page_query.c.source,
+                    page_query.c.sort_id.desc(),
+                    page_query.c.id.desc(),
                 )
             )
             .mappings()

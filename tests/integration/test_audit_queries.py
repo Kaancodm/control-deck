@@ -4,13 +4,15 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.audit.presentation import AuditFilter, audit_csv
 from app.audit.repository import list_audit
 from app.db.models import Event
 from app.db.state_machine import TaskState
+from app.db.ui_auth import AuthEvent
+from app.operations.models import OperationEvent
 from tests.integration.test_database import _insert_task
 
 STAMP = datetime(2026, 1, 1, tzinfo=UTC)
@@ -20,17 +22,6 @@ STAMP = datetime(2026, 1, 1, tzinfo=UTC)
 def records(db_session: Session):
     task = _insert_task(db_session, approved=False)
     other = _insert_task(db_session, approved=False)
-    # A transaction-local projection fixture keeps these read tests independent
-    # from operations write validators and does not modify their durable schema.
-    db_session.execute(
-        text("""
-        CREATE TEMP TABLE operations_events (
-            id bigint PRIMARY KEY, operation_id uuid NOT NULL,
-            operation_type text NOT NULL, phase text NOT NULL,
-            task_id uuid, detail jsonb, created_at timestamptz NOT NULL
-        ) ON COMMIT DROP
-    """)
-    )
     for index, (task_id, lane, actor) in enumerate(
         [
             (task.id, "ollama", "runner"),
@@ -56,21 +47,26 @@ def records(db_session: Session):
         )
     db_session.flush()
     operation_id = uuid4()
-    db_session.execute(
-        text("""
-        INSERT INTO operations_events VALUES
-        (1, :operation, 'retention', 'completed', :task,
-         '{"maps": 3, "path": "private-path-marker"}', :stamp),
-        (2, :operation, 'backup', 'failed', NULL,
-         '{"reason": "private-error-marker"}', :older)
-    """),
-        {
-            "operation": operation_id,
-            "task": task.id,
-            "stamp": STAMP + timedelta(seconds=2),
-            "older": STAMP,
-        },
+    db_session.add_all(
+        [
+            OperationEvent(
+                operation_id=operation_id,
+                operation_type="retention",
+                phase="completed",
+                task_id=task.id,
+                created_at=STAMP + timedelta(seconds=2),
+                detail={"maps": 3, "path": "private-path-marker"},
+            ),
+            OperationEvent(
+                operation_id=operation_id,
+                operation_type="backup",
+                phase="failed",
+                created_at=STAMP,
+                detail={"reason": "private-error-marker"},
+            ),
+        ]
     )
+    db_session.flush()
     return task.id, other.id, operation_id
 
 
@@ -148,3 +144,17 @@ def test_queries_have_no_writes_or_row_locks(db_session: Session, records):
         statement.startswith("WITH SELECTED_AUDIT AS") and "FOR UPDATE" not in statement
         for statement in statements
     )
+
+
+def test_authentication_audit_is_taskless_and_bounded(db_session: Session, records):
+    item = AuthEvent(event_type="auth.sessions_revoked", affected_sessions=2, created_at=STAMP)
+    db_session.add(item)
+    db_session.flush()
+    page = list_audit(db_session, selection(source="auth"))
+    assert page.total == 1
+    projected = page.items[0]
+    assert projected.id == item.id
+    assert projected.task_id is projected.operation_id is projected.actor is None
+    assert projected.event_type == "auth.sessions_revoked"
+    assert projected.counts == {"sessions": 2}
+    assert list_audit(db_session, selection(event_type="auth.sessions_revoked")).total == 1

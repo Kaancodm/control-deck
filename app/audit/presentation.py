@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 from collections.abc import Iterable, Mapping
 from datetime import datetime
@@ -20,6 +21,17 @@ TASK_EVENT_TYPES = frozenset(
     | {"task.prepare", "task.cancel_requested", "task.gate_error", "kb.export"}
 )
 OPERATION_TYPES = frozenset({"backup", "restore", "retention", "update"})
+AUTH_EVENT_TYPES = frozenset(
+    {
+        "auth.login_failed",
+        "auth.login_throttled",
+        "auth.login_locked",
+        "auth.login_succeeded",
+        "auth.logout",
+        "auth.sessions_revoked",
+        "auth.login_unlocked",
+    }
+)
 ACTORS = frozenset({"system", "operator", "runner"})
 PHASES = frozenset({"started", "artifacts_removed", "completed", "failed"})
 _SAFE_REASONS = frozenset(code.value for code in ErrorCode) | {
@@ -37,7 +49,9 @@ _SAFE_REASONS = frozenset(code.value for code in ErrorCode) | {
     "owner_pause",
     "attempts_exhausted",
 }
-_COUNT_KEYS = frozenset({"tasks", "files", "maps", "snapshots", "backups", "bytes", "rows"})
+_COUNT_KEYS = frozenset(
+    {"tasks", "files", "maps", "snapshots", "backups", "bytes", "rows", "sessions"}
+)
 _DIGEST = re.compile(r"[a-f0-9]{64}\Z")
 
 
@@ -45,7 +59,7 @@ class AuditFilter(BaseModel):
     """Bound a single read/export page; dates are inclusive lower/exclusive upper."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    source: Literal["all", "task", "operation"] = "all"
+    source: Literal["all", "task", "operation", "auth"] = "all"
     event_type: str | None = None
     actor: Literal["system", "operator", "runner"] | None = None
     lane: Worker | None = None
@@ -57,7 +71,11 @@ class AuditFilter(BaseModel):
 
     @model_validator(mode="after")
     def validate_selection(self) -> AuditFilter:
-        allowed = TASK_EVENT_TYPES | {f"operation.{value}" for value in OPERATION_TYPES}
+        allowed = (
+            TASK_EVENT_TYPES
+            | AUTH_EVENT_TYPES
+            | {f"operation.{value}" for value in OPERATION_TYPES}
+        )
         if self.event_type is not None and self.event_type not in allowed:
             raise ValueError("Unknown audit event type")
         if self.since is not None and self.until is not None and self.since >= self.until:
@@ -69,8 +87,8 @@ class AuditItem(BaseModel):
     """A deliberately small projection; never serialize ORM records directly."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    source: Literal["task", "operation"]
-    id: int
+    source: Literal["task", "operation", "auth"]
+    id: int | UUID
     created_at: datetime
     event_type: str
     task_id: UUID | None = None
@@ -102,7 +120,7 @@ def _member(value: object, allowed: frozenset[str]) -> str | None:
 def project_record(record: Mapping[str, object]) -> AuditItem:
     """Drop unknown actor/type/reason values instead of rendering database text."""
     source = record["source"]
-    if source not in ("task", "operation"):
+    if source not in ("task", "operation", "auth"):
         raise ValueError("Unknown audit record source")
     detail = record.get("detail")
     detail = detail if isinstance(detail, dict) else {}
@@ -124,7 +142,9 @@ def project_record(record: Mapping[str, object]) -> AuditItem:
     actor = _member(record.get("actor"), ACTORS)
     phase = _member(record.get("phase"), PHASES)
     event_type = record.get("event_type")
-    allowed_types = TASK_EVENT_TYPES | {f"operation.{value}" for value in OPERATION_TYPES}
+    allowed_types = (
+        TASK_EVENT_TYPES | AUTH_EVENT_TYPES | {f"operation.{value}" for value in OPERATION_TYPES}
+    )
     event_type = _member(event_type, allowed_types) or "unknown"
     attempt = record.get("attempt")
     attempt = attempt if type(attempt) is int and 0 <= attempt <= 5 else None
@@ -181,11 +201,13 @@ def audit_csv(items: Iterable[AuditItem]) -> str:
         "reason",
         "error_code",
         "payload_sha256",
+        "counts",
     )
     writer.writerow(columns)
     for index, item in enumerate(items):
         if index >= 200:
             raise ValueError("Audit export is limited to one page")
         data = item.model_dump(mode="json")
+        data["counts"] = json.dumps(item.counts, sort_keys=True)
         writer.writerow(csv_cell(data[name]) for name in columns)
     return buffer.getvalue()

@@ -1,0 +1,9 @@
+{% if health_unavailable %}<p class="notice" role="status">Gesundheitsdaten derzeit nicht verfuegbar.</p>{% endif %}
+{% for lane in lane_health %}{% for warning in lane.warnings %}
+<p class="notice{% if warning == 'auth_required' %} error{% endif %}" role="alert" data-lane-warning="{{ warning }}">
+  <strong>{{ lane.lane.value }}</strong>:
+  {% if warning == 'auth_required' %}Anmeldung erforderlich. Lane bleibt bis zur Klaerung pausiert.
+  {% else %}Kein erfasster Erfolgsnachweis in den letzten 24 Stunden. Die Versuchszaehler beginnen mit Migration 0016.{% endif %}
+  <a href="/ui/lanes">Lane-Zustand und Vorgehen pruefen</a>
+</p>
+{% endfor %}{% endfor %}

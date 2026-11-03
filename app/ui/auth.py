@@ -157,7 +157,15 @@ def client_fingerprint(address: str | None) -> str:
 def set_session_cookies(
     response: Response, credentials: SessionCredentials, settings: AuthSettings
 ) -> None:
-    """Keep both opaque values out of JavaScript and limit them to UI requests."""
+    """Allow owner health reads while keeping the CSRF cookie limited to the UI."""
+    # Expire the old scoped cookie to avoid duplicate session names during upgrade.
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/ui",
+        secure=settings.cookie_secure,
+        httponly=True,
+        samesite="strict",
+    )
     for name, value in (
         (SESSION_COOKIE, credentials.token),
         (CSRF_COOKIE, credentials.csrf_token),
@@ -166,7 +174,7 @@ def set_session_cookies(
             name,
             value,
             expires=credentials.expires_at.astimezone(UTC),
-            path="/ui",
+            path="/" if name == SESSION_COOKIE else "/ui",
             secure=settings.cookie_secure,
             httponly=True,
             samesite="strict",
@@ -174,10 +182,10 @@ def set_session_cookies(
 
 
 def clear_session_cookies(response: Response, settings: AuthSettings) -> None:
-    for name in (SESSION_COOKIE, CSRF_COOKIE):
+    for name, path in ((SESSION_COOKIE, "/"), (SESSION_COOKIE, "/ui"), (CSRF_COOKIE, "/ui")):
         response.delete_cookie(
             name,
-            path="/ui",
+            path=path,
             secure=settings.cookie_secure,
             httponly=True,
             samesite="strict",

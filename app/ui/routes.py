@@ -16,6 +16,16 @@ from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.api.deps import DbSession
+from app.audit.presentation import (
+    ACTORS,
+    AUTH_EVENT_TYPES,
+    OPERATION_TYPES,
+    TASK_EVENT_TYPES,
+    AuditFilter,
+    audit_csv,
+)
+from app.audit.repository import list_audit
+from app.audit.service import read_lane_health
 from app.core.schemas import DataClass, TaskV1, Worker
 from app.db.failures import list_failed_tasks
 from app.db.settings import read_settings, update_settings
@@ -57,7 +67,6 @@ from app.ui.files import MAX_FILE_BYTES, Upload, read_payload, store_uploads
 from app.ui.forms import FormError, form_from_draft, task_from_form, validate_draft
 from app.ui.middleware import MAX_BODY_BYTES
 from app.ui.views import page, preview_context, preview_redirect
-from app.workers.lane_status import list_lane_status
 
 router = APIRouter(prefix="/ui", include_in_schema=False)
 
@@ -72,6 +81,11 @@ def owner(request: Request, session: Session) -> None:
     if get_ui_session(session, request.cookies.get(SESSION_COOKIE)) is None:
         raise UiError("login_required", 401)
     request.state.controls = read_settings(session)
+    try:
+        request.state.lane_health = read_lane_health(session)
+    except RouterConfigurationError:
+        request.state.lane_health = []
+        request.state.health_unavailable = True
 
 
 class _MemoryParser(MultiPartParser):
@@ -404,7 +418,49 @@ def lanes(request: Request, session: DbSession) -> Response:
         "lanes.html",
         controls=read_settings(session),
         workers=Worker,
-        observations={row.lane: row for row in list_lane_status(session)},
+        health=request.state.lane_health,
+    )
+
+
+def _audit_filter(request: Request) -> AuditFilter:
+    query = request.query_params
+    if any(len(query.getlist(key)) != 1 for key in query):
+        raise UiError("invalid_filter")
+    try:
+        return AuditFilter.model_validate({key: value for key, value in query.items() if value})
+    except ValueError:
+        raise UiError("invalid_filter") from None
+
+
+@router.get("/audit")
+def audit(request: Request, session: DbSession) -> Response:
+    owner(request, session)
+    selection = _audit_filter(request)
+    result = list_audit(session, selection)
+    return page(
+        request,
+        "audit.html",
+        audit=result,
+        filters=request.query_params,
+        workers=Worker,
+        actors=sorted(ACTORS),
+        event_types=sorted(
+            TASK_EVENT_TYPES
+            | AUTH_EVENT_TYPES
+            | {f"operation.{value}" for value in OPERATION_TYPES}
+        ),
+        csv_url="/ui/audit.csv" + ("?" + str(request.query_params) if request.query_params else ""),
+    )
+
+
+@router.get("/audit.csv")
+def audit_export(request: Request, session: DbSession) -> Response:
+    owner(request, session)
+    result = list_audit(session, _audit_filter(request))
+    return Response(
+        audit_csv(result.items),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="audit.csv"'},
     )
 
 

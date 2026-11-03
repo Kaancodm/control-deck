@@ -132,12 +132,14 @@ def test_session_cookies_are_private_and_expiring(settings: AuthSettings) -> Non
     response = Response()
     set_session_cookies(response, credentials, settings)
     cookies = response.headers.getlist("set-cookie")
-    assert len(cookies) == 2
-    assert cookies[0].startswith(SESSION_COOKIE + "=")
-    assert cookies[1].startswith(CSRF_COOKIE + "=")
+    assert len(cookies) == 3
+    assert cookies[0].startswith(SESSION_COOKIE + "=") and "Max-Age=0" in cookies[0]
+    assert "Path=/ui" in cookies[0]
+    assert cookies[1].startswith(SESSION_COOKIE + "=") and "Path=/;" in cookies[1]
+    assert cookies[2].startswith(CSRF_COOKIE + "=") and "Path=/ui" in cookies[2]
     for cookie in cookies:
         assert "HttpOnly" in cookie and "Secure" in cookie
-        assert "SameSite=strict" in cookie and "Path=/ui" in cookie
+        assert "SameSite=strict" in cookie
         assert "expires=" in cookie
     assert credentials.token not in repr(credentials)
     assert credentials.csrf_token not in repr(credentials)
@@ -146,8 +148,11 @@ def test_session_cookies_are_private_and_expiring(settings: AuthSettings) -> Non
 def test_logout_removes_both_cookies(settings: AuthSettings) -> None:
     response = Response()
     clear_session_cookies(response, settings)
-    for cookie in response.headers.getlist("set-cookie"):
-        assert "Max-Age=0" in cookie and "Path=/ui" in cookie
+    cookies = response.headers.getlist("set-cookie")
+    assert len(cookies) == 3 and "Path=/;" in cookies[0]
+    assert all("Path=/ui" in value for value in cookies[1:])
+    for cookie in cookies:
+        assert "Max-Age=0" in cookie
         assert "HttpOnly" in cookie and "Secure" in cookie
 
 

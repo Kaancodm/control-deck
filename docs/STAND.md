@@ -1,16 +1,28 @@
 # Stand des Repositorys
 
-## Etappe 17: in Arbeit
+## Etappe 17: Integration in Arbeit
 
 Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.
-Der Zwischenstand enthaelt begrenzte Audit-Projektionen, Filter, CSV-Schutz und reine
-Gesundheits-/Versuchsentscheidungen. **66 Unit- und 11 SQL-Integrationstests** bestehen;
-gezielte Ruff-/Mypy-Pruefungen sind gruen. Das ist keine finale Validierung des gestapelten
-PRs. UI-/API-Anbindung, Zaehler-Migration und Ergebnis-Fencing folgen nach dem fertigen
-Vorgaenger; danach werden alle Pflichtchecks und die CI erneut ausgefuehrt.
-Anbieter-Kontingente bleiben unbekannt; Simulation ist kein Nachweis fuer Live-Bereitschaft.
-Keine echten Anbieterpruefungen, Logins oder Serveraenderungen. Inbetriebnahme und
-Gesamt-Abnahme bleiben offen.
+Migration `0016` zaehlt ausschliesslich endgueltig angenommene Ergebnisse, atomar mit
+Ergebnis und Statuswechsel. Zaehler beginnen bei dieser Migration; positive Vorpruefungen
+bleiben getrennt. Zehn neue SQL-Integrationstests pruefen Konkurrenz, verworfene Ergebnisse,
+Rollback, Acceptance und Migrationsschutz.
+
+Audit zeigt begrenzte sichere Metadaten aus Auftrags-, Betriebs- und Auth-Ereignissen;
+CSV entspricht einer sichtbaren Seite. Geschuetzte Lane-Ansicht, Warnband und
+`/api/v1/health` nutzen lokale Beobachtungen ohne Anbieterpruefung. Owner-Token oder eine
+gueltige Session erlauben Gesundheitsdetails; anonym bleibt nur der Minimalstatus.
+Die Session gilt nun fuer den Root-Pfad, CSRF bleibt auf `/ui`; alte Session-Cookies
+werden beim Setzen und Abmelden entfernt. Schreib-APIs erhalten keine Session-Rechte.
+
+71 gezielte UI-/Health-/Audit-/Cookie-Tests bestehen. Das ist keine Gesamt-Testzahl.
+Finaler Eltern-Rebase, Browser-Smoke und vollstaendige Pflichtchecks/CI stehen noch aus.
+
+### Inbetriebnahme
+
+Anbieter-Kontingente bleiben unbekannt, Live-Profile gesperrt. Echte Anmeldungen,
+Lane-Verfuegbarkeit, Betriebsrechte und Serveraenderungen wurden nicht geprueft oder
+vorgenommen. Die Gesamt-Abnahme bleibt offen.
 
 ## Etappe 13 implementiert und lokal geprueft
 

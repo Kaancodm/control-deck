@@ -359,7 +359,7 @@ Referenzfaelle. Details: [WISSENS_DB.md](WISSENS_DB.md).
 ## Etappe 15: lokal abgeschlossen
 
 Draft-PR: [#30](https://github.com/Kaancodm/control-deck/pull/30), Branch
-`stage/15-hardening`, auf den finalen Etappe-14-Head `150cd43` rebased.
+`stage/15-hardening`, auf den korrigierten Etappe-14-Head `6b9d470` rebased.
 
 Die vollstaendige Owner-UI ist mit der aeussersten HTTP-Schutzmiddleware integriert.
 Validierte Host-/Origin-Grenzen, begrenzte Requests, sichere Konfigurations- und
@@ -383,10 +383,15 @@ zweier Browser-Sessions, Sperranzeige nach Neuladen und erneuter Anmeldung nach 
 Zentrale und KB-Testdatenbank sind getrennte isolierte PostgreSQL-17-/pgvector-Datenbanken.
 
 Ein vorheriger Gesamtlauf hatte **2080 bestandene Tests und einen Fehlschlag**: ein geerbter
-Codex-Poll-Test erhielt beim ersten Queue-Poll unerwartet `idle`. Die Ursache konnte nicht
-reproduziert werden. Der gezielte komplette Codex-Lauf bestand mit 26 Tests, der frische
-Gesamtlauf mit 2081. Sichere Zustandsdiagnostik wurde ergaenzt; keine Assertion wurde
-abgeschwaecht und kein Retry hinzugefuegt. Die Anomalie bleibt fuer das externe Review sichtbar.
+Codex-Poll-Test erhielt beim ersten Queue-Poll unerwartet `idle`. Die Ursache ist inzwischen
+deterministisch reproduziert: Die generierte UUID in der Prompt-Ueberschrift konnte zufaellig
+wie eine Telefonnummer aussehen. Die erneute Datenschutzpruefung blockierte deshalb einen
+bereits freigegebenen synthetischen Auftrag vor jedem Prozessstart. Die gemeinsame Korrektur
+aus Etappe 14 entfernt die interne UUID aus der Prompt-Ueberschrift; strukturierte IDs,
+Artefaktpfade und die vollstaendige Inhaltspruefung bleiben erhalten. Regressionen pruefen
+auch, dass Telefonnummern im eigentlichen Inhalt weiterhin blockiert oder redigiert werden.
+Sichere Zustandsdiagnostik bleibt erhalten; keine Assertion wurde abgeschwaecht und kein
+Retry hinzugefuegt. Der neue Gesamtlauf nach dieser Korrektur steht noch aus.
 Die [CI von `516a770`](https://github.com/Kaancodm/control-deck/actions/runs/41616630244)
 ist gruen; der finale Head mit Diagnostik und Dokumentation wird im PR separat ausgewiesen.
 Externes Review bleibt offen, der PR bleibt Draft. Kein Merge.

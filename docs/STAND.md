@@ -1,5 +1,15 @@
 # Stand des Repositorys
 
+## Etappe 12 in Arbeit
+
+Branch: `stage/12-claude`, gestapelt auf Etappe 11 (`stage/11-ui-chat`, PR #26).
+Umgesetzt werden ein versionierter Claude-CLI-Vertrag, streng begrenzte Reinraum-Befehle
+und vollstaendige Simulationen mit Fake-Container und Fake-CLI. Es werden nur gepruefte
+Versandbytes uebergeben; `local_only` bleibt bei Ollama. Das Live-Profil bleibt gesperrt,
+bis Werkzeugabschaltung, Rootless-Isolation und Netzgrenzen bei der Inbetriebnahme belegt
+sind. Keine echten Anbieteraufrufe, Logins, API-Keys oder Serveraenderungen. Pflichtchecks
+und Review-Bereitschaft folgen nach dem Rebase auf die fertige Etappe 11.
+
 ## Etappe 11 bereit fuer externes Review
 
 Draft-PR: [#26](https://github.com/Kaancodm/control-deck/pull/26).

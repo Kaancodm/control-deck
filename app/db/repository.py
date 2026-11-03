@@ -15,25 +15,26 @@ from app.db.transitions import TransitionActor, transition_task
 
 
 def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
-    """Insert a queued task row derived from a validated ``TaskV1`` model."""
+    """Insert a task awaiting owner approval derived from a validated ``TaskV1`` model."""
     existing = session.get(Task, task_v1.task_id)
     if existing is not None:
         return existing
     payload = task_v1.model_dump(mode="json")
     task = Task(
         id=task_v1.task_id,
-        status=TaskState.QUEUED,
+        status=TaskState.AWAITING_APPROVAL,
         data_class=task_v1.data_class,
         payload=payload,
         attempt=0,
-        requires_approval=False,
+        requires_approval=True,
+        approved_at=None,
     )
     session.add(task)
     session.flush()
     transition_task(
         session,
         task=task,
-        trigger=TaskTransition.ENQUEUE,
+        trigger=TaskTransition.SUBMIT,
         detail={"source": "create_task_from_v1"},
     )
     return task
@@ -42,11 +43,9 @@ def create_task_from_v1(session: Session, task_v1: TaskV1) -> Task:
 def create_task_from_api_payload(
     session: Session,
     payload: dict[str, Any],
-    *,
-    requires_approval: bool = True,
 ) -> Task:
     """
-    Validate ``task.v1``, persist a task awaiting owner approval (default), and audit.
+    Validate ``task.v1``, persist a task awaiting owner approval, and audit.
 
     Applies ``data_class=local_only`` when the field is omitted before validation.
     """
@@ -61,20 +60,19 @@ def create_task_from_api_payload(
     task_v1 = TaskV1.model_validate(data)
     row = Task(
         id=task_v1.task_id,
-        status=TaskState.AWAITING_APPROVAL if requires_approval else TaskState.QUEUED,
+        status=TaskState.AWAITING_APPROVAL,
         data_class=task_v1.data_class,
         payload=task_v1.model_dump(mode="json"),
         attempt=0,
-        requires_approval=requires_approval,
-        approved_at=None if requires_approval else datetime.now(tz=UTC),
+        requires_approval=True,
+        approved_at=None,
     )
     session.add(row)
     session.flush()
-    trigger = TaskTransition.SUBMIT if requires_approval else TaskTransition.ENQUEUE
     transition_task(
         session,
         task=row,
-        trigger=trigger,
+        trigger=TaskTransition.SUBMIT,
         detail={"source": "api"},
     )
     return row

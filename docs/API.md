@@ -28,7 +28,7 @@ Fehlerantworten verwenden **RFC 7807** (`Content-Type: application/problem+json`
 | `POST` | `/tasks/{id}/approve` | Owner-Freigabe: `awaiting_approval` → `queued`, setzt `approved_at`. |
 | `POST` | `/tasks/{id}/cancel` | Abbruch (Owner-Override ohne Lease). Laufende Tasks (`running`): `cancel_requested` gesetzt; Worker bemerkt Abbruch erst beim naechsten Heartbeat/Lease-Check (404). |
 
-Direkte DB-Hilfsfunktionen (Tests, Referenz) koennen weiterhin ohne Freigabe in `queued` starten (`create_task_from_v1`, `requires_approval=false`).
+Interne Persistenz (`create_task_from_v1`, `POST /tasks`) legt Tasks immer in **`awaiting_approval`** an; **`queued`** ist nur nach Owner-Freigabe (`POST /tasks/{id}/approve` mit Bearer-Token) erreichbar.
 
 ## Worker-Endpunkte (`/api/v1/worker`)
 
@@ -55,7 +55,9 @@ Dequeue beruecksichtigt **`requires_approval`** und **`approved_at`**: nur freig
 |--------|-----------|
 | `awaiting_approval` | Validiert, wartet auf Owner-Freigabe |
 
-Erlaubte Uebergaenge: siehe `app/db/state_machine.py` (`submit`, `approve`). Migration `20251103_0002` ergaenzt den Enum-Wert sowie Spalten `requires_approval` (Default `true`) und `approved_at`; **Bestand** aus Revision 0001 wird per Backfill auf `requires_approval=false` und gesetztem `approved_at` gehoben, damit Dequeue unveraendert bleibt.
+Erlaubte Uebergaenge: siehe `app/db/state_machine.py` (`submit`, `approve`). Migration `20251103_0002` ergaenzt den Enum-Wert sowie Spalten `requires_approval` (Default `true`) und `approved_at`; **Bestand** aus Revision 0001 mit Status `queued` wird ohne Auto-Freigabe nach `awaiting_approval` verschoben.
+
+**Offene Frage (Architecture v1 / ADR 0005):** Die API setzt fehlende `data_class` derzeit auf `local_only` (DB-Default), waehrend ADR 0005 `data_class` ohne Default fordert. Verhalten unveraendert; Klaerung in einer spaeteren Etappe.
 
 Doppelte `task_id` bei `POST /tasks` → **409** (`application/problem+json`).
 

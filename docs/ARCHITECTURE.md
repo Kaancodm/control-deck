@@ -52,7 +52,7 @@ Geplant fuer spaetere Etappen (noch nicht im Enum): `review`, `done`, `expired` 
 | Von | Nach | Ausloeser |
 |-----|------|-----------|
 | — | `awaiting_approval` | API submit |
-| — | `queued` | System enqueue (interne Pfade) |
+| — | `queued` | Owner-Freigabe (`approve`) |
 | — | `blocked` | Schranke / Policy |
 | `awaiting_approval` | `queued` | Owner approve |
 | `queued` | `leased` | Runner acquire |

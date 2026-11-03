@@ -207,24 +207,17 @@ def test_duplicate_task_id_returns_409_problem_json(api_client: TestClient) -> N
     assert second.json()["title"] == "Task already exists"
 
 
-def test_legacy_backfill_shape_is_dequeueable(api_client: TestClient, db_session: Session) -> None:
-    """Rows backfilled like migration 0002 (approved, no gate) remain pullable."""
-    from datetime import UTC, datetime
-
-    from app.db.models import Task
-
+def test_owner_approved_queued_task_is_dequeueable(
+    api_client: TestClient, db_session: Session
+) -> None:
+    """Only owner-approved tasks in ``queued`` are pullable."""
     task_id = uuid.uuid4()
-    row = Task(
-        id=task_id,
-        status=TaskState.QUEUED,
-        data_class="local_only",
-        payload=_minimal_task_payload(task_id),
-        attempt=0,
-        requires_approval=False,
-        approved_at=datetime.now(tz=UTC),
+    api_client.post(
+        "/api/v1/tasks",
+        json=_minimal_task_payload(task_id),
+        headers=_owner_headers(),
     )
-    db_session.add(row)
-    db_session.flush()
+    api_client.post(f"/api/v1/tasks/{task_id}/approve", headers=_owner_headers())
 
     claimed = dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=60))
     assert claimed is not None

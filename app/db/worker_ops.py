@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import exists, select, update
 from sqlalchemy.orm import Session
 
 from app.core.schemas import ResultStatus, ResultV1
@@ -35,24 +35,32 @@ def refresh_lease_heartbeat(
     task_id: uuid.UUID,
     extend_by: timedelta,
 ) -> Lease:
-    """Extend ``expires_at`` and update ``heartbeat_at`` for an active lease."""
+    """Extend ``expires_at`` when the lease is still valid and the fence token matches."""
+    now = datetime.now(tz=UTC)
+    new_expires = now + extend_by
+    active_task = exists(
+        select(1).where(
+            Task.id == Lease.task_id,
+            Task.id == task_id,
+            Task.status.in_((TaskState.LEASED, TaskState.RUNNING)),
+        )
+    )
     stmt = (
-        select(Lease)
-        .join(Task, Task.id == Lease.task_id)
+        update(Lease)
         .where(
             Lease.lease_id == lease_id,
             Lease.task_id == task_id,
-            Task.status.in_((TaskState.LEASED, TaskState.RUNNING)),
+            active_task,
+            Lease.expires_at > now,
         )
-        .with_for_update(of=Lease)
+        .values(heartbeat_at=now, expires_at=new_expires)
+        .returning(Lease)
     )
     lease = session.scalars(stmt).first()
     if lease is None:
-        raise WorkerOperationError("lease not found or task is not active")
-
-    now = datetime.now(tz=UTC)
-    lease.heartbeat_at = now
-    lease.expires_at = now + extend_by
+        raise WorkerOperationError(
+            "lease not found, expired, or fencing token does not match active lease"
+        )
     session.flush()
     return lease
 

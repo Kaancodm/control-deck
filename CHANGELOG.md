@@ -14,7 +14,8 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - CLI, Update, Restic und Aufbewahrung akzeptieren keinen zentralen Ersatz fuer eine fehlende
   Wissenssicherung. Snapshot-Konsistenz gilt je Datenbank; kein verteilter Gesamt-Snapshot.
 - Append-only Betriebsnachweise, 14-/90-Tage-Retention, systemd-Vorlagen und kontrollierte
-  Prozessgruppenbeendigung mit Lease-Recovery. Der Restore-Timer ist nur eine Erinnerung.
+  Prozessgruppenbeendigung mit Lease-Recovery. Der Restore-Timer ist eine woechentliche
+  Trockenlauf-Erinnerung ohne `--apply`, kein Restore-Nachweis.
 
 ### Etappe 15 – Anmeldung und HTTP-Haertung (#30)
 

@@ -4,6 +4,11 @@ Etappe 16 liefert Repo-Code und Tests. Es wurden keine Dienste installiert, gest
 aktualisiert oder auf einem Zielserver geprueft. Die systemd-Dateien sind Vorlagen fuer
 Benutzerdienste; Inbetriebnahme bleibt ein eigener Owner-Schritt.
 
+Zwischenstand: Die Umsetzung ist auf Owner-Wunsch pausiert. 66 neue Unit-Tests und die
+Offline-Unit-Pruefung sind bestanden. DB-Integration, echter Dump-/Restore-Roundtrip,
+vollstaendige Pflichtchecks und finale CI stehen nach der Parent-Integration noch aus.
+Die folgenden Abschnitte beschreiben den vorbereiteten Vertrag, keine Live-Abnahme.
+
 ## Explizite Ausfuehrung
 
 `make install`, `make start`, `make stop`, `make status`, `make update`, `make backup`,
@@ -69,7 +74,8 @@ Er setzt den ausdruecklichen Abbruchpfad fuer aktive Aufgaben.
 Staging-Verzeichnis. `pg_dump` und die Tabellenzaehlungen teilen dieselbe exportierte
 Snapshot-Transaktion. Danach folgen SHA-256, Schema-Revision, Zeit und Zaehler im
 versionierten Manifest. Erst eine atomare Umbenennung veroeffentlicht den vollstaendigen
-Satz. Fehlgeschlagene `.pending-*`-Verzeichnisse sind keine fertigen Backups.
+Satz. Fehlgeschlagenes privates Staging wird sicher entfernt. Unsichere oder waehrenddessen
+veraenderte `.pending-*`-Verzeichnisse bleiben zur Diagnose erhalten und sind keine fertigen Backups.
 
 Backups enthalten auch sensible lokale Daten wie Maps und Authentisierungsdaten.
 Verzeichnisse sind `0700`, Dateien `0600`; sie gehoeren nicht ins Repo. Die maximale

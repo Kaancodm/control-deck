@@ -309,6 +309,7 @@ def test_failed_dump_is_not_published(db_session: Session, tmp_path: Path) -> No
             ),
         )
     assert not list(root.glob("backup-*"))
+    assert not list(root.glob(".pending-*"))
     phases = db_session.scalars(
         select(OperationEvent.phase)
         .where(OperationEvent.operation_type == "backup")

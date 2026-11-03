@@ -408,8 +408,25 @@ Details: [SECURITY.md](SECURITY.md), [UI.md](UI.md). Keine neuen inhaltlichen Re
 
 ## Etappe 16: Betriebsvorlagen in Arbeit
 
-Gestapelt auf Etappe 15. Sichere Backup-/Restore-Werkzeuge, explizite Retention,
-Betriebsereignisse und systemd-Benutzervorlagen werden ausschliesslich als Repo-Code
-mit Fake-Prozessen und isolierten Testdatenbanken entwickelt. Noch nicht reviewbereit.
-Keine Installation, Dienststarts oder Serverzugriffe. Host-Bindung, Lingering,
-Backup-Ziel und echte Lane-Prozesse bleiben Inbetriebnahme.
+Sicherer Zwischenstand auf Owner-Wunsch: [Draft-PR #31](https://github.com/Kaancodm/control-deck/pull/31),
+Branch `stage/16-operations`, weiterhin auf dem fruehen Etappe-15-Stand `7c015709`.
+Die Umsetzung ist pausiert und **noch nicht reviewbereit**.
+
+Vorbereitet sind getrennte Betriebsereignisse, sichere Backup-/Restore-Werkzeuge,
+explizite Retention, systemd-Benutzervorlagen und ein ausschliesslich ausdruecklich
+simulierter Runner-Supervisor. Der woechentliche Restore-Timer ist eine
+Trockenlauf-Erinnerung und kein ausgefuehrter Wiederherstellungsnachweis.
+
+Nachgewiesen: **66 neue Unit-Tests**, Ruff/Mypy fuer die neuen Module und die
+Offline-Pruefung gerenderter Units mit `systemd-analyze verify`. Geschrieben, aber noch
+nicht ausgefuehrt: DB-Retention, echter Dump-/Restore-Roundtrip und Wiederaufnahme nach
+Dienstabbruch. Die zentralen und Wissens-Testdatenbanken sind separat vorbereitet.
+
+Ausstehend: Rebase auf den endgueltigen Etappe-15-Stand mit Migrationen `0011` bis `0014`,
+zentrale und Wissens-Migrationen samt Checks, neue Integrationstests, vollstaendiges
+`make lint`, `make test`, `make reference` und finale CI. Migration `0015` dieser Etappe
+verweist auf die reale Etappe-15-Migration `0014`, die im fruehen Parent noch fehlt.
+
+Keine Installation, Dienststarts oder produktiven Zugriffe. Host-Bindung, Lingering,
+Backup-Ziel, automatische Bereitstellung leerer Restore-Ziele und echte Lane-Prozesse
+bleiben Inbetriebnahme. Details: [OPERATIONS.md](OPERATIONS.md).

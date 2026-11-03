@@ -208,6 +208,13 @@ def create_backup(
     except Exception as error:
         # A published set remains usable if only audit persistence failed.
         try:
+            with private_root(root) as parent:
+                if pending in os.listdir(parent):
+                    remove_tree(parent, pending)
+        except (OperationError, OSError):
+            # A path that changed ownership/type must remain untouched for diagnosis.
+            pass
+        try:
             with Session(engine) as session:
                 record_operation(
                     session,

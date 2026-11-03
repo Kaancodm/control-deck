@@ -1,5 +1,17 @@
 # Stand des Repositorys
 
+## Etappe 7 in Arbeit, gestapelt auf Etappe 6
+
+Branch: `stage/07-router`, Basis: `feat/etappe-6` (Draft-PR #21, `f4e9cc3`).
+Der Owner hat die gestapelte Umsetzung ohne Warten auf Review oder Merge freigegeben.
+Jede Etappe behaelt einen eigenen Draft-PR; kein automatischer Merge.
+Spaetere Review-Korrekturen erfolgen im betroffenen Basis-PR, danach werden die
+nachfolgenden Etappen rebased.
+
+Geplant: reine Routing-Funktion, lokale Regeln und Modellwahl, Tagesbudgets je Lane,
+Dry-run ohne Speicherung und dieselbe Routing-Entscheidung im Referenz-Runner.
+Die technische Abnahme und Testzahl folgen nach Abschluss dieser Etappe.
+
 ## Etappe 6 bereit fuer externes Review
 
 Basis: `main 7bf0e1a`, nach Merge von PR #19. Branch: `feat/etappe-6`.

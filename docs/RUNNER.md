@@ -30,7 +30,15 @@ Jeder committed Claim verbraucht einen Versuch. Geht eine Datei vor Auslieferung
 voruebergehend verloren, wird der noch nicht ausgelieferte Claim zurueckgerollt und ein
 gedrosseltes `task.gate_error` geschrieben. Ein geaenderter Freigabe-Hash blockiert den Task.
 Ein fehlgeschlagener Commit kann ein unveraenderliches, ungesendetes Artefakt hinterlassen;
-der Runner fuehrt es nicht aus und ueberschreibt es nicht.
+der Runner fuehrt es nicht aus und ueberschreibt es nicht. Widersprechen vorhandene Bytes
+einer erneuten Vorbereitung, endet der Task als `blocked` mit Grund `artifact_conflict`
+im Audit. Neue Maps werden zurueckgerollt. Derselbe Pull prueft den naechsten Task,
+begrenzt auf 32 Vorbereitungsversuche; andere Artefaktfehler bleiben Fehler des Aufrufs.
+
+Jeder Executor muss seine `lane` ausdruecklich als `Worker` deklarieren. Der Host prueft
+diese Identitaet vor dem DB-Zugriff und erneut vor der Textuebergabe. Fehlende, ungueltige
+oder abweichende Identitaet ergibt `executor_lane_mismatch`; es gibt keine implizite
+Ollama-Lane. Nur ein als Ollama deklarierter Executor darf `local_only` erhalten.
 
 ## Steuerentscheide
 
@@ -66,7 +74,8 @@ Owner-Endpunkte: `GET /api/v1/control/settings` und `PATCH /api/v1/control/setti
 ## Worker-API
 
 `POST /api/v1/worker/lease` verlangt das ausdrueckliche Feld `worker` (`ollama`, `claude`,
-`codex`). Es zieht ausschliesslich Auftraege der ausgewaehlten Lane. Die Antwort enthaelt
+`codex`). Es zieht ausschliesslich Auftraege der durch das Token authentifizierten Lane;
+die Angabe im Body muss dazu passen. Die Antwort enthaelt
 sichere Task-Metadaten, Lease, vorbereiteten Text, SHA-256 und Redaction-Zaehler. Die lokale
 Map und der originale `task.v1`-Auftrag werden nicht ausgeliefert.
 
@@ -76,9 +85,16 @@ Beide liefern einen Steuerentscheid; die API committed vorher ausdruecklich und 
 sich nicht auf spaete Dependency-Bereinigung. `POST /worker/result` behaelt den Body mit
 `lease_id` und `result.v1`; ein Ergebnis vor explizitem Start wird abgewiesen.
 
-Der gemeinsame Worker-Token ist eine Berechtigung fuer vertrauenswuerdige Host-Prozesse.
-Anbieter-Container erhalten ihn nicht. Die Lane-Angabe wird gegen die zugewiesene Lane und
-Task-Policy geprueft; sie ist kein separates Anbieter-Login.
+Jede Lane verwendet ihr eigenes Token: `DECK_WORKER_TOKEN_OLLAMA`,
+`DECK_WORKER_TOKEN_CLAUDE` oder `DECK_WORKER_TOKEN_CODEX`. Ein gemeinsames Token wird nicht
+akzeptiert. Doppelte Lane-Tokens oder eine Uebereinstimmung mit dem Owner-Token sperren
+beide Authentifizierungspfade. Anbieter-Container erhalten diese Host-Zugangsdaten nicht.
+Alle vier Worker-Endpunkte weisen abweichende Lane-Angaben vor dem Task-Zugriff ab.
+
+Auch ein HTTP-Lease-Pull fuehrt den begrenzten Lease-Sweep vor dem Claim aus und committed
+ihn separat. Ein spaeterer Vorbereitungsfehler kann die Wiederherstellung nicht zurueckrollen.
+Unbestaetigte Abbrueche belegen Kapazitaet bis zur Bestaetigung oder zum Lease-Ablauf;
+eine noch aktive Lease wird durch Polling nicht vorzeitig freigegeben.
 
 ## Artefakte und Simulation
 

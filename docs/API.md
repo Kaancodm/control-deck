@@ -11,7 +11,9 @@ Basis-Pfad fuer versionierte Endpunkte: **`/api/v1`**. OpenAPI: `/api/v1/docs`, 
 | Variable | Zweck |
 |----------|--------|
 | `DECK_DATABASE_URL` | SQLAlchemy-URL fuer Laufzeit (Pflicht fuer `/readyz` und Task-Endpunkte) |
-| `DECK_WORKER_TOKEN` | Gemeinsames Geheimnis fuer Worker (`Authorization: Bearer …` oder Header `X-Deck-Worker-Token`) |
+| `DECK_WORKER_TOKEN_OLLAMA` | Eigenes Token fuer die Ollama-Lane (`Authorization: Bearer …` oder Header `X-Deck-Worker-Token`) |
+| `DECK_WORKER_TOKEN_CLAUDE` | Eigenes Token fuer die Claude-Lane |
+| `DECK_WORKER_TOKEN_CODEX` | Eigenes Token fuer die Codex-Lane |
 | `DECK_OWNER_TOKEN` | Gemeinsames Geheimnis fuer Owner-Endpunkte (`Authorization: Bearer …`); Login folgt in Etappe 15 |
 | `DECK_LEASE_TTL_SECONDS` | Default-Lease-Dauer beim Pull (Default `900`) |
 | `DECK_HEARTBEAT_EXTEND_SECONDS` | Verlaengerung bei Heartbeat (Default `300`) |
@@ -112,7 +114,14 @@ Ohne explizite Owner-Deadline laeuft ein Task **nicht** ab. Weder `policy.timeou
 
 ## Worker-Endpunkte (`/api/v1/worker`)
 
-Authentifizierung ueber `DECK_WORKER_TOKEN` (Pflicht).
+Die Identitaet folgt ausschliesslich aus dem Token der Lane. Nur konfigurierte Lanes
+koennen sich authentifizieren; das fruehere gemeinsame `DECK_WORKER_TOKEN` wird nicht
+mehr akzeptiert. Alle konfigurierten Lane-Tokens muessen verschieden sein und duerfen
+nicht dem Owner-Token entsprechen. Eine mehrdeutige Konfiguration sperrt Worker- und
+Owner-Authentifizierung mit **503**. Eine reine Owner-Konfiguration bleibt zulaessig.
+Ungueltige oder widerspruechliche Header ergeben **401**. Die Pflichtangabe `worker`
+beziehungsweise `result.worker` muss zur authentifizierten Lane passen, sonst **403**
+vor jedem Task-Zugriff. Anbieter erhalten keine dieser Host-Zugangsdaten.
 
 | Methode | Pfad | Beschreibung |
 |---------|------|--------------|
@@ -122,9 +131,17 @@ Authentifizierung ueber `DECK_WORKER_TOKEN` (Pflicht).
 | `POST` | `/worker/result` | `result.v1` und `lease_id`; Lane, Versuch, Versandhash und Redaction-Metadaten pruefen, lokal rueckabbilden und fenced annehmen. |
 
 Dequeue verlangt ein gesetztes **`approved_at`** und ein auditierbares Owner-Freigabe-Event.
+Auch direkte Queue-Aufrufe muessen die Lane ausdruecklich angeben; es gibt keinen Default.
 Die Lease-Antwort enthaelt weder Originalauftrag noch fruehere Ergebnisse oder Maps.
 `local_only` wird ausschliesslich an Ollama geclaimt; die beiden frueheren `xfail`-Tests
 zur Worker-Zuordnung bestehen jetzt ohne Ausnahme.
+
+Jeder authentifizierte Lease-Pull bereinigt abgelaufene Leases in einer eigenen committed
+Transaktion vor dem Claim. Dadurch wird nach einem Worker-Absturz belegte Parallelitaet
+wieder frei. Ein noch aktiver, unbestaetigter Abbruch behaelt seine Kapazitaet bis zur
+Bestaetigung oder zum Lease-Ablauf. Ein Konflikt mit einem vorhandenen Payload-Artefakt
+blockiert den betroffenen Task mit auditiertem Grund `artifact_conflict`; derselbe Pull
+prueft anschliessend den naechsten Task, begrenzt auf 32 Vorbereitungsversuche.
 
 Owner-Steuerung: `GET /api/v1/control/settings` und `PATCH /api/v1/control/settings` mit
 `{"changes": {"paused": true}}`. Bekannte Schluessel: `paused`, `stop_requested`,
@@ -171,7 +188,9 @@ Doppelte `task_id` bei `POST /tasks` → **409** (`application/problem+json`).
 
 ```bash
 export DECK_TEST_DATABASE_URL='postgresql+psycopg://…/controldeck_test'
-export DECK_WORKER_TOKEN='dev-worker-token'
+export DECK_WORKER_TOKEN_OLLAMA='dev-ollama-token'
+export DECK_WORKER_TOKEN_CLAUDE='dev-claude-token'
+export DECK_WORKER_TOKEN_CODEX='dev-codex-token'
 export DECK_OWNER_TOKEN='dev-owner-token'
 uv run pytest tests/integration/test_api.py -v
 ```

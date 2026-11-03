@@ -23,10 +23,17 @@ Umgesetzt:
 - Private unveraenderliche Payload-/Ergebnisartefakte und sichere Laufmetadaten-Logs.
 - Review-Nacharbeit `636d724`: deaktivierte erlaubte Lanes fuehren zu `deferred`, nicht
   terminal zu `blocked`. Nach Reaktivierung wird derselbe wartende Task korrekt geclaimt.
+- Nacharbeit zum externen Review auf `5fd9704`: eigene Token je Lane bestimmen die
+  authentifizierte Identitaet. Doppelte Tokens, Owner-Kollisionen und Lane-Spoofing werden
+  abgewiesen; Executor-Identitaet und Queue-Lane sind ausdruecklich erforderlich.
+- HTTP-Pulls bereinigen abgelaufene Leases vor dem Claim und committen die Wiederherstellung
+  separat. Aktive unbestaetigte Abbrueche behalten bis Bestaetigung oder Ablauf ihre Kapazitaet.
+- Artefaktkonflikte blockieren nur den betroffenen Task mit Grund `artifact_conflict`.
+  Der Pull prueft begrenzt den naechsten Task; bestehende Bytes bleiben unveraendert.
 
 Pflichtchecks vom 2026-11-03: `make lint` gruen (Ruff ohne Cache, Format, Mypy),
 `uv run alembic -x target=test check` ohne Schemaabweichung, `make test` mit
-**1038 bestandenen Tests** (**346 Integration**, **692 Unit**), **keine xfail oder Skips**.
+**1107 bestandenen Tests** (**377 Integration**, **730 Unit**), **keine xfail oder Skips**.
 Eine bestehende Starlette/httpx-Deprecation-Warnung. `make reference`: **4/4**.
 Isolierte PostgreSQL-17-Testdatenbank. Die CI des finalen Heads wird im PR ausgewiesen.
 
@@ -48,6 +55,9 @@ Inhaltliche Referenzfaelle bleiben Owner-Aufgabe.
 - Aufwaendige erneute Datei-/Datenschutzpruefungen bei ausgeschoepftem Budget reduzieren;
   Index auf `events(event_type, created_at)` fuer die Budgetabfrage ergaenzen.
 - Hangul Filler als moegliche Worttrenner gesondert behandeln; derzeit werden sie entfernt.
+- Wird eine Routing-Regel nach Freigabe so verschaerft, dass keine strukturell zulaessige
+  Lane bleibt, kann ein wartender Task noch terminal `blocked` werden. Dafuer einen
+  voruebergehenden Wartezustand oder eine ausdrueckliche Owner-Entscheidung vorsehen.
 - Veraenderte Platzhalter, zwischen Versuchen entfernte Blocklisten-Begriffe und eine
   begrenzte Eskalation wiederholter `task.gate_error`-Events bleiben nachvollziehbar offen.
 

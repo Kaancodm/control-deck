@@ -55,7 +55,8 @@ Vertraege festgehalten, weil 6, 9 und 11 davon abhaengen.
 | Variable | Seit | Bedeutung |
 |----------|------|-----------|
 | `DECK_DATABASE_URL`, `DECK_TEST_DATABASE_URL` | Etappe 3 | Laufzeit- und Test-DB (Testname endet auf `_test`) |
-| `DECK_WORKER_TOKEN`, `DECK_OWNER_TOKEN` | PR #5 | Bearer-Token fuer Worker- und Owner-Endpunkte |
+| `DECK_OWNER_TOKEN` | PR #5 | Bearer-Token fuer Owner-Endpunkte |
+| `DECK_WORKER_TOKEN_OLLAMA`, `DECK_WORKER_TOKEN_CLAUDE`, `DECK_WORKER_TOKEN_CODEX` | Etappe 8 | Verschiedene Bearer-Tokens je authentifizierter Lane; kein gemeinsames Worker-Token |
 | `DECK_LEASE_TTL_SECONDS`, `DECK_HEARTBEAT_EXTEND_SECONDS` | PR #5 | Lease-Dauer und Verlaengerung |
 | `DECK_BIND_HOST`, `DECK_SECRET_KEY`, `OLLAMA_URL`, `KB_DB_URL` | Etappe 1 | Bindung, Signaturschluessel, Ollama-Endpunkt, Wissens-DB |
 | `DECK_BLOCKLIST_FILE` | Etappe 5 | Lokale Blockliste, Default `config/blocklist.txt` (gitignored) |

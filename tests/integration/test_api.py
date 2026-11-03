@@ -185,6 +185,14 @@ def test_invalid_task_returns_problem_json(api_client: TestClient) -> None:
     assert response.headers["content-type"].startswith("application/problem+json")
 
 
+def test_post_task_missing_data_class_returns_422(api_client: TestClient) -> None:
+    payload = copy.deepcopy(_minimal_task_payload(uuid.uuid4()))
+    payload.pop("data_class")
+    response = api_client.post("/api/v1/tasks", json=payload, headers=_owner_headers())
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+
 def test_worker_token_required(api_client: TestClient) -> None:
     response = api_client.post("/api/v1/worker/lease", json={})
     assert response.status_code == 401

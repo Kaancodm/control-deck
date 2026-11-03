@@ -22,7 +22,7 @@ Fehlerantworten verwenden **RFC 7807** (`Content-Type: application/problem+json`
 
 | Methode | Pfad | Beschreibung |
 |---------|------|--------------|
-| `POST` | `/tasks` | `task.v1` validieren; fehlende `data_class` wird `local_only`. Neuer Task startet in **`awaiting_approval`** (Freigabe noetig), Audit-Event `task.submit`. |
+| `POST` | `/tasks` | `task.v1` validieren; fehlende `data_class` → **422** (Pflichtfeld gemaess ADR 0005). Neuer Task startet in **`awaiting_approval`** (Freigabe noetig), Audit-Event `task.submit`. |
 | `GET` | `/tasks` | Liste mit Query `status`, `data_class`, Pagination `limit` (1–200, Default 50), `offset`. |
 | `GET` | `/tasks/{id}` | Detail inkl. `events` und `results`. |
 | `POST` | `/tasks/{id}/approve` | Owner-Freigabe: `awaiting_approval` → `queued`, setzt `approved_at`. |
@@ -56,8 +56,6 @@ Dequeue beruecksichtigt **`requires_approval`** und **`approved_at`**: nur freig
 | `awaiting_approval` | Validiert, wartet auf Owner-Freigabe |
 
 Erlaubte Uebergaenge: siehe `app/db/state_machine.py` (`submit`, `approve`). Migration `20251103_0002` ergaenzt den Enum-Wert sowie Spalten `requires_approval` (Default `true`) und `approved_at`; **Bestand** aus Revision 0001 mit Status `queued` wird ohne Auto-Freigabe nach `awaiting_approval` verschoben.
-
-**Offene Frage (Architecture v1 / ADR 0005):** Die API setzt fehlende `data_class` derzeit auf `local_only` (DB-Default), waehrend ADR 0005 `data_class` ohne Default fordert. Verhalten unveraendert; Klaerung in einer spaeteren Etappe.
 
 Doppelte `task_id` bei `POST /tasks` → **409** (`application/problem+json`).
 

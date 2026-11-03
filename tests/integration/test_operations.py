@@ -318,6 +318,53 @@ def test_failed_dump_is_not_published(db_session: Session, tmp_path: Path) -> No
     assert phases == ["started", "failed"]
 
 
+@pytest.mark.parametrize("change", ["corrupt_dump", "target_changed"])
+def test_restore_rechecks_target_and_archive_before_schema_preparation(
+    db_session: Session,
+    tmp_path: Path,
+    restore_target: str,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+) -> None:
+    from app.operations import restore
+
+    root = tmp_path / "backups"
+    result = backup.create_backup(get_test_database_url(), root, dump_command=_client("pg_dump"))
+    target = create_engine(restore_target)
+    if change == "corrupt_dump":
+        with (root / result.name / "database.dump").open("ab") as output:
+            output.write(b"corrupt")
+    else:
+        original = restore.digest_file
+
+        def changed_target(*args, **kwargs):
+            evidence = original(*args, **kwargs)
+            with target.begin() as connection:
+                connection.execute(text("CREATE TABLE preserve_racing_data (id integer)"))
+                connection.execute(text("INSERT INTO preserve_racing_data VALUES (42)"))
+            return evidence
+
+        monkeypatch.setattr(restore, "digest_file", changed_target)
+    monkeypatch.setattr(restore, "run_command", lambda *args, **kwargs: pytest.fail("No restore"))
+    try:
+        with pytest.raises(OperationError) as error:
+            restore_backup(
+                root, result.name, target_url=restore_target, audit_url=get_test_database_url()
+            )
+        assert error.value.code == (
+            "backup_checksum_mismatch" if change == "corrupt_dump" else "restore_target_not_empty"
+        )
+        with target.connect() as connection:
+            assert (
+                connection.scalar(text("SELECT count(*) FROM pg_namespace WHERE nspname='public'"))
+                == 1
+            )
+            if change == "target_changed":
+                assert connection.scalar(text("SELECT id FROM preserve_racing_data")) == 42
+    finally:
+        target.dispose()
+
+
 def test_restore_rejects_nonempty_target_before_process(
     db_session: Session, tmp_path: Path, restore_target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Connection, create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import Session
@@ -43,6 +43,31 @@ def validate_restore_databases(target_url: str, audit_url: str) -> None:
         raise OperationError("unsafe_restore_target") from None
 
 
+def _require_empty_target(connection: Connection) -> None:
+    """Reject every user object before preparing an isolated restore target."""
+    if (
+        inspect(connection).get_table_names(schema="public")
+        or connection.scalar(
+            text(
+                "SELECT count(*) FROM pg_namespace WHERE nspname NOT IN "
+                "('public', 'information_schema') AND nspname NOT LIKE 'pg_%'"
+            )
+        )
+        or connection.scalar(
+            text(
+                "SELECT count(*) FROM ("
+                "SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid "
+                "WHERE n.nspname='public' UNION ALL "
+                "SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid "
+                "WHERE n.nspname='public' UNION ALL "
+                "SELECT t.oid FROM pg_type t JOIN pg_namespace n ON t.typnamespace=n.oid "
+                "WHERE n.nspname='public') AS objects"
+            )
+        )
+    ):
+        raise OperationError("restore_target_not_empty")
+
+
 def restore_backup(
     root: Path,
     name: str,
@@ -62,27 +87,7 @@ def restore_backup(
     audit = create_engine(audit_url, pool_pre_ping=True)
     try:
         with target.connect() as connection:
-            if (
-                inspect(connection).get_table_names(schema="public")
-                or connection.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_namespace WHERE nspname NOT IN "
-                        "('public', 'information_schema') AND nspname NOT LIKE 'pg_%'"
-                    )
-                )
-                or connection.scalar(
-                    text(
-                        "SELECT count(*) FROM ("
-                        "SELECT c.oid FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid "
-                        "WHERE n.nspname='public' UNION ALL "
-                        "SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid "
-                        "WHERE n.nspname='public' UNION ALL "
-                        "SELECT t.oid FROM pg_type t JOIN pg_namespace n ON t.typnamespace=n.oid "
-                        "WHERE n.nspname='public') AS objects"
-                    )
-                )
-            ):
-                raise OperationError("restore_target_not_empty")
+            _require_empty_target(connection)
         with private_root(root) as parent, child_directory(parent, name) as directory:
             manifest = read_manifest(directory)
             if name != "backup-" + manifest.operation_id.hex:
@@ -101,6 +106,11 @@ def restore_backup(
                         sha256=digest,
                     )
                     session.commit()
+                # A schema-scoped dump recreates public. Never use --clean/CASCADE:
+                # recheck after archive validation and drop only an empty schema.
+                with target.begin() as connection:
+                    _require_empty_target(connection)
+                    connection.execute(text("DROP SCHEMA IF EXISTS public RESTRICT"))
                 os.lseek(reader, 0, os.SEEK_SET)
                 run_command(
                     (

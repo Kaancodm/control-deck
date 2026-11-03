@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Fehlgeschlagene Auftraege · Control Deck{% endblock %}
+{% block content %}
+<h1>Fehlgeschlagene Auftraege</h1>
+<p>{{ total }} abgeschlossene Fehler. Diese Ansicht plant keine Wiederholung ein und veraendert keine Auftraege.</p>
+<section class="task-grid">{% for task in tasks %}<article class="panel">
+{% include 'partials/status.html' %}<h2><a href="/ui/tasks/{{ task.id }}">{{ task.payload.title }}</a></h2>
+<p>{{ task.data_class.value }} · {{ task.attempt }} Versuche</p>
+{% for result in task.results|sort(attribute='attempt', reverse=true) %}{% if loop.first and result.payload.error %}<p>Letzter Grund: {{ result.payload.error.code }}</p>{% endif %}{% endfor %}
+</article>{% else %}<p>Keine fehlgeschlagenen Auftraege.</p>{% endfor %}</section>
+<nav class="pagination" aria-label="Seiten">{% if offset > 0 %}<a href="{{ request.url.include_query_params(offset=offset-50) }}">← Zurueck</a>{% endif %}{% if offset + 50 < total %}<a href="{{ request.url.include_query_params(offset=offset+50) }}">Weitere →</a>{% endif %}</nav>
+{% endblock %}

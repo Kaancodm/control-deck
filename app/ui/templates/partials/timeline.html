@@ -1,0 +1,8 @@
+<ol class="timeline">
+{% for event in task.events|sort(attribute='created_at') %}
+  <li><div><strong>{{ event.event_type }}</strong> <time datetime="{{ event.created_at.isoformat() }}">{{ event.created_at.strftime('%d.%m.%Y %H:%M:%S') }} UTC</time></div>
+    <p>Akteur: {{ event.actor or 'system' }} · Versuch: {{ event.attempt or 0 }} · {{ event.to_status.value }}</p>
+    {% if event.detail %}{% if event.detail.get('reason') %}<p>Grund: {{ event.detail.reason }}</p>{% endif %}<details><summary>Audit-Details</summary><pre>{{ event.detail|tojson(indent=2) }}</pre></details>{% endif %}
+  </li>
+{% else %}<li>Keine Ereignisse.</li>{% endfor %}
+</ol>

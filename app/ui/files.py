@@ -139,7 +139,7 @@ def store_uploads(
 
 def read_payload(runs: Path, task_id: UUID, attempt: int) -> str:
     """Read only the fixed payload artifact; callers supply an authenticated task identity."""
-    if type(attempt) is not int or not 1 <= attempt <= 2147483647:
+    if not isinstance(task_id, UUID) or type(attempt) is not int or not 1 <= attempt <= 2147483647:
         raise UiFileError("invalid_attempt")
     try:
         with ExitStack() as stack:

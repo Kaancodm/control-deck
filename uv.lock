@@ -327,6 +327,7 @@ dependencies = [
 dev = [
     { name = "httpx" },
     { name = "mypy" },
+    { name = "playwright" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "types-jsonschema" },
@@ -353,6 +354,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "jsonschema", extras = ["format-nongpl"], specifier = ">=4.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13.0" },
+    { name = "playwright", marker = "extra == 'dev'", specifier = ">=1.51" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },

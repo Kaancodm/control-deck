@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true,"historyCacheSize":0}'>
+  <title>{% block title %}Control Deck{% endblock %}</title>
+  <link rel="stylesheet" href="/ui/static/app.css">
+  <script src="/ui/static/vendor/htmx.min.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Zum Inhalt</a>
+  <div class="app-shell">
+    <header class="app-header">
+      <a class="brand" href="/ui/tasks">◈ Control Deck</a>
+      {% if owner %}
+      <nav aria-label="Hauptnavigation">
+        <a href="/ui/tasks">Auftraege</a><a href="/ui/tasks/new">Neuer Auftrag</a>
+        <a href="/ui/lanes">Lanes</a><a href="/ui/chat">Lokaler Chat</a>
+      </nav>
+      <form action="/ui/logout" method="post" class="inline-form">
+        {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Abmelden</button>
+      </form>
+      {% endif %}
+    </header>
+    {% if owner and controls %}
+    <aside id="control-status" aria-label="Runner-Steuerung" hx-get="/ui/fragments/status"
+           hx-trigger="every 15s" hx-swap="innerHTML">
+      {% include 'partials/control_status.html' %}
+    </aside>
+    {% endif %}
+    <main id="content">
+      {% if error %}<p class="notice error" role="alert">{{ error }} — Eingabe oder Verfuegbarkeit pruefen.</p>{% endif %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer>Lokales Deck · Darstellung themebar · Live-Inbetriebnahme separat</footer>
+  </div>
+</body>
+</html>

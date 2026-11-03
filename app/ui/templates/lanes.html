@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Lanes und Steuerung · Control Deck{% endblock %}
+{% block content %}
+<h1>Lanes und Steuerung</h1><p>Parallelitaet: {{ controls.max_parallel }} · Anbieter-Kontingente: unbekannt</p>
+<section class="task-grid">{% for worker in workers %}{% set observation = observations.get(worker.value) %}
+<article class="panel"><h2>{{ worker.value }}</h2>
+{% if observation %}<p>Zustand: {{ observation.status }}</p>
+{% if observation.reason == 'simulation_ready' %}<p class="notice">Simulation geprueft. Live-Inbetriebnahme offen.</p>
+{% else %}<p>{{ observation.reason }}</p>{% endif %}<p>Beobachtet: {{ observation.updated_at.isoformat() }}</p>
+{% else %}<p>Noch keine Beobachtung. Verfuegbarkeit unbekannt.</p>{% endif %}
+<form action="/ui/control" method="post">{% include 'partials/csrf.html' %}<input type="hidden" name="key" value="lanes.{{ worker.value }}.paused"><input type="hidden" name="value" value="{{ 'false' if controls.lane_paused[worker] else 'true' }}"><button>{{ 'Lane fortsetzen' if controls.lane_paused[worker] else 'Lane pausieren' }}</button></form>
+</article>{% endfor %}</section>
+<section class="panel"><h2>Neue Claims</h2><p>Pause betrifft neue Arbeit. Bereits laufende Versuche laufen weiter.</p>
+<form action="/ui/control" method="post">{% include 'partials/csrf.html' %}<input type="hidden" name="key" value="paused"><input type="hidden" name="value" value="{{ 'false' if controls.paused else 'true' }}"><button>{{ 'Neue Arbeit freigeben' if controls.paused else 'Neue Arbeit pausieren' }}</button></form></section>
+<section class="panel"><h2>Not-Aus</h2><p>Verhindert neue Claims und fordert den Abbruch aktiver Versuche an.</p>
+<form action="/ui/control" method="post">{% include 'partials/csrf.html' %}<input type="hidden" name="key" value="stop_requested"><input type="hidden" name="value" value="{{ 'false' if controls.stop_requested else 'true' }}">
+{% if not controls.stop_requested %}<label for="confirmation">Zum Bestaetigen STOP eingeben</label><input id="confirmation" name="confirmation" required pattern="STOP">{% endif %}
+<button class="danger">{{ 'Not-Aus zuruecknehmen' if controls.stop_requested else 'Not-Aus ausloesen' }}</button></form></section>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}{{ task.payload.title }} · Control Deck{% endblock %}
+{% block content %}
+<div class="page-heading"><div>{% include 'partials/status.html' %}<h1>{{ task.payload.title }}</h1></div><a href="/ui/tasks">Alle Auftraege</a></div>
+<p>{{ task.data_class.value }} · Lane {{ task.lane or 'offen' }} · Versuch {{ task.attempt }}</p>
+{% if task.status.value == 'blocked' %}<p class="notice">Datenschranke oder Routing blockiert diesen Auftrag. Die Zeitlinie zeigt sichere Gruende. Dieser unveraenderliche Auftrag kann nicht entsperrt werden; korrigierte Inhalte benoetigen einen neuen Auftrag und eine neue Start-Freigabe.</p>{% endif %}
+{% if task.status.value in ['awaiting_approval','review','queued','leased','running'] %}
+<section class="panel"><h2>Owner-Entscheid</h2><div class="action-grid">
+{% if task.status.value == 'awaiting_approval' %}
+<form method="post" action="/ui/tasks/{{ task.id }}/approve">{% include 'partials/csrf.html' %}<label class="check"><input type="checkbox" name="confirm" value="yes" required> Auftrag und Datenklasse geprueft</label><button>Start freigeben</button></form>
+{% elif task.status.value == 'review' %}
+<form method="post" action="/ui/tasks/{{ task.id }}/accept">{% include 'partials/csrf.html' %}<label class="check"><input type="checkbox" name="confirm" value="yes" required> Ergebnis geprueft</label><button>Ergebnis freigeben</button></form>
+<form method="post" action="/ui/tasks/{{ task.id }}/reject">{% include 'partials/csrf.html' %}<label for="reject-reason">Ablehnungsgrund</label><textarea id="reject-reason" name="reason" required maxlength="2000"></textarea><label class="check"><input type="checkbox" name="confirm" value="yes" required> Als fehlgeschlagen abschliessen</label><button class="danger">Ergebnis ablehnen</button></form>
+{% endif %}
+<form method="post" action="/ui/tasks/{{ task.id }}/cancel">{% include 'partials/csrf.html' %}<label class="check"><input type="checkbox" name="confirm" value="yes" required> Abbruch bestaetigen</label><button class="quiet">Abbrechen</button></form>
+</div></section>{% endif %}
+<section class="panel"><h2>Auftrag</h2><pre>{{ task.payload.instructions }}</pre>
+{% for input in task.payload.inputs %}<h3>{{ input.name }}</h3>{% if input.type == 'text' %}<pre>{{ input.value }}</pre>{% else %}<p>Dateianhang: {{ input.name }}</p>{% endif %}{% endfor %}
+<details><summary>Unveraenderlicher Auftrag (task.v1)</summary><pre>{{ task.payload|tojson(indent=2) }}</pre></details></section>
+{% for item in outputs %}<section class="panel"><h2>Ergebnis · Versuch {{ item.result.attempt }}</h2>
+{% if item.unavailable %}<p class="notice">Rueckabbildung nicht verfuegbar; Platzhalter bleiben unveraendert.</p>{% endif %}
+<pre class="result-output">{% for segment in item.segments %}{% if segment.restored %}<mark title="aus Platzhalter">{{ segment.text }}</mark>{% else %}{{ segment.text }}{% endif %}{% endfor %}</pre>
+<a href="/ui/tasks/{{ task.id }}/payload/{{ item.result.attempt }}">Geprueften Versand-Payload anzeigen</a></section>{% endfor %}
+<section class="panel"><h2>Zeitlinie</h2><div hx-get="/ui/tasks/{{ task.id }}/timeline" hx-trigger="every 15s" hx-swap="innerHTML">{% include 'partials/timeline.html' %}</div></section>
+{% endblock %}

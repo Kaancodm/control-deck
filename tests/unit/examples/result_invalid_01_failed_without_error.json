@@ -1,0 +1,18 @@
+{
+  "schema_version": "result.v1",
+  "task_id": "750e8400-e29b-41d4-a716-446655440001",
+  "attempt": 1,
+  "worker": "ollama",
+  "status": "failed",
+  "output": {"text": "", "files": []},
+  "checks": [],
+  "usage": {"wall_seconds": 1.0},
+  "timing": {
+    "started_at": "2026-01-15T08:01:00Z",
+    "finished_at": "2026-01-15T08:01:01Z"
+  },
+  "error": null,
+  "redaction": {"applied": false, "placeholders": 0},
+  "payload_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "log_ref": "runs/invalid/attempt-1.log"
+}

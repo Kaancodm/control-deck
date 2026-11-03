@@ -1,0 +1,19 @@
+{
+  "schema_version": "task.v1",
+  "task_id": "550e8400-e29b-41d4-a716-446655440001",
+  "parent_task_id": null,
+  "created_at": "2026-01-15T08:00:00Z",
+  "requested_by": "ui",
+  "kind": "research",
+  "title": "Marktanalyse Kurz",
+  "instructions": "Fasse oeffentliche Trends zusammen.",
+  "inputs": [
+    {"name": "brief", "type": "text", "value": "Trend A und B"}
+  ],
+  "context_refs": [],
+  "data_class": "local_only",
+  "policy": {"forbidden_workers": []},
+  "acceptance": [{"type": "max_chars", "value": "5000"}],
+  "fallback_chain": ["ollama"],
+  "labels": {"team": "ops"}
+}

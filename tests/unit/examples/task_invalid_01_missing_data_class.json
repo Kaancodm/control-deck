@@ -1,0 +1,16 @@
+{
+  "schema_version": "task.v1",
+  "task_id": "650e8400-e29b-41d4-a716-446655440001",
+  "parent_task_id": null,
+  "created_at": "2026-01-15T08:00:00Z",
+  "requested_by": "ui",
+  "kind": "draft",
+  "title": "Ohne data_class",
+  "instructions": "Soll scheitern.",
+  "inputs": [],
+  "context_refs": [],
+  "policy": {"forbidden_workers": []},
+  "acceptance": [],
+  "fallback_chain": ["ollama"],
+  "labels": {}
+}

@@ -25,6 +25,11 @@ from app.workers.runner import HostRunner
 class SimulationExecutor:
     """A deterministic local adapter for checking orchestration without provider calls."""
 
+    def __init__(self, lane: Worker) -> None:
+        if not isinstance(lane, Worker):
+            raise ValueError("Executor lane must be a Worker")
+        self.lane = lane
+
     def execute(self, context: AttemptContext) -> ResultV1:
         now = datetime.now(UTC)
         cancelled = context.cancel_requested()
@@ -58,7 +63,8 @@ def main() -> int:
         get_session_factory(),
         runs_root=Path(os.environ.get("DECK_RUNS_DIR", "runs")),
     )
-    outcome = runner.run_once(Worker(args.worker), SimulationExecutor())
+    worker = Worker(args.worker)
+    outcome = runner.run_once(worker, SimulationExecutor(worker))
     print(
         json.dumps(
             {"action": outcome.action, "status": outcome.status, "error_code": outcome.error_code}

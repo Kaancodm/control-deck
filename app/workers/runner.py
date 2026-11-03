@@ -52,6 +52,15 @@ class RunOutcome:
     error_code: str | None = None
 
 
+def _executor_matches_lane(executor: LaneExecutor, worker: Worker) -> bool:
+    """Require an explicit adapter identity, without inferring it from a claim."""
+    try:
+        lane = executor.lane
+    except Exception:
+        return False
+    return isinstance(lane, Worker) and lane == worker
+
+
 def _host_result(
     prepared: PreparedAttempt,
     *,
@@ -148,6 +157,8 @@ class HostRunner:
 
     def run_once(self, worker: Worker, executor: LaneExecutor) -> RunOutcome:
         """Claim, prepare, start and execute once, closing each DB session before execution."""
+        if not isinstance(worker, Worker) or not _executor_matches_lane(executor, worker):
+            return RunOutcome("error", error_code="executor_lane_mismatch")
         try:
             # Sweep in a separate committed transaction so task/lease locks are
             # released before the admission lock is acquired for a new claim.
@@ -168,6 +179,10 @@ class HostRunner:
             return RunOutcome("error", error_code="preparation_failed")
         if prepared is None:
             return RunOutcome("idle")
+        if prepared.lane != worker or not _executor_matches_lane(executor, prepared.lane):
+            return RunOutcome(
+                "error", prepared.task_id, prepared.attempt, error_code="executor_lane_mismatch"
+            )
         try:
             run_dir = initialize_attempt_output(
                 self.runs_root,
@@ -235,6 +250,12 @@ class HostRunner:
                 cancel_execution.set()
             return cancel_execution.is_set()
 
+        # An adapter may have been reconfigured while preparation/start committed.
+        # Reject it before handing over any prepared text, including local-only text.
+        if not _executor_matches_lane(executor, prepared.lane):
+            return RunOutcome(
+                "error", prepared.task_id, prepared.attempt, error_code="executor_lane_mismatch"
+            )
         context = AttemptContext(
             task_id=prepared.task_id,
             attempt=prepared.attempt,

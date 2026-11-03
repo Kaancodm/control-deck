@@ -55,6 +55,82 @@ class CountingExecutor(SimulationExecutor):
         return super().execute(context)
 
 
+@pytest.mark.parametrize(
+    ("has_lane", "lane"),
+    [(False, None), (True, None), (True, "ollama"), (True, Worker.CLAUDE)],
+    ids=["missing", "null", "untyped", "cloud-executor"],
+)
+def test_executor_identity_is_required_before_claim_or_payload_preparation(
+    db_session: Session, tmp_path: Path, has_lane: bool, lane: object
+) -> None:
+    task_id = _queued(db_session, text="private local-only task text")
+    factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
+    opened_sessions = []
+
+    def tracked_factory():
+        session = factory()
+        opened_sessions.append(session)
+        return session
+
+    class InvalidIdentityExecutor:
+        calls = 0
+
+        def execute(self, context):
+            self.calls += 1
+            raise AssertionError("An unidentified executor must never receive a payload")
+
+    executor = InvalidIdentityExecutor()
+    if has_lane:
+        executor.lane = lane
+    runner, _ = _runner(db_session, tmp_path, factory=tracked_factory)
+    outcome = runner.run_once(Worker.OLLAMA, executor)
+
+    assert outcome.action == "error"
+    assert outcome.error_code == "executor_lane_mismatch"
+    assert executor.calls == 0
+    assert opened_sessions == []
+    assert not (tmp_path / "runs").exists()
+    db_session.expire_all()
+    task = db_session.get(Task, task_id)
+    assert task.status == TaskState.QUEUED
+    assert task.attempt == 0
+    assert db_session.scalar(select(func.count()).select_from(Lease)) == 0
+    assert (
+        db_session.scalar(
+            select(func.count()).select_from(Event).where(Event.event_type == "task.prepare")
+        )
+        == 0
+    )
+
+
+@pytest.mark.parametrize("boundary", ["claim_prepared_attempt", "start_worker_attempt"])
+def test_executor_identity_is_rechecked_before_prepared_payload_delivery(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, boundary: str
+) -> None:
+    from app.workers import runner as runner_module
+
+    task_id = _queued(db_session, text="private local-only task text")
+    runner, _ = _runner(db_session, tmp_path)
+    executor = CountingExecutor(Worker.OLLAMA)
+    original = getattr(runner_module, boundary)
+
+    def reconfigure_executor(*args, **kwargs):
+        outcome = original(*args, **kwargs)
+        executor.lane = Worker.CLAUDE
+        return outcome
+
+    monkeypatch.setattr(runner_module, boundary, reconfigure_executor)
+    outcome = runner.run_once(Worker.OLLAMA, executor)
+
+    assert outcome.action == "error"
+    assert outcome.error_code == "executor_lane_mismatch"
+    assert executor.calls == 0
+    db_session.expire_all()
+    expected = TaskState.LEASED if boundary == "claim_prepared_attempt" else TaskState.RUNNING
+    assert db_session.get(Task, task_id).status == expected
+    assert db_session.scalar(select(func.count()).select_from(Result)) == 0
+
+
 def test_host_success_has_no_open_runner_transaction_during_execution(
     db_session: Session, tmp_path: Path
 ) -> None:
@@ -87,7 +163,7 @@ def test_host_success_has_no_open_runner_transaction_during_execution(
                 )
             return super().execute(context)
 
-    outcome = runner.run_once(Worker.OLLAMA, Inspecting())
+    outcome = runner.run_once(Worker.OLLAMA, Inspecting(Worker.OLLAMA))
     assert outcome.action == "completed"
     assert outcome.status == "review"
     db_session.expire_all()
@@ -128,7 +204,7 @@ def test_cloud_executor_receives_only_redacted_payload_and_result_is_local(
                 update={"output": ResultOutput(text=context.payload_text, files=[])}
             )
 
-    outcome = runner.run_once(Worker.CLAUDE, Echo())
+    outcome = runner.run_once(Worker.CLAUDE, Echo(Worker.CLAUDE))
     assert outcome.action == "completed"
     db_session.expire_all()
     result = db_session.scalar(select(Result.payload).where(Result.task_id == task_id))
@@ -142,7 +218,7 @@ def test_paused_runner_does_not_claim_or_call_executor(db_session: Session, tmp_
     update_settings(db_session, {"paused": True})
     db_session.commit()
     runner, _ = _runner(db_session, tmp_path)
-    executor = CountingExecutor()
+    executor = CountingExecutor(Worker.OLLAMA)
     assert runner.run_once(Worker.OLLAMA, executor).action == "idle"
     assert executor.calls == 0
     db_session.expire_all()
@@ -166,7 +242,7 @@ def test_owner_cancel_interrupts_cooperative_executor_and_is_acknowledged(
             assert context.cancel_requested()
             return super().execute(context)
 
-    assert runner.run_once(Worker.OLLAMA, CancelWhileRunning()).action == "cancel"
+    assert runner.run_once(Worker.OLLAMA, CancelWhileRunning(Worker.OLLAMA)).action == "cancel"
     db_session.expire_all()
     assert db_session.get(Task, task_id).status == TaskState.CANCELLED
     assert db_session.scalar(select(func.count()).select_from(Lease)) == 0
@@ -191,7 +267,7 @@ def test_deadline_stop_is_committed_before_executor_returns(
                 assert session.get(Task, task_id).status == TaskState.EXPIRED
             return super().execute(context)
 
-    assert runner.run_once(Worker.OLLAMA, ExpireWhileRunning()).action == "expired"
+    assert runner.run_once(Worker.OLLAMA, ExpireWhileRunning(Worker.OLLAMA)).action == "expired"
     db_session.expire_all()
     assert db_session.get(Task, task_id).status == TaskState.EXPIRED
     assert db_session.scalar(select(func.count()).select_from(Result)) == 0
@@ -202,7 +278,7 @@ def test_preparation_failure_never_calls_executor(
 ) -> None:
     _queued(db_session)
     runner, _ = _runner(db_session, tmp_path)
-    executor = CountingExecutor()
+    executor = CountingExecutor(Worker.OLLAMA)
 
     def fail(*args, **kwargs):
         raise ValueError("raw content must not escape")
@@ -219,7 +295,7 @@ def test_output_artifact_failure_leaves_reapable_claim_and_never_executes(
 ) -> None:
     task_id = _queued(db_session)
     runner, factory = _runner(db_session, tmp_path)
-    executor = CountingExecutor()
+    executor = CountingExecutor(Worker.OLLAMA)
 
     def fail(*args, **kwargs):
         raise WorkerArtifactError("unsafe_directory")
@@ -256,7 +332,7 @@ def test_claim_commit_failure_never_exposes_prepared_text(
 
     factory = sessionmaker(bind=db_session.get_bind(), class_=FailingCommit, autoflush=False)
     runner, _ = _runner(db_session, tmp_path, factory=factory)
-    executor = CountingExecutor()
+    executor = CountingExecutor(Worker.OLLAMA)
     assert runner.run_once(Worker.OLLAMA, executor).error_code == "preparation_failed"
     assert executor.calls == 0
     db_session.expire_all()
@@ -290,7 +366,7 @@ def test_database_failure_stops_cooperative_executor_without_accepting_result(
             assert context.cancel_requested()
             return super().execute(context)
 
-    assert runner.run_once(Worker.OLLAMA, WaitForStop()).error_code == "control_failed"
+    assert runner.run_once(Worker.OLLAMA, WaitForStop(Worker.OLLAMA)).error_code == "control_failed"
     db_session.expire_all()
     assert db_session.get(Task, task_id).status == TaskState.RUNNING
     assert db_session.scalar(select(func.count()).select_from(Result)) == 0
@@ -306,7 +382,7 @@ def test_forged_worker_result_is_normalized_to_host_failure(
         def execute(self, context):
             return super().execute(context).model_copy(update={"worker": Worker.CLAUDE})
 
-    outcome = runner.run_once(Worker.OLLAMA, Forged())
+    outcome = runner.run_once(Worker.OLLAMA, Forged(Worker.OLLAMA))
     assert outcome.action == "completed"
     assert outcome.status == "failed"
     db_session.expire_all()
@@ -331,7 +407,7 @@ def test_deadline_during_acceptance_commits_expiry(
         return original(*args, **kwargs)
 
     monkeypatch.setattr(worker_ops, "evaluate_acceptance", cross_deadline)
-    outcome = runner.run_once(Worker.OLLAMA, SimulationExecutor())
+    outcome = runner.run_once(Worker.OLLAMA, SimulationExecutor(Worker.OLLAMA))
     assert outcome.action == "expired"
     db_session.expire_all()
     assert db_session.get(Task, task_id).status == TaskState.EXPIRED
@@ -362,7 +438,7 @@ def test_heartbeat_keeps_a_slow_cooperative_attempt_owned(
                 assert lease.heartbeat_at > lease.created_at
             return super().execute(context)
 
-    outcome = runner.run_once(Worker.OLLAMA, Slow())
+    outcome = runner.run_once(Worker.OLLAMA, Slow(Worker.OLLAMA))
     assert outcome.action == "completed"
     assert outcome.status == "review"
 
@@ -394,7 +470,7 @@ def test_attempt_timeout_cancels_cooperative_work_without_expiring_task(
             assert context.cancel_requested()
             return super().execute(context)
 
-    outcome = runner.run_once(Worker.OLLAMA, WaitForTimeout())
+    outcome = runner.run_once(Worker.OLLAMA, WaitForTimeout(Worker.OLLAMA))
     assert outcome.action == "completed"
     db_session.expire_all()
     assert db_session.get(Task, task_id).status == TaskState.FAILED

@@ -69,6 +69,8 @@ class AttemptContext:
 
 
 class LaneExecutor(Protocol):
+    lane: Worker
+
     def execute(self, context: AttemptContext) -> ResultV1:
         """Execute once, honour cancellation, and return a validated lane result."""
         ...

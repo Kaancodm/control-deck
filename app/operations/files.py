@@ -16,6 +16,11 @@ READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
 WRITE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
+def _validate_name(name: str) -> None:
+    if not name or name in {".", ".."} or "/" in name or "\x00" in name:
+        raise OperationError("unsafe_path")
+
+
 def validate_private(metadata: os.stat_result, *, directory: bool) -> None:
     expected = 0o700 if directory else 0o600
     correct_kind = stat.S_ISDIR(metadata.st_mode) if directory else stat.S_ISREG(metadata.st_mode)
@@ -56,8 +61,7 @@ def private_root(path: Path, *, create: bool = False) -> Iterator[int]:
 
 @contextmanager
 def child_directory(parent: int, name: str, *, create: bool = False) -> Iterator[int]:
-    if not name or name in {".", ".."} or "/" in name or "\x00" in name:
-        raise OperationError("unsafe_path")
+    _validate_name(name)
     try:
         if create:
             os.mkdir(name, 0o700, dir_fd=parent)
@@ -72,6 +76,7 @@ def child_directory(parent: int, name: str, *, create: bool = False) -> Iterator
 
 
 def write_file(directory: int, name: str, data: bytes) -> None:
+    _validate_name(name)
     descriptor = os.open(name, WRITE_FLAGS, 0o600, dir_fd=directory)
     try:
         os.fchmod(descriptor, 0o600)
@@ -84,6 +89,7 @@ def write_file(directory: int, name: str, data: bytes) -> None:
 
 
 def read_file(directory: int, name: str, *, maximum: int) -> bytes:
+    _validate_name(name)
     descriptor = os.open(name, READ_FLAGS, dir_fd=directory)
     try:
         before = os.fstat(descriptor)

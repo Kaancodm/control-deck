@@ -18,15 +18,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.schemas import TaskV1
 from app.db.config import get_test_database_url
-from app.db.models import Event, Lease, RedactionMap, Task
+from app.db.models import Event, Lease, RedactionMap, Result, Task
 from app.db.repository import create_task_from_v1
 from app.db.state_machine import TaskState
-from app.kb.state import ContextSnapshot
+from app.kb.state import ContextSnapshot, KnowledgeExport
 from app.operations import backup, retention
 from app.operations.audit import record_operation
 from app.operations.errors import OperationError
 from app.operations.files import child_directory, private_root, write_file
 from app.operations.models import OperationEvent
+from app.operations.restic import copy_with_restic
 from app.operations.restore import restore_backup
 from tests.integration.test_database import _minimal_task_payload
 
@@ -80,6 +81,28 @@ def test_retention_removes_only_artifacts_maps_and_snapshots(
     task = _task(db_session)
     task_id = task.id
     _local_records(db_session, task_id)
+    stored_result = Result(
+        task_id=task_id,
+        attempt=1,
+        payload={
+            "schema_version": "result.v1",
+            "task_id": str(task_id),
+            "attempt": 1,
+        },
+    )
+    db_session.add(stored_result)
+    db_session.flush()
+    db_session.add(
+        KnowledgeExport(
+            task_id=task_id,
+            document_id=uuid4(),
+            result_id=stored_result.id,
+            data_class="local_only",
+            content_sha256="0" * 64,
+            state="completed",
+        )
+    )
+    db_session.commit()
     root = tmp_path / "runs"
     _artifacts(root, task_id)
     event_count = db_session.scalar(select(func.count()).select_from(Event))
@@ -92,6 +115,8 @@ def test_retention_removes_only_artifacts_maps_and_snapshots(
     db_session.expire_all()
     assert db_session.get(Task, task_id) is not None
     assert db_session.scalar(select(func.count()).select_from(Event)) == event_count
+    assert db_session.scalar(select(func.count()).select_from(Result)) == 1
+    assert db_session.scalar(select(func.count()).select_from(KnowledgeExport)) == 1
     assert db_session.scalar(select(func.count()).select_from(RedactionMap)) == 0
     assert db_session.scalar(select(func.count()).select_from(ContextSnapshot)) == 0
     assert not (root / str(task_id)).exists()
@@ -313,3 +338,66 @@ def test_restore_rejects_nonempty_target_before_process(
     with target.connect() as connection:
         assert connection.scalar(text("SELECT id FROM keep_data")) == 42
     target.dispose()
+
+
+def test_optional_restic_hook_uses_fake_cli_and_private_credential_descriptor(
+    db_session: Session, tmp_path: Path
+) -> None:
+    backup_root, runs_root, configuration = (
+        tmp_path / name for name in ("backups", "runs", "configuration")
+    )
+    for root in (backup_root, runs_root, configuration):
+        root.mkdir(mode=0o700)
+    password = configuration / "password"
+    password.write_text("fake-restic-password")
+    password.chmod(0o600)
+    fake = (
+        "import os,sys;"
+        "assert open(os.environ['RESTIC_PASSWORD_FILE']).read()=='fake-restic-password';"
+        "assert 'DECK_DATABASE_URL' not in os.environ;"
+        "assert sys.argv[1:3]==['backup','--']"
+    )
+    copy_with_restic(
+        get_test_database_url(),
+        backup_root=backup_root,
+        runs_root=runs_root,
+        configuration={
+            "RESTIC_REPOSITORY": "fake-repository",
+            "RESTIC_PASSWORD_FILE": str(password),
+        },
+        command=(sys.executable, "-c", fake),
+    )
+    phases = db_session.scalars(
+        select(OperationEvent.phase)
+        .where(OperationEvent.detail["reason"].astext == "restic_copy")
+        .order_by(OperationEvent.id)
+    ).all()
+    assert phases == ["started", "completed"]
+
+
+def test_restic_hook_refuses_unsafe_credential_before_process(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.operations import restic
+
+    roots = [tmp_path / name for name in ("backups", "runs", "configuration")]
+    for root in roots:
+        root.mkdir(mode=0o700)
+    password = roots[2] / "password"
+    password.write_text("fake-only")
+    password.chmod(0o644)
+    monkeypatch.setattr(restic, "run_command", lambda *args, **kwargs: pytest.fail("No child"))
+    with pytest.raises(OperationError):
+        copy_with_restic(
+            get_test_database_url(),
+            backup_root=roots[0],
+            runs_root=roots[1],
+            configuration={
+                "RESTIC_REPOSITORY": "fake-repository",
+                "RESTIC_PASSWORD_FILE": str(password),
+            },
+        )
+    assert (
+        db_session.scalar(select(OperationEvent.phase).order_by(OperationEvent.id.desc()).limit(1))
+        == "failed"
+    )

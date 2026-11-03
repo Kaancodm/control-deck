@@ -24,6 +24,7 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--target", choices=("test", "runtime"), default="test")
     parser.add_argument("--backup-name")
+    parser.add_argument("--restic", action="store_true")
     arguments = parser.parse_args()
     if not arguments.apply:
         print(json.dumps({"operation": arguments.operation, "status": "dry_run"}))
@@ -44,6 +45,15 @@ def main() -> int:
         url = get_test_database_url() if arguments.target == "test" else get_database_url()
         if arguments.operation == "backup":
             result = create_backup(url, root)
+            if arguments.restic:
+                from app.operations.restic import copy_with_restic
+
+                copy_with_restic(
+                    url,
+                    backup_root=root,
+                    runs_root=Path(os.environ.get("DECK_RUNS_DIR", "runs")),
+                    configuration=os.environ,
+                )
             prune_backups(root, apply=True)
             print(backup_summary(result))
             return 0

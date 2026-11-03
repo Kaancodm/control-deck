@@ -23,6 +23,7 @@ def run_command(
     maximum_output: int = 1024 * 1024 * 1024,
     cancelled: Callable[[], bool] | None = None,
     cwd: Path | None = None,
+    pass_fds: tuple[int, ...] = (),
 ) -> None:
     """Bound process lifetime and streamed bytes; kill the complete subprocess group."""
     if not command or timeout_s <= 0 or maximum_output < 0:
@@ -32,6 +33,7 @@ def run_command(
         process = subprocess.Popen(
             list(command),
             cwd=cwd,
+            pass_fds=pass_fds,
             env=env,
             stdin=input_fd if input_fd is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,

@@ -65,4 +65,7 @@ und offene Platzhalter stehen in [docs/REFERENCE_CASES.md](docs/REFERENCE_CASES.
 
 ## Agenten
 
+Abhaengigkeiten: [DEPENDENCIES.md](DEPENDENCIES.md).
+Aenderungen je Etappe: [CHANGELOG.md](CHANGELOG.md).
+
 Siehe [AGENTS.md](AGENTS.md) fuer Regeln fuer automatisierte Mitwirkende.

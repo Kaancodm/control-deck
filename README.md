@@ -1,9 +1,11 @@
 # Control Deck
 
 Lokale Steuerzentrale fuer KI-gestuetzte Aufgaben — ohne bezahlte APIs zur Laufzeit.
-Dieses Repository enthaelt das Grundgeruest, Uebergabe-Schemas (`task.v1`, `result.v1`) und Validierung.
+Dieses Repository enthaelt API, PostgreSQL-Queue, Uebergabe-Schemas (`task.v1`, `result.v1`),
+Abnahme und Datenschranke.
 
-**Status:** FastAPI-API (Etappe 04) und PostgreSQL-Queue vorhanden; Worker-Laufzeit folgt in spaeteren Etappen.
+**Status:** Etappe 05 prueft Auftraege und Textdateien vor Speicherung, Freigabe und Lease.
+Status-Review und Owner-Deadlines sind vorhanden; Redaction, Routing und Worker-Laufzeit folgen.
 
 ## Zweck
 
@@ -15,9 +17,11 @@ standardisierten Format. Menschliche Freigabe ist standardmaessig vorgesehen.
 
 | Pfad | Inhalt |
 |------|--------|
-| `app/api`, `app/ui` | Geplante HTTP- und UI-Schicht (Platzhalter) |
-| `app/core` | Schemas, Validierung, kuenftige Router-Logik |
-| `app/db`, `app/workers` | Persistenz und Worker-Anbindung (Platzhalter) |
+| `app/api` | Owner-/Worker-API, Freigabe, Review und Health |
+| `app/core` | Schemas, Validierung und automatische Abnahme |
+| `app/db` | Persistenz, Statusuebergaenge, Queue und Leases |
+| `app/privacy` | Scanner, lokale Blockliste und sichere Textdateien |
+| `app/ui`, `app/workers` | Oberflaeche und Worker-Laufzeit (Platzhalter) |
 | `schemas/` | JSON Schema Draft 2020-12 fuer `task.v1` und `result.v1` |
 | `config/` | Konfiguration (Platzhalter) |
 | `tests/` | Unit-, Integrations- und Referenztests |
@@ -36,7 +40,13 @@ make test
 uv run python scripts/validate.py task tests/unit/examples/task_valid_01.json
 ```
 
-Weitere Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/SCHEMA.md](docs/SCHEMA.md).
+Cloud-Auftraege benoetigen eine ausdruecklich konfigurierte lokale Blockliste ausserhalb des
+Repositories. Geheimnisse werden in jeder Datenklasse vor der Speicherung abgewiesen.
+Konfiguration und Grenzen: [docs/DATENSCHRANKE.md](docs/DATENSCHRANKE.md).
+
+Weitere Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/SCHEMA.md](docs/SCHEMA.md),
+[docs/API.md](docs/API.md). Inhaltliche Referenzfaelle schreibt der Owner; der aktuelle Bestand
+und offene Platzhalter stehen in [docs/REFERENCE_CASES.md](docs/REFERENCE_CASES.md).
 
 ## Agenten
 

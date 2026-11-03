@@ -20,6 +20,7 @@ from app.db.state_machine import (
         (None, TaskTransition.SUBMIT, TaskState.AWAITING_APPROVAL),
         (None, TaskTransition.BLOCK, TaskState.BLOCKED),
         (TaskState.AWAITING_APPROVAL, TaskTransition.APPROVE, TaskState.QUEUED),
+        (TaskState.AWAITING_APPROVAL, TaskTransition.BLOCK, TaskState.BLOCKED),
         (TaskState.AWAITING_APPROVAL, TaskTransition.CANCEL, TaskState.CANCELLED),
         (TaskState.QUEUED, TaskTransition.ACQUIRE, TaskState.LEASED),
         (TaskState.QUEUED, TaskTransition.BLOCK, TaskState.BLOCKED),

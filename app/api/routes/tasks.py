@@ -21,6 +21,8 @@ from app.db.queue import expire_overdue_tasks, expire_task_if_due
 from app.db.repository import approve_task, create_task_from_api_payload
 from app.db.state_machine import InvalidTaskTransitionError, TaskState, TaskTransition
 from app.db.transitions import TransitionActor, request_operator_cancel, transition_task
+from app.privacy.config import PrivacyConfigurationError
+from app.privacy.gate import PrivacyInputError, PrivacyInputUnavailable, PrivacyViolation
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -34,6 +36,24 @@ def create_task(
     """Validate ``task.v1``, persist awaiting approval, and record audit events."""
     try:
         task = create_task_from_api_payload(session, body)
+    except PrivacyConfigurationError:
+        return problem_response(
+            status=503,
+            title="Privacy configuration unavailable",
+            detail="The local privacy configuration must be available before submitting tasks.",
+        )
+    except PrivacyInputError as exc:
+        details = (
+            exc.report.safe_detail()["findings"]
+            if isinstance(exc, PrivacyViolation)
+            else [{"code": exc.code, "source": exc.source}]
+        )
+        return problem_response(
+            status=422,
+            title="Task rejected by privacy gate",
+            detail="Task input failed privacy checks; no task was stored.",
+            errors=details,
+        )
     except IntegrityError:
         session.rollback()
         return problem_response(
@@ -42,18 +62,14 @@ def create_task(
             detail="A task with this task_id is already stored.",
             type_uri="https://control-deck.local/problems/duplicate-task",
         )
-    except ValueError as exc:
-        issues = exc.args[0] if exc.args else exc
+    except ValueError:
         return problem_response(
             status=422,
             title="Invalid task.v1",
             detail="Task payload failed schema validation.",
             type_uri="https://control-deck.local/problems/invalid-task",
-            errors=(
-                [{"message": str(item)} for item in issues]
-                if isinstance(issues, list)
-                else [{"message": str(exc)}]
-            ),
+            # Validator messages may quote values or unknown field names.
+            errors=[{"code": "invalid_task", "message": "Check task fields and deadline_at."}],
         )
     session.refresh(task, attribute_names=["events", "results"])
     return TaskCreateOut(task=task_detail(task))
@@ -159,6 +175,19 @@ def approve_task_endpoint(
         return problem_response(status=409, title="Task expired", detail="Owner deadline elapsed.")
     try:
         approve_task(session, task)
+    except PrivacyInputUnavailable as exc:
+        return problem_response(
+            status=409,
+            title="Task input temporarily unavailable",
+            detail="Approval was deferred; restore the attachment and retry.",
+            errors=[{"code": exc.code, "source": exc.source}],
+        )
+    except PrivacyConfigurationError:
+        return problem_response(
+            status=503,
+            title="Privacy configuration unavailable",
+            detail="The local privacy configuration must be available before approval.",
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except InvalidTaskTransitionError as exc:

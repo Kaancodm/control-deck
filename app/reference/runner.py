@@ -6,13 +6,14 @@ import re
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Protocol
 
 from app.core.schemas import DataClass, ResultStatus, TaskV1, Worker
+from app.privacy.config import PrivacySettings
+from app.privacy.gate import PrivacyInputError, inspect_task
 from app.reference.schemas import ReferenceExpect
 from app.reference.validate import LoadedReferenceCase
-
-_FAKE_KEY_PATTERN = re.compile(r"sk-TEST-[A-Za-z0-9_-]+")
 
 
 class CaseOutcome(StrEnum):
@@ -39,10 +40,12 @@ class FakeExecutor:
     """Deterministic stub executor for tests and local reference runs."""
 
     fixed_wall_seconds: float = 0.01
+    privacy_settings: PrivacySettings = field(
+        default_factory=lambda: PrivacySettings(inbox=Path("inbox"), blocklist_configured=True)
+    )
 
     def execute(self, task: TaskV1) -> ExecutionResult:
         worker = task.fallback_chain[0]
-        blob = _task_text_blob(task)
 
         if task.data_class == DataClass.LOCAL_ONLY and worker != Worker.OLLAMA:
             return ExecutionResult(
@@ -52,7 +55,11 @@ class FakeExecutor:
                 wall_seconds=self.fixed_wall_seconds,
             )
 
-        if task.data_class != DataClass.LOCAL_ONLY and _FAKE_KEY_PATTERN.search(blob):
+        try:
+            blocked = inspect_task(task, settings=self.privacy_settings).blocked
+        except PrivacyInputError:
+            blocked = True
+        if blocked:
             return ExecutionResult(
                 status=ResultStatus.BLOCKED,
                 output_text="",
@@ -79,14 +86,6 @@ class FakeExecutor:
             worker=worker,
             wall_seconds=self.fixed_wall_seconds,
         )
-
-
-def _task_text_blob(task: TaskV1) -> str:
-    parts = [task.instructions, task.title]
-    for inp in task.inputs:
-        if inp.value is not None:
-            parts.append(inp.value)
-    return "\n".join(parts)
 
 
 def _is_empty_input(task: TaskV1) -> bool:

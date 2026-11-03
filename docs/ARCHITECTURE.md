@@ -20,7 +20,7 @@ Details: `docs/DECISIONS/0001-*.md` bis `0008-*.md`.
 ## Datenfluss (10 Schritte)
 
 1. **Anlegen und Validierung** — UI, API, n8n oder System erzeugt `task.v1`. Pflichtfelder inkl. `data_class` werden gegen JSON Schema und Pydantic geprueft. Ungueltige Auftraege werden abgewiesen.
-2. **Datenschranke** — Vor Persistenz scannt die Schranke Inhalte und Metadaten. Treffer gegen Blocklisten oder Policy fuehren zu `blocked` statt Queue-Eintrag (oder sofortigem Abbruch).
+2. **Datenschranke** — `app/privacy` scannt Inhalte, Metadaten und sichere Textdateien vor Persistenz. Geheimnisse werden in jeder Datenklasse ohne Speicherung abgewiesen. Nicht geheime Treffer sind in `local_only` zulaessig; Cloud-Auftraege mit solchen Treffern werden als `blocked` gespeichert. Vor Freigabe und Lease werden veraenderliche Dateien und Blockliste erneut geprueft. Redaction folgt in Etappe 6; Details: [DATENSCHRANKE.md](DATENSCHRANKE.md).
 3. **Router** — Pure Funktion berechnet effektive Worker-Kette aus `fallback_chain`, `policy` und `data_class`. Ergebnis wird mit dem unveraenderlichen Task persistiert (`plan`, `lane` — spaetere Etappen).
 4. **Runner-Lane (Pull)** — Worker-Prozesse ziehen freigegebene `queued`-Tasks per Lease aus Postgres (`SKIP LOCKED`). Lease TTL und Heartbeat verhindern Doppelarbeit.
 5. **Payload bauen** — Kontext aus `context_refs` wird klassengefiltert geladen. Bei `cloud_redacted` Pseudonymisierung; bei `local_only` kein Cloud-Worker. `payload.sent.md` wird revisionssicher abgelegt.
@@ -55,9 +55,8 @@ Massgeblich ist die Implementierung in `app/db/state_machine.py` (PostgreSQL-Enu
 | Von | Nach | Ausloeser |
 |-----|------|-----------|
 | — | `awaiting_approval` | API submit |
-| — | `queued` | Owner-Freigabe (`approve`) |
-| — | `blocked` | Schranke / Policy |
 | `awaiting_approval` | `queued` | Owner approve |
+| `awaiting_approval` / `queued` | `blocked` | Datenschranke (`block`) |
 | `queued` | `leased` | Runner acquire |
 | `leased` | `running` | Runner start |
 | `leased` | `queued` | Lease abgelaufen (solange `attempt < max_attempts`) |

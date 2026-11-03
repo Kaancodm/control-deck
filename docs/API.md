@@ -1,6 +1,8 @@
 # HTTP-API (Control Deck)
 
-Etappe `04-fastapi-api` stellt die FastAPI-Schicht auf Basis der bestehenden DB-Module (`app/db`, `transition_task`, Queue) bereit. Basis-Pfad fuer versionierte Endpunkte: **`/api/v1`**. OpenAPI: `/api/v1/docs`, Schema: `/api/v1/openapi.json`.
+Die FastAPI-Schicht verwendet die bestehenden DB-Module (`app/db`, `transition_task`, Queue).
+Etappe `05-data-gate` ergaenzt die Datenschranke an Erstellung, Freigabe und Lease.
+Basis-Pfad fuer versionierte Endpunkte: **`/api/v1`**. OpenAPI: `/api/v1/docs`, Schema: `/api/v1/openapi.json`.
 
 ## Konfiguration
 
@@ -11,6 +13,8 @@ Etappe `04-fastapi-api` stellt die FastAPI-Schicht auf Basis der bestehenden DB-
 | `DECK_OWNER_TOKEN` | Gemeinsames Geheimnis fuer Owner-Endpunkte (`Authorization: Bearer …`); Login folgt in Etappe 15 |
 | `DECK_LEASE_TTL_SECONDS` | Default-Lease-Dauer beim Pull (Default `900`) |
 | `DECK_HEARTBEAT_EXTEND_SECONDS` | Verlaengerung bei Heartbeat (Default `300`) |
+| `DECK_INBOX_DIR` | Eingangsverzeichnis fuer Textdateien (Default `inbox`) |
+| `DECK_BLOCKLIST_PATH` | Lokale UTF-8-Literalliste ausserhalb des Repositories; fuer Cloud-Auftraege Pflicht |
 
 Owner-Endpunkte verlangen **`DECK_OWNER_TOKEN`** als Bearer-Token (401 ohne gueltiges Token).
 
@@ -22,14 +26,47 @@ Fehlerantworten verwenden **RFC 7807** (`Content-Type: application/problem+json`
 
 | Methode | Pfad | Beschreibung |
 |---------|------|--------------|
-| `POST` | `/tasks` | `task.v1` validieren; fehlende `data_class` → **422** (Pflichtfeld gemaess ADR 0005). Neuer Task startet in **`awaiting_approval`** (Freigabe noetig), Audit-Event `task.submit`. |
+| `POST` | `/tasks` | `task.v1` und Datenschranke pruefen; fehlende `data_class` → **422** (Pflichtfeld gemaess ADR 0005). Zulaessige Tasks starten in **`awaiting_approval`**, Cloud-Tasks mit nicht geheimen Datenschutztreffern in **`blocked`**. |
 | `GET` | `/tasks` | Liste mit Query `status`, `data_class`, Pagination `limit` (1–200, Default 50), `offset`. |
 | `GET` | `/tasks/{id}` | Detail inkl. `events` und `results`. |
-| `POST` | `/tasks/{id}/approve` | Owner-Freigabe: `awaiting_approval` → `queued`, setzt `approved_at`. |
+| `POST` | `/tasks/{id}/approve` | Datenschranke erneut pruefen; bei Erfolg `awaiting_approval` → `queued`, setzt `approved_at`. Neue Sperrtreffer fuehren zu `blocked`. |
 | `POST` | `/tasks/{id}/review` | Owner-Entscheid fuer einen Task in `review`: Zustimmung → `done`, Ablehnung → `failed`. |
 | `POST` | `/tasks/{id}/cancel` | Abbruch (Owner-Override ohne Lease). Laufende Tasks (`running`): `cancel_requested` gesetzt; Worker bemerkt Abbruch erst beim naechsten Heartbeat/Lease-Check (404). |
 
-Interne Persistenz (`create_task_from_v1`, `POST /tasks`) legt Tasks immer in **`awaiting_approval`** an; **`queued`** ist nur nach Owner-Freigabe (`POST /tasks/{id}/approve` mit Bearer-Token) erreichbar.
+Interne Persistenz (`create_task_from_v1`, `POST /tasks`) verwendet dieselbe Datenschranke.
+Gespeicherte Tasks erhalten zuerst **`awaiting_approval`** und `task.submit`; bei einer
+Datenschutzsperre folgt noch in derselben Transaktion **`blocked`** mit `task.block`.
+**`queued`** ist nur nach Owner-Freigabe (`POST /tasks/{id}/approve` mit Bearer-Token) erreichbar.
+
+### Datenschranke
+
+| Situation bei `POST /tasks` | Antwort / Wirkung |
+|----------------------------|-------------------|
+| Erkannte Schluessel oder Zugangsdaten, jede Datenklasse | **422**, kein Task und kein Audit-Event gespeichert |
+| Personendaten oder geschuetzte Kennungen in `local_only` | **201**, `awaiting_approval` |
+| Nicht geheime Treffer in `cloud_ok` oder `cloud_redacted` | **201**, `blocked`, keine Lease moeglich |
+| Unsichere, unlesbare oder nicht unterstuetzte Datei; Groessenlimit; `context_refs` | **422**, keine Speicherung |
+| Fehlende Blocklist-Konfiguration fuer Cloud oder fehlerhafte konfigurierte Liste | **503**, keine Speicherung |
+
+Die API meldet bei Datenschutztreffern ausschliesslich Kategorie, Regel, strukturelles Feld und
+Zeichenpositionen. Fehlerantworten enthalten keine gefundenen Rohwerte oder lokalen Dateipfade.
+Der originale Auftrag bleibt bei nicht geheimen Treffern lokal gespeichert und fuer den Owner
+in der Task-Ansicht sichtbar; die Treffer-Metadaten ersetzen keine Pseudonymisierung.
+
+Dateien und Blockliste werden vor Freigabe und Lease erneut gelesen. Ein neuer Treffer oder
+dauerhafter Dateifehler setzt einen vorhandenen Task auf `blocked`; die Freigabeantwort ist **200** mit
+diesem Status. Die Queue ueberspringt solche Tasks und prueft den naechsten freigegebenen Auftrag.
+Ein Konfigurationsfehler ergibt **503** und erteilt keine Freigabe oder Lease fuer den betroffenen Task.
+Ein bereits `blocked` gesetzter Task laesst sich nicht mit `approve` entsperren (**409**).
+
+`file_unavailable` ist voruebergehend: Freigabe **409** bei unveraendertem Status, beim Lease-Pull
+Ueberspringen des Tasks fuer diesen Aufruf. `task.gate_error` enthaelt sichere Fehler-Metadaten;
+Versuchszahl und Lease bleiben unveraendert. Bei erfolgreicher Freigabe speichert `task.approve`
+je gelesener Datei den Input-Index und SHA-256 unter `detail.file_hashes`.
+
+`cloud_redacted` hat in Etappe 5 noch keinen Redaction-Pfad. Nicht geheime Treffer bleiben bis
+Etappe 6 gesperrt. Es gibt keinen Override durch `cloud_ok` oder Owner-Freigabe.
+Erkennungskatalog, Datei-Limits und Konfiguration: [DATENSCHRANKE.md](DATENSCHRANKE.md).
 
 ### Owner-Deadline
 
@@ -59,11 +96,15 @@ Authentifizierung ueber `DECK_WORKER_TOKEN` (Pflicht).
 
 | Methode | Pfad | Beschreibung |
 |---------|------|--------------|
-| `POST` | `/worker/lease` | Pull aeltester freigegebener `queued`-Task (`FOR UPDATE SKIP LOCKED`), Transition `acquire`, Lease-Zeile. |
+| `POST` | `/worker/lease` | Datenschranke fuer freigegebene `queued`-Tasks erneut pruefen; aeltesten zulaessigen Task ziehen (`FOR UPDATE SKIP LOCKED`), Transition `acquire`, Lease-Zeile. |
 | `POST` | `/worker/heartbeat` | Lease verlaengern (`lease_id`, `task_id`, optional `extend_seconds`). |
 | `POST` | `/worker/result` | `result.v1` validieren, Acceptance im Core pruefen, Ergebnis speichern und fenced per `lease_id` wechseln (auto-`start` aus `leased`). |
 
 Dequeue verlangt ein gesetztes **`approved_at`** (Owner-Freigabe); Tasks in `queued` ohne Freigabe werden nicht gezogen.
+
+Die aktuelle Worker-API besitzt noch keine Lane-Identitaet. Die verbindliche Zuordnung von
+`local_only` zu Ollama und die Pruefung der gemeldeten Worker-Identitaet folgen mit Router und
+Runner; die Datenschranke ersetzt diese Kontrollen nicht.
 
 Bei `result.v1.status = succeeded` berechnet `app/core/acceptance.py` die Checks aus `task.acceptance` und `result.output.text` selbst; vom Worker gemeldete Checks ersetzen diese Pruefung nicht. Ein automatischer Fehlschlag wird als Ergebnis mit `status = failed` und `error.code = acceptance_failed` gespeichert. Der Task geht bei verbleibenden Versuchen zurueck in die Queue, sonst nach `failed`.
 
@@ -85,6 +126,7 @@ Ein reiner Lease-Ablauf fuehrt weiterhin zu Retry, gegebenenfalls `awaiting_appr
 | Status | Bedeutung |
 |--------|-----------|
 | `awaiting_approval` | Validiert, wartet auf Owner-Freigabe |
+| `blocked` | Datenschutz- oder Policy-Sperre; terminal, kein Freigabe-Override |
 | `review` | Automatische Abnahme bestanden, wartet auf Owner-Entscheid |
 | `done` | Abgeschlossen nach Review oder explizit ohne Review-Pflicht |
 | `expired` | Explizite Owner-Deadline erreicht; terminal |

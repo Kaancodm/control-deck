@@ -9,7 +9,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Lease, Task
-from app.db.state_machine import TERMINAL_STATES, TaskState, TaskTransition
+from app.db.repository import record_gate_error
+from app.db.state_machine import (
+    TERMINAL_STATES,
+    InvalidTaskTransitionError,
+    TaskState,
+    TaskTransition,
+)
 from app.db.transitions import (
     LeaseOwnershipError,
     TransitionActor,
@@ -17,6 +23,7 @@ from app.db.transitions import (
     transition_task,
     upsert_lease,
 )
+from app.privacy.gate import PrivacyInputUnavailable, inspect_stored_task
 
 
 def dequeue_next_queued_task(
@@ -42,10 +49,30 @@ def dequeue_next_queued_task(
         .limit(1)
         .with_for_update(skip_locked=True)
     )
+    unavailable_ids: set[uuid.UUID] = set()
     while True:
-        task = session.scalars(stmt).first()
+        candidate = stmt.where(Task.id.not_in(unavailable_ids)) if unavailable_ids else stmt
+        task = session.scalars(candidate).first()
         if task is None:
             return None
+        try:
+            inspection = inspect_stored_task(task.payload)
+        except PrivacyInputUnavailable as exc:
+            record_gate_error(session, task=task, error=exc)
+            unavailable_ids.add(task.id)
+            continue
+        if inspection.blocking_detail is not None:
+            try:
+                transition_task(
+                    session,
+                    task=task,
+                    trigger=TaskTransition.BLOCK,
+                    detail=inspection.blocking_detail,
+                )
+            except InvalidTaskTransitionError:
+                if not expire_task_if_due(session, task=task):
+                    raise
+            continue
         try:
             transition_task(
                 session,

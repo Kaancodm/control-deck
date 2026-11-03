@@ -61,6 +61,7 @@ _TRANSITION_TABLE: dict[TaskState | None, dict[TaskTransition, TaskState]] = {
     },
     TaskState.AWAITING_APPROVAL: {
         TaskTransition.APPROVE: TaskState.QUEUED,
+        TaskTransition.BLOCK: TaskState.BLOCKED,
         TaskTransition.EXPIRE: TaskState.EXPIRED,
         TaskTransition.CANCEL: TaskState.CANCELLED,
     },

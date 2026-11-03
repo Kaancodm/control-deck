@@ -29,6 +29,7 @@ from app.db.worker_ops import (
     refresh_lease_heartbeat,
     submit_worker_result,
 )
+from app.privacy.config import PrivacyConfigurationError
 
 router = APIRouter(prefix="/worker", tags=["worker"])
 
@@ -46,11 +47,18 @@ def worker_lease(
 ) -> WorkerLeaseResponse | JSONResponse:
     """Pull the next queued task using ``FOR UPDATE SKIP LOCKED``."""
     ttl_seconds = body.lease_ttl_seconds or default_lease_ttl_seconds()
-    task = dequeue_next_queued_task(
-        session,
-        lease_ttl=timedelta(seconds=ttl_seconds),
-        holder=body.holder,
-    )
+    try:
+        task = dequeue_next_queued_task(
+            session,
+            lease_ttl=timedelta(seconds=ttl_seconds),
+            holder=body.holder,
+        )
+    except PrivacyConfigurationError:
+        return problem_response(
+            status=503,
+            title="Privacy configuration unavailable",
+            detail="The local privacy configuration must be available before dispatch.",
+        )
     if task is None:
         return problem_response(
             status=status.HTTP_404_NOT_FOUND,

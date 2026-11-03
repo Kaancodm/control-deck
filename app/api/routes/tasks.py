@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession, OwnerAuth
@@ -32,6 +33,14 @@ def create_task(
     """Validate ``task.v1``, persist awaiting approval, and record audit events."""
     try:
         task = create_task_from_api_payload(session, body)
+    except IntegrityError:
+        session.rollback()
+        return problem_response(
+            status=409,
+            title="Task already exists",
+            detail="A task with this task_id is already stored.",
+            type_uri="https://control-deck.local/problems/duplicate-task",
+        )
     except ValueError as exc:
         issues = exc.args[0] if exc.args else exc
         return problem_response(
@@ -118,18 +127,14 @@ def cancel_task(
     _owner: OwnerAuth,
 ) -> TaskDetailOut:
     """Cancel a task (owner override, no lease required)."""
-    task = session.scalar(
-        select(Task)
-        .where(Task.id == task_id)
-        .options(selectinload(Task.events), selectinload(Task.results))
-    )
+    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     try:
         request_operator_cancel(session, task=task, reason="api")
     except InvalidTaskTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    session.refresh(task)
+    session.refresh(task, attribute_names=["events", "results"])
     return task_detail(task)
 
 
@@ -140,11 +145,7 @@ def approve_task_endpoint(
     _owner: OwnerAuth,
 ) -> TaskDetailOut:
     """Owner approval: move task from ``awaiting_approval`` into the queue."""
-    task = session.scalar(
-        select(Task)
-        .where(Task.id == task_id)
-        .options(selectinload(Task.events), selectinload(Task.results))
-    )
+    task = session.scalar(select(Task).where(Task.id == task_id).with_for_update(of=Task))
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     try:

@@ -314,7 +314,7 @@ def transition_task(
         )
         if updated is None:
             raise InvalidTaskTransitionError("cancel rejected: task state changed")
-        task.status = updated.status
+        task.status = result.to_state
         _touch_updated_at(task, now=now)
         release_lease_for_task(session, task.id)
         task.lease = None

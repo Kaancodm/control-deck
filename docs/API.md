@@ -8,10 +8,11 @@ Etappe `04-fastapi-api` stellt die FastAPI-Schicht auf Basis der bestehenden DB-
 |----------|--------|
 | `DECK_DATABASE_URL` | SQLAlchemy-URL fuer Laufzeit (Pflicht fuer `/readyz` und Task-Endpunkte) |
 | `DECK_WORKER_TOKEN` | Gemeinsames Geheimnis fuer Worker (`Authorization: Bearer …` oder Header `X-Deck-Worker-Token`) |
+| `DECK_OWNER_TOKEN` | Gemeinsames Geheimnis fuer Owner-Endpunkte (`Authorization: Bearer …`); Login folgt in Etappe 15 |
 | `DECK_LEASE_TTL_SECONDS` | Default-Lease-Dauer beim Pull (Default `900`) |
 | `DECK_HEARTBEAT_EXTEND_SECONDS` | Verlaengerung bei Heartbeat (Default `300`) |
 
-Owner-Endpunkte nutzen vorerst einen **Auth-Platzhalter** (keine Pruefung); Login folgt in Etappe 15.
+Owner-Endpunkte verlangen **`DECK_OWNER_TOKEN`** als Bearer-Token (401 ohne gueltiges Token).
 
 ## Fehlerformat
 
@@ -25,7 +26,7 @@ Fehlerantworten verwenden **RFC 7807** (`Content-Type: application/problem+json`
 | `GET` | `/tasks` | Liste mit Query `status`, `data_class`, Pagination `limit` (1–200, Default 50), `offset`. |
 | `GET` | `/tasks/{id}` | Detail inkl. `events` und `results`. |
 | `POST` | `/tasks/{id}/approve` | Owner-Freigabe: `awaiting_approval` → `queued`, setzt `approved_at`. |
-| `POST` | `/tasks/{id}/cancel` | Abbruch (Owner-Override ohne Lease). |
+| `POST` | `/tasks/{id}/cancel` | Abbruch (Owner-Override ohne Lease). Laufende Tasks (`running`): `cancel_requested` gesetzt; Worker bemerkt Abbruch erst beim naechsten Heartbeat/Lease-Check (404). |
 
 Direkte DB-Hilfsfunktionen (Tests, Referenz) koennen weiterhin ohne Freigabe in `queued` starten (`create_task_from_v1`, `requires_approval=false`).
 
@@ -54,7 +55,9 @@ Dequeue beruecksichtigt **`requires_approval`** und **`approved_at`**: nur freig
 |--------|-----------|
 | `awaiting_approval` | Validiert, wartet auf Owner-Freigabe |
 
-Erlaubte Uebergaenge: siehe `app/db/state_machine.py` (`submit`, `approve`). Migration `20251103_0002` ergaenzt den Enum-Wert sowie Spalten `requires_approval` (Default `true`) und `approved_at`.
+Erlaubte Uebergaenge: siehe `app/db/state_machine.py` (`submit`, `approve`). Migration `20251103_0002` ergaenzt den Enum-Wert sowie Spalten `requires_approval` (Default `true`) und `approved_at`; **Bestand** aus Revision 0001 wird per Backfill auf `requires_approval=false` und gesetztem `approved_at` gehoben, damit Dequeue unveraendert bleibt.
+
+Doppelte `task_id` bei `POST /tasks` → **409** (`application/problem+json`).
 
 ## Tests
 
@@ -64,5 +67,6 @@ Erlaubte Uebergaenge: siehe `app/db/state_machine.py` (`submit`, `approve`). Mig
 ```bash
 export DECK_TEST_DATABASE_URL='postgresql+psycopg://…/controldeck_test'
 export DECK_WORKER_TOKEN='dev-worker-token'
+export DECK_OWNER_TOKEN='dev-owner-token'
 uv run pytest tests/integration/test_api.py -v
 ```

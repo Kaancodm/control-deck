@@ -46,6 +46,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    pending = bind.execute(
+        sa.text("SELECT COUNT(*) FROM tasks WHERE status = 'awaiting_approval'")
+    ).scalar_one()
+    if pending and int(pending) > 0:
+        raise RuntimeError("Downgrade blocked: cancel or approve tasks in awaiting_approval first")
     op.drop_column("tasks", "approved_at")
     op.drop_column("tasks", "requires_approval")
     # PostgreSQL does not support removing enum values; awaiting_approval remains on downgrade.

@@ -21,6 +21,18 @@ def worker_token_configured() -> bool:
     return bool(os.environ.get("DECK_WORKER_TOKEN", "").strip())
 
 
+def get_owner_token() -> str:
+    """Return the shared owner bearer token from ``DECK_OWNER_TOKEN``."""
+    token = os.environ.get("DECK_OWNER_TOKEN", "").strip()
+    if not token:
+        raise ApiConfigurationError("DECK_OWNER_TOKEN is not set")
+    return token
+
+
+def owner_token_configured() -> bool:
+    return bool(os.environ.get("DECK_OWNER_TOKEN", "").strip())
+
+
 def default_lease_ttl_seconds() -> int:
     raw = os.environ.get("DECK_LEASE_TTL_SECONDS", "900").strip()
     try:

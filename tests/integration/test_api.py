@@ -27,9 +27,17 @@ def worker_token(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 @pytest.fixture
+def owner_token(monkeypatch: pytest.MonkeyPatch) -> str:
+    token = "test-owner-token-integration"
+    monkeypatch.setenv("DECK_OWNER_TOKEN", token)
+    return token
+
+
+@pytest.fixture
 def api_client(
     db_session: Session,
     worker_token: str,
+    owner_token: str,
 ) -> Generator[TestClient, None, None]:
     app = create_app()
 
@@ -51,10 +59,14 @@ def _auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _owner_headers() -> dict[str, str]:
+    return _auth_headers(os.environ["DECK_OWNER_TOKEN"])
+
+
 def test_post_task_awaiting_approval_and_approve_flow(api_client: TestClient) -> None:
     task_id = uuid.uuid4()
     payload = _minimal_task_payload(task_id)
-    create = api_client.post("/api/v1/tasks", json=payload)
+    create = api_client.post("/api/v1/tasks", json=payload, headers=_owner_headers())
     assert create.status_code == 201
     body = create.json()["task"]
     assert body["id"] == str(task_id)
@@ -68,7 +80,7 @@ def test_post_task_awaiting_approval_and_approve_flow(api_client: TestClient) ->
     )
     assert lease.status_code == 404
 
-    approved = api_client.post(f"/api/v1/tasks/{task_id}/approve")
+    approved = api_client.post(f"/api/v1/tasks/{task_id}/approve", headers=_owner_headers())
     assert approved.status_code == 200
     assert approved.json()["status"] == TaskState.QUEUED.value
 
@@ -86,10 +98,18 @@ def test_post_task_awaiting_approval_and_approve_flow(api_client: TestClient) ->
 def test_get_tasks_filter_and_pagination(api_client: TestClient) -> None:
     ids = [uuid.uuid4() for _ in range(3)]
     for task_id in ids:
-        api_client.post("/api/v1/tasks", json=_minimal_task_payload(task_id))
-        api_client.post(f"/api/v1/tasks/{task_id}/approve")
+        api_client.post(
+            "/api/v1/tasks",
+            json=_minimal_task_payload(task_id),
+            headers=_owner_headers(),
+        )
+        api_client.post(f"/api/v1/tasks/{task_id}/approve", headers=_owner_headers())
 
-    listing = api_client.get("/api/v1/tasks", params={"status": "queued", "limit": 2, "offset": 0})
+    listing = api_client.get(
+        "/api/v1/tasks",
+        params={"status": "queued", "limit": 2, "offset": 0},
+        headers=_owner_headers(),
+    )
     assert listing.status_code == 200
     data = listing.json()
     assert data["total"] >= 3
@@ -98,8 +118,12 @@ def test_get_tasks_filter_and_pagination(api_client: TestClient) -> None:
 
 def test_worker_result_fenced(api_client: TestClient, db_session: Session) -> None:
     task_id = uuid.uuid4()
-    api_client.post("/api/v1/tasks", json=_minimal_task_payload(task_id))
-    api_client.post(f"/api/v1/tasks/{task_id}/approve")
+    api_client.post(
+        "/api/v1/tasks",
+        json=_minimal_task_payload(task_id),
+        headers=_owner_headers(),
+    )
+    api_client.post(f"/api/v1/tasks/{task_id}/approve", headers=_owner_headers())
 
     claimed = dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=60))
     assert claimed is not None
@@ -123,7 +147,7 @@ def test_worker_result_fenced(api_client: TestClient, db_session: Session) -> No
         "error": None,
         "redaction": {"applied": False, "placeholders": 0},
         "payload_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "log_ref": "runs/test.log",
+        "log_ref": "run/test.log",
     }
 
     response = api_client.post(
@@ -134,7 +158,7 @@ def test_worker_result_fenced(api_client: TestClient, db_session: Session) -> No
     assert response.status_code == 200
     assert response.json()["task"]["status"] == TaskState.SUCCEEDED.value
 
-    detail = api_client.get(f"/api/v1/tasks/{task_id}")
+    detail = api_client.get(f"/api/v1/tasks/{task_id}", headers=_owner_headers())
     assert detail.status_code == 200
     detail_body = detail.json()
     assert len(detail_body["results"]) == 1
@@ -143,8 +167,12 @@ def test_worker_result_fenced(api_client: TestClient, db_session: Session) -> No
 
 def test_cancel_awaiting_approval(api_client: TestClient) -> None:
     task_id = uuid.uuid4()
-    api_client.post("/api/v1/tasks", json=_minimal_task_payload(task_id))
-    cancel = api_client.post(f"/api/v1/tasks/{task_id}/cancel")
+    api_client.post(
+        "/api/v1/tasks",
+        json=_minimal_task_payload(task_id),
+        headers=_owner_headers(),
+    )
+    cancel = api_client.post(f"/api/v1/tasks/{task_id}/cancel", headers=_owner_headers())
     assert cancel.status_code == 200
     assert cancel.json()["status"] == TaskState.CANCELLED.value
 
@@ -152,7 +180,7 @@ def test_cancel_awaiting_approval(api_client: TestClient) -> None:
 def test_invalid_task_returns_problem_json(api_client: TestClient) -> None:
     bad = copy.deepcopy(_minimal_task_payload(uuid.uuid4()))
     bad.pop("instructions")
-    response = api_client.post("/api/v1/tasks", json=bad)
+    response = api_client.post("/api/v1/tasks", json=bad, headers=_owner_headers())
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/problem+json")
 
@@ -160,3 +188,44 @@ def test_invalid_task_returns_problem_json(api_client: TestClient) -> None:
 def test_worker_token_required(api_client: TestClient) -> None:
     response = api_client.post("/api/v1/worker/lease", json={})
     assert response.status_code == 401
+
+
+def test_owner_token_required(api_client: TestClient) -> None:
+    response = api_client.post("/api/v1/tasks", json=_minimal_task_payload(uuid.uuid4()))
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+
+def test_duplicate_task_id_returns_409_problem_json(api_client: TestClient) -> None:
+    task_id = uuid.uuid4()
+    payload = _minimal_task_payload(task_id)
+    first = api_client.post("/api/v1/tasks", json=payload, headers=_owner_headers())
+    assert first.status_code == 201
+    second = api_client.post("/api/v1/tasks", json=payload, headers=_owner_headers())
+    assert second.status_code == 409
+    assert second.headers["content-type"].startswith("application/problem+json")
+    assert second.json()["title"] == "Task already exists"
+
+
+def test_legacy_backfill_shape_is_dequeueable(api_client: TestClient, db_session: Session) -> None:
+    """Rows backfilled like migration 0002 (approved, no gate) remain pullable."""
+    from datetime import UTC, datetime
+
+    from app.db.models import Task
+
+    task_id = uuid.uuid4()
+    row = Task(
+        id=task_id,
+        status=TaskState.QUEUED,
+        data_class="local_only",
+        payload=_minimal_task_payload(task_id),
+        attempt=0,
+        requires_approval=False,
+        approved_at=datetime.now(tz=UTC),
+    )
+    db_session.add(row)
+    db_session.flush()
+
+    claimed = dequeue_next_queued_task(db_session, lease_ttl=timedelta(seconds=60))
+    assert claimed is not None
+    assert claimed.id == task_id

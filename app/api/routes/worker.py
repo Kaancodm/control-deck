@@ -25,6 +25,7 @@ from app.api.schemas import (
 )
 from app.api.serializers import task_summary
 from app.core.schemas import Worker
+from app.db.queue import reap_expired_leases
 from app.db.settings import RunnerSettingsError
 from app.db.state_machine import InvalidTaskTransitionError
 from app.db.transitions import LeaseOwnershipError
@@ -79,6 +80,10 @@ def worker_lease(
     """Prepare and commit the claimed attempt before exposing transport bytes."""
     _require_worker_identity(_worker, body.worker)
     try:
+        # Recover capacity before admission. Commit the sweep separately so
+        # preparation failure cannot undo expiry/cancellation acknowledgement.
+        reap_expired_leases(session)
+        session.commit()
         prepared = claim_prepared_attempt(
             session,
             worker=_worker,

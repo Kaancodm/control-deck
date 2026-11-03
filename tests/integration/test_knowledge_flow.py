@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from uuid import UUID, uuid4
 
 import pytest
@@ -289,3 +290,80 @@ def test_external_export_runs_without_host_transaction(api_client, knowledge_sto
             ).state
             == "completed"
         )
+
+
+def test_parallel_owner_exports_write_one_document_and_audit(api_client, knowledge_store):
+    task_id = create_context_task(api_client, knowledge_store)
+    finish(api_client, task_id)
+
+    def run_export(_):
+        with Session(get_engine(for_tests=True)) as session:
+            return export_task(
+                session, UUID(task_id), data_class=DataClass.LOCAL_ONLY, store=knowledge_store
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first, second = executor.map(run_export, range(2))
+    assert first == second
+    with Session(get_engine(for_tests=True)) as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(Event)
+                .where(Event.task_id == task_id, Event.event_type == "kb.export")
+            )
+            == 1
+        )
+    with knowledge_store.engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT count(*) FROM deck_kb.documents WHERE source_task_id = :id"),
+                {"id": task_id},
+            )
+            == 1
+        )
+
+
+def test_snapshot_migration_refuses_to_discard_owner_context(api_client, knowledge_store):
+    import argparse
+
+    from alembic.config import Config
+
+    from alembic import command
+
+    task_id = create_context_task(api_client, knowledge_store)
+    configuration = Config("alembic.ini")
+    configuration.cmd_opts = argparse.Namespace(x=["target=test"])
+    with pytest.raises(RuntimeError, match="knowledge snapshots"):
+        command.downgrade(configuration, "20251103_0012")
+    with Session(get_engine(for_tests=True)) as session:
+        assert (
+            session.scalar(select(ContextSnapshot).where(ContextSnapshot.task_id == task_id))
+            is not None
+        )
+
+
+def test_snapshot_migration_roundtrip_preserves_independent_knowledge(db_session, knowledge_store):
+    import argparse
+
+    from alembic.config import Config
+
+    from alembic import command
+
+    document_id = uuid4()
+    knowledge_store.put_document(
+        document_id=document_id,
+        title="Retained knowledge",
+        content="Independent knowledge survives the host migration",
+        data_class=DataClass.LOCAL_ONLY,
+    )
+    configuration = Config("alembic.ini")
+    configuration.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.downgrade(configuration, "20251103_0012")
+    try:
+        assert db_session.scalar(text("SELECT to_regclass('task_context_snapshots')")) is None
+        db_session.rollback()
+    finally:
+        command.upgrade(configuration, "head")
+    assert knowledge_store.resolve((str(document_id),), task_class=DataClass.LOCAL_ONLY)
+    command.check(configuration)

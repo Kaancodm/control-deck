@@ -31,10 +31,21 @@ class SearchRequest(BaseModel):
 
 
 def knowledge_problem(exc: KnowledgeError) -> JSONResponse:
+    if exc.code.startswith("export_") or exc.code == "knowledge_export_conflict":
+        status = 409
+    elif exc.code in {
+        "secret_detected",
+        "knowledge_privacy_gate",
+        "knowledge_text_too_large",
+        "knowledge_text_invalid",
+        "invalid_search_limit",
+        "invalid_utf8",
+    }:
+        status = 422
+    else:
+        status = 503
     return problem_response(
-        status=409
-        if exc.code.startswith("export_") or exc.code == "knowledge_export_conflict"
-        else 503,
+        status=status,
         title="Knowledge operation unavailable",
         detail="The knowledge operation could not be completed.",
         errors=[{"code": exc.code}],

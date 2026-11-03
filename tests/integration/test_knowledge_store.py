@@ -156,3 +156,47 @@ def test_documents_and_chunks_cannot_be_mutated(knowledge_store):
 
 def test_migration_metadata_matches(knowledge_store):
     command.check(Config("alembic_kb.ini"))
+
+
+def test_contract_rejects_removed_immutability_guard(knowledge_store):
+    with knowledge_store.engine.begin() as connection:
+        connection.execute(
+            text("ALTER TABLE deck_kb.documents DISABLE TRIGGER immutable_documents")
+        )
+    try:
+        with pytest.raises(KnowledgeError) as error:
+            knowledge_store.check_contract()
+        assert error.value.code == "knowledge_contract_mismatch"
+    finally:
+        with knowledge_store.engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE deck_kb.documents ENABLE TRIGGER immutable_documents")
+            )
+
+
+def test_contract_rejects_implicit_class_default(knowledge_store):
+    with knowledge_store.engine.begin() as connection:
+        connection.execute(
+            text("ALTER TABLE deck_kb.documents ALTER COLUMN data_class SET DEFAULT 'local_only'")
+        )
+    try:
+        with pytest.raises(KnowledgeError) as error:
+            knowledge_store.check_contract()
+        assert error.value.code == "knowledge_contract_mismatch"
+    finally:
+        with knowledge_store.engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE deck_kb.documents ALTER COLUMN data_class DROP DEFAULT")
+            )
+
+
+def test_knowledge_migration_roundtrip(knowledge_store):
+    configuration = Config("alembic_kb.ini")
+    command.downgrade(configuration, "base")
+    try:
+        with knowledge_store.engine.connect() as connection:
+            assert connection.scalar(text("SELECT to_regclass('deck_kb.documents')")) is None
+    finally:
+        command.upgrade(configuration, "head")
+    knowledge_store.check_contract(write=True)
+    command.check(configuration)

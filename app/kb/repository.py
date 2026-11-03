@@ -99,6 +99,17 @@ class KnowledgeStore:
                 )
                 if dimension != f"vector({EMBEDDING_DIMENSION})":
                     raise KnowledgeError("knowledge_contract_mismatch")
+                protected = connection.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_trigger "
+                        "WHERE NOT tgisinternal AND tgenabled = 'O' AND "
+                        "((tgrelid = 'deck_kb.documents'::regclass "
+                        "AND tgname = 'immutable_documents') OR "
+                        "(tgrelid = 'deck_kb.chunks'::regclass AND tgname = 'immutable_chunks'))"
+                    )
+                )
+                if protected != 2:
+                    raise KnowledgeError("knowledge_contract_mismatch")
                 for table in ("documents", "chunks"):
                     privileges = ("SELECT", "INSERT") if write else ("SELECT",)
                     for privilege in privileges:
@@ -269,4 +280,6 @@ class KnowledgeStore:
 
 def configured_store() -> KnowledgeStore:
     """Use only the explicit simulation profile and an isolated test database."""
-    return KnowledgeStore(create_engine(require_simulation(), pool_pre_ping=True))
+    return KnowledgeStore(
+        create_engine(require_simulation(), pool_pre_ping=True, hide_parameters=True)
+    )

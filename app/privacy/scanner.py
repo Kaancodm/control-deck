@@ -261,17 +261,22 @@ def _matches(text: str, *, source: str, kind: FindingKind) -> Iterator[Finding]:
                 break
 
 
+def _escape_blocklist_literal(literal: str) -> str:
+    """Keep configured text literal while allowing whitespace between words."""
+    return re.escape(literal).replace(r"\ ", r"\s+")
+
+
 def _literal_alternation(literals: Sequence[str], depth: int = 8) -> str:
     """Factor consecutive prefixes without changing case or alternative order."""
     if len(literals) == 1:
-        return re.escape(literals[0])
+        return _escape_blocklist_literal(literals[0])
     if depth == 0:
-        return "(?:" + "|".join(re.escape(literal) for literal in literals) + ")"
+        return "(?:" + "|".join(_escape_blocklist_literal(literal) for literal in literals) + ")"
     branches = []
     for first, group in groupby(literals, key=lambda literal: literal[:1]):
         if first:
             branches.append(
-                re.escape(first)
+                _escape_blocklist_literal(first)
                 + _literal_alternation([literal[1:] for literal in group], depth - 1)
             )
         else:
@@ -282,7 +287,9 @@ def _literal_alternation(literals: Sequence[str], depth: int = 8) -> str:
 @lru_cache(maxsize=4)
 def _blocklist_patterns(entries: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
     groups: dict[tuple[bool, bool], list[str]] = {}
-    normalized = {normalize_text(entry) for entry in entries}
+    # Collapse configured separators before prefix factoring, so repeated spaces
+    # never produce adjacent variable-width quantifiers with ambiguous matches.
+    normalized = {re.sub(r"\s+", " ", normalize_text(entry)) for entry in entries}
     for entry in sorted(normalized, key=lambda item: (-len(item), item)):
         if entry:
             bounds = (
@@ -328,7 +335,8 @@ def scan_text(text: str, *, source: str, blocklist: Sequence[str] = ()) -> list[
     conservative syntax recognition, not exhaustive secret or identity discovery.
     NFKC shadow text and blocklist literals share format-character removal.
     Findings refer to the unchanged original text, including composed sequences.
-    Blocklist literals use Unicode-aware case-insensitive word boundaries.
+    Blocklist literals use Unicode-aware case-insensitive word boundaries and
+    allow any nonempty whitespace run between configured words.
     """
     shadow = normalize_shadow(text)
     selected: list[Finding] = []

@@ -34,8 +34,9 @@ Builder ist immer Cursor. Merge nur nach GO des Owners.
 
 Die Specs 06, 09 und 11 sind detailliert. Die Specs 12 bis 18 sind kompakter und aus Plan v1.1
 abgeleitet; sie werden vor dem jeweiligen Start gegen den dann gemergten Stand nachgeschaerft.
-Die Etappen 5, 7, 8 und 10 sind nicht Teil dieses Auftrags, ihre Schnittstellen sind unten als
-Vertraege festgehalten, weil 6, 9 und 11 davon abhaengen.
+Die Etappen 5, 7 und 8 sind hier als Schnittstellen-Vertraege festgehalten, weil 6, 9 und 11
+davon abhaengen. Fuer Etappe 10 gilt die nachgetragene [Spec zu PR #25](10-fehlerpfade.md);
+ihr implementierter Fehlervertrag ersetzt abweichende historische Entwurfsangaben unten.
 
 ## Verbindliche Begriffe
 

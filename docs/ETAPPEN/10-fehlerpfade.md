@@ -1,5 +1,16 @@
 # Etappe 10: begrenzte Fehlerpfade
 
+Verbindliche Spec zur bestehenden Umsetzung in
+[Draft-PR #25](https://github.com/Kaancodm/control-deck/pull/25), Branch
+`stage/10-error-paths`. Die Datei und ihr Eintrag im Etappenindex sind bereits vorhanden;
+dieser Nachtrag macht die Zuordnung ausdruecklich. Massgebend ist der unten dokumentierte
+Fehlervertrag der Implementierung, einschliesslich der Owner-Ergaenzungen.
+
+Der Stapel basiert seit der Nachbesserung auf Etappe 9 mit Head `57366e5`.
+Ein fehlendes konfiguriertes Modell blockiert den Task ohne Versuch; ein konfiguriertes,
+voruebergehend nicht verfuegbares Modell laesst ihn warten. Beide Faelle ersetzen keinen
+bereits faelligen Backoff und eroeffnen keine zusaetzlichen Versuche.
+
 Diese Umsetzung folgt dem freigegebenen Plan v1.1 und den spaeteren Owner-Ergaenzungen.
 Sie ersetzt die abweichenden historischen Angaben zu Acceptance und Rate-Limit-Backoff
 im Etappenindex. Auftraege und Ergebnisse behalten die eingefrorenen Schemas `task.v1`

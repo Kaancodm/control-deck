@@ -1,0 +1,15 @@
+[Unit]
+Description=Control Deck isolated restore rehearsal plan
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPOSITORY@
+EnvironmentFile=@ENVIRONMENT@
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=@PYTHON@ -m app.operations.main restore-probe
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+TimeoutStartSec=600

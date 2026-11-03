@@ -7,7 +7,8 @@ import selectors
 import signal
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from app.operations.errors import OperationError
 
@@ -20,6 +21,8 @@ def run_command(
     input_fd: int | None = None,
     output_fd: int | None = None,
     maximum_output: int = 1024 * 1024 * 1024,
+    cancelled: Callable[[], bool] | None = None,
+    cwd: Path | None = None,
 ) -> None:
     """Bound process lifetime and streamed bytes; kill the complete subprocess group."""
     if not command or timeout_s <= 0 or maximum_output < 0:
@@ -28,6 +31,7 @@ def run_command(
     try:
         process = subprocess.Popen(
             list(command),
+            cwd=cwd,
             env=env,
             stdin=input_fd if input_fd is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -40,6 +44,13 @@ def run_command(
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ)
             while selector.get_map():
+                if cancelled is not None and cancelled():
+                    os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        process.wait(timeout=0.25)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    raise OperationError("service_stopping")
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise OperationError("process_timeout")

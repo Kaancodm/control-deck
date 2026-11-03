@@ -72,7 +72,17 @@ def retain_tasks(
     if snapshots is None:
         raise OperationError("snapshot_schema_unavailable")
     completed = failed = 0
+    summary_id = uuid4()
     with private_root(runs_root, create=True) as root:
+        with factory() as session:
+            record_operation(
+                session,
+                operation_id=summary_id,
+                operation_type="retention",
+                phase="started",
+                counts={"tasks": len(ids)},
+            )
+            session.commit()
         for task_id in ids:
             operation_id: UUID = uuid4()
             try:
@@ -151,6 +161,16 @@ def retain_tasks(
                         reason="retention_failed",
                     )
                     session.commit()
+        with factory() as session:
+            record_operation(
+                session,
+                operation_id=summary_id,
+                operation_type="retention",
+                phase="failed" if failed else "completed",
+                counts={"tasks": completed},
+                reason="partial_retention_failure" if failed else None,
+            )
+            session.commit()
     return RetentionSummary(len(ids), completed, failed, False)
 
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Control Deck isolated restore rehearsal reminder
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+Unit=deck-restore-probe.service
+
+[Install]
+WantedBy=timers.target

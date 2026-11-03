@@ -1,0 +1,24 @@
+[Unit]
+Description=Control Deck lane %i
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPOSITORY@
+EnvironmentFile=@ENVIRONMENT@
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=@PYTHON@ -m app.workers.daemon --worker %i
+Restart=on-failure
+RestartPreventExitStatus=78
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@REPOSITORY@/runs
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

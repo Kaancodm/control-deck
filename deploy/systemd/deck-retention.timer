@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Control Deck retention
+
+[Timer]
+OnCalendar=*-*-* 03:45:00
+Persistent=true
+Unit=deck-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -135,7 +135,13 @@ def restore_backup(
             "target=test",
             "check",
         )
-        run_command(command, env=environment, timeout_s=timeout_s, maximum_output=65536)
+        run_command(
+            command,
+            env=environment,
+            timeout_s=timeout_s,
+            maximum_output=65536,
+            cwd=Path(__file__).resolve().parents[2],
+        )
         with Session(audit) as session:
             record_operation(
                 session,

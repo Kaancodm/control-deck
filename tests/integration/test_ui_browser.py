@@ -12,7 +12,7 @@ import pytest
 import uvicorn
 from argon2 import PasswordHasher
 from playwright.sync_api import sync_playwright
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
 
 from app.api.app import create_app
@@ -20,6 +20,7 @@ from app.api.deps import get_db
 from app.core.schemas import Worker
 from app.db.models import Task
 from app.db.state_machine import TaskState
+from app.db.ui_auth import UiLoginState, unlock_owner_login
 from app.ui.chat import SimulatedChat
 from app.workers.runner import HostRunner
 from app.workers.runner_main import SimulationExecutor
@@ -141,6 +142,36 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
             assert len(session.scalars(select(Task)).all()) == 1
         page.get_by_role("button", name="Abmelden", exact=True).click()
         page.wait_for_url("**/ui/login")
+        page.get_by_label("Passwort", exact=True).fill(password)
+        page.get_by_role("button", name="Anmelden", exact=True).click()
+        page.wait_for_url("**/ui/tasks")
+        second_context = browser.new_context(java_script_enabled=javascript)
+        second = second_context.new_page()
+        second.route("**/*", allowed)
+        second.goto(base + "/ui/login")
+        second.get_by_label("Passwort", exact=True).fill(password)
+        second.get_by_role("button", name="Anmelden", exact=True).click()
+        second.wait_for_url("**/ui/tasks")
+        page.get_by_role("button", name="Ueberall abmelden", exact=True).click()
+        page.wait_for_url("**/ui/login")
+        second.reload()
+        second.wait_for_url("**/ui/login")
+        with factory.begin() as session:
+            session.execute(update(UiLoginState).values(daily_failures=19))
+        page.get_by_label("Passwort", exact=True).fill("synthetic-wrong-password")
+        page.get_by_role("button", name="Anmelden", exact=True).click()
+        page.get_by_text("Anmeldung gesperrt", exact=True).wait_for()
+        page.reload()
+        assert page.get_by_text("Anmeldung gesperrt", exact=True).is_visible()
+        assert page.get_by_label("Passwort", exact=True).count() == 0
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        with factory.begin() as session:
+            unlock_owner_login(session)
+        page.reload()
+        page.get_by_label("Passwort", exact=True).fill(password)
+        page.get_by_role("button", name="Anmelden", exact=True).click()
+        page.wait_for_url("**/ui/tasks")
         assert not external and not errors
+        second_context.close()
         context.close()
         browser.close()

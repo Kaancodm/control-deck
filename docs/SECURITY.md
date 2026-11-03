@@ -1,7 +1,7 @@
 # Schutzgrenzen und sichere Konfiguration
 
-Etappe 15 ist als Zwischenstand gesichert und pausiert. Diese Beschreibung trennt pruefbaren Repo-Code von der
-spaeteren Inbetriebnahme. Sie ersetzt weder das externe Review noch eine Betriebsfreigabe.
+Etappe 15 integriert die HTTP- und Authentifizierungsschutzgrenzen in die Owner-Oberflaeche.
+Diese Beschreibung trennt pruefbaren Repo-Code von der spaeteren Inbetriebnahme. Sie ersetzt weder das externe Review noch eine Betriebsfreigabe.
 
 ## HTTP-Eingang
 
@@ -61,10 +61,21 @@ Passwoerter, Cookies, CSRF-Werte oder Client-Adressen. Wiederholte abgewiesene A
 Drosselungsfenster erzeugen nicht immer neue Ereignisse. Ein Downgrade darf bestehende
 Auth-Ereignisse oder aktive Schutzdaten nicht entfernen.
 
-Die globale Session-Abmeldung ist als gepruefter DB-Service vorhanden. Ihre UI-Anbindung,
-die Anzeige der dauerhaften Sperre und die Integration einer festen Proxy-Origin in die
-UI-CSRF-Pruefung bleiben nach dem finalen Eltern-Rebase offen. Die abschliessenden Tests
-stehen deshalb noch aus; dieser Zwischenstand ist nicht reviewbereit.
+Die Aktion «Ueberall abmelden» widerruft alle bestehenden Sessions einschliesslich anonymer
+Login-Challenges. Sie verlangt eine gueltige Owner-Session und ausdruecklichen CSRF-Wert.
+Login und globale Abmeldung sperren immer zuerst den Login-State und erst danach Sessions;
+die HTTP-Anbindung nimmt vorher keine Aktivitaetssperre. Der Widerruf wird vor der Antwort
+committed und genau einmal auditiert.
+
+Die dauerhafte Login-Sperre erscheint mit HTTP 423, ohne Zeitversprechen und ohne
+Passwortformular, auch nach einem App-Neustart. Eine vorhandene gueltige Owner-Session
+bleibt nutzbar. Erst lokale Entsperrung erlaubt weitere Anmeldungen. Die UI-CSRF-Pruefung
+verwendet dieselbe validierte feste Proxy-Origin wie die aeusserste HTTP-Schutzmiddleware.
+
+HTTP-Regressionen pruefen Passwortwechsel, Session-Ablauf, Sperre und Entsperrung, zwei
+Browser-Sessions, gefaelschte CSRF-/Origin-Werte und die Sperrreihenfolge waehrend einer
+konkurrierenden Transaktion. Chromium prueft globale Abmeldung und Sperranzeige bei
+390 und 1024 Pixeln. Konkrete Gesamtnachweise stehen in `STAND.md` und im Draft-PR.
 
 ## Private Konfiguration
 

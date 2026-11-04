@@ -214,3 +214,33 @@ def test_two_live_runners_complete_twenty_tasks_once(db_session, tmp_path):
     assert db_session.scalar(select(func.count()).select_from(Result)) == 20
     assert db_session.scalar(select(func.count()).select_from(Lease)) == 0
     assert all(task.status == TaskState.REVIEW for task in db_session.scalars(select(Task)))
+
+
+def test_missing_live_model_does_not_block_available_task_and_context_is_configured(
+    db_session, tmp_path
+):
+    (tmp_path / "router.yaml").write_text(
+        json.dumps(
+            {
+                "lanes": {
+                    "ollama": {
+                        "num_ctx": 2048,
+                        "models": {"default": MODEL, "summarize": "missing:configured"},
+                    }
+                }
+            }
+        )
+    )
+    missing_id = _task(db_session, kind="summarize")
+    available_id = _task(db_session)
+    with OllamaStub(
+        models=(MODEL,), show_extra={"model_info": {"fixture.context_length": 8192}}
+    ) as stub:
+        outcome = _runner(db_session, tmp_path, _executor(stub)).run_once()
+    assert outcome.task_id == available_id and outcome.status == "review"
+    db_session.expire_all()
+    missing = db_session.get(Task, missing_id)
+    assert missing.status == TaskState.QUEUED and missing.attempt == 0
+    chats = [r["body"] for r in stub.requests if r["path"] == "/api/chat"]
+    assert len(chats) == 1
+    assert chats[0]["options"]["num_ctx"] == 2048

@@ -115,8 +115,23 @@ UTF-8-Inhalt, nicht den gesamten JSON-Request. Es gibt keine `images` oder `tool
 `stream: true`, Temperatur null, kurze Modellhaltezeit und ein ausdrückliches
 Kontextbudget gelten pro Request. `format: json` wird nur für JSON-Schema-Acceptance
 verwendet. `truncate: false` und `shift: false` verhindern die standardmässige
-Kontextkürzung im gepinnten Quellvertrag. Eine konservative Grössenprüfung weist
-zu grosse Payloads bereits lokal ab; sie ist kein exakter Tokenizer.
+Kontextkürzung im gepinnten Quellvertrag.
+
+Das effektive `num_ctx` stammt zuerst aus `lanes.ollama.num_ctx`, danach aus
+`/api/show.model_info` (architekturspezifisches `context_length`, sonst ein eindeutiges
+Kontextfeld), sonst aus dem Fallback 4096. Explizite Lane-Werte müssen positive Integer
+bis zum 32-Bit-Maximum sein; ungültige Konfiguration wird abgewiesen. Fehlende, ungültige
+oder mehrdeutige Metadaten erhöhen den Fallback nicht. Prüfung und Chat verwenden denselben
+Wert. Die Schätzung lautet `ceil(UTF-8-Bytes / 3) + 1024` für Vorlage und Ausgabe.
+Gleichheit mit `num_ctx` ist erlaubt; ein Token darüber ergibt vor dem Chat-Request
+`context_limit_exceeded`. Serverfehler bleiben Fehler ohne Teilausgabe oder Adapter-Retry.
+
+Die Verfügbarkeit wird pro konfiguriertem Modell geprüft. Ein fehlendes oder ungeeignetes
+Modell sperrt keine anderen einzeln bestätigten Modelle. Die Queue überspringt Aufgaben
+für fehlende Modelle ohne Claim. Serverversion und Inventarformat bleiben globale Gates.
+Live-Bereitschaft verfällt nach 30 Sekunden ab Beginn der aktuellen Probe. Ältere
+Probe-Generationen dürfen neuere Beobachtungen nicht überschreiben.
+
 
 Metadata-Antworten sind auf 1 MiB begrenzt, Ausgabe auf 4 MiB, jede NDJSON-Zeile auf
 64 KiB und der gesamte Stream einschliesslich verworfenen Denktexten auf 8 MiB.
@@ -139,7 +154,8 @@ und den letzten erfolgreichen Live-Versuch. Angenommene Fehler jeder Herkunft
 erhöhen die Fehlerserie und aktualisieren Fehlercode und Fehlerzeitpunkt. Nur ein
 Live-Erfolg setzt die Serie zurück; Simulationserfolg und Abbruch tun dies nicht.
 Simulation, Remote-Ergebnisse ohne Attestierung und historische unbekannte
-Ergebnisse sind kein Live-Nachweis.
+Ergebnisse sind kein Live-Nachweis. `simulated_attempts`, `remote_attempts` und
+`unknown_attempts` trennen diese Herkunftsarten ausdrücklich.
 Das eingefrorene `result.v1` trägt die Herkunft als separaten Check nach Acceptance.
 Events und JSON-Zeilen im Lane-Log enthalten nur begrenzte technische Metadaten,
 niemals Prompt, Antwort oder Provider-Diagnosen.

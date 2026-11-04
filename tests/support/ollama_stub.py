@@ -22,6 +22,7 @@ class OllamaStub:
         status_by_path=None,
         raw_by_path=None,
         show_extra=None,
+        show_by_model=None,
     ):
         self.models = models
         self.output = output
@@ -34,6 +35,7 @@ class OllamaStub:
         self.status_by_path = status_by_path or {}
         self.raw_by_path = raw_by_path or {}
         self.show_extra = show_extra or {}
+        self.show_by_model = show_by_model or {}
         self.requests = []
         self.chat_started = threading.Event()
         self.disconnected = threading.Event()
@@ -89,6 +91,7 @@ class OllamaStub:
                                 "capabilities": list(fixture.capabilities),
                                 "model_info": {"fixture.context_length": 4096},
                                 **fixture.show_extra,
+                                **fixture.show_by_model.get(body["model"], {}),
                             }
                         )
                     elif self.path == "/api/chat":

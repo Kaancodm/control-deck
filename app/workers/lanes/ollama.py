@@ -33,7 +33,7 @@ from app.workers.process import ProcessResult, run_process
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 SUPPORTED_OLLAMA_VERSION = "0.40.14"
 ADAPTER_VERSION = "1"
-_NUM_CTX = 4096
+_FALLBACK_NUM_CTX = 4096
 _CONTEXT_RESERVE = 1024
 _BEHAVIORS = frozenset(
     {
@@ -57,6 +57,20 @@ def _supported_model(model: str) -> bool:
         and ":cloud" not in model.lower()
         and not model.lower().endswith("-cloud")
     )
+
+
+def _model_context(info: dict[str, object]) -> int:
+    """Use architecture-specific metadata, otherwise a unique context field or fallback."""
+    metadata = info.get("model_info")
+    if not isinstance(metadata, dict):
+        return _FALLBACK_NUM_CTX
+    architecture = metadata.get("general.architecture")
+    if isinstance(architecture, str):
+        value = metadata.get(f"{architecture}.context_length")
+    else:
+        values = [v for k, v in metadata.items() if k.endswith(".context_length")]
+        value = values[0] if len(values) == 1 else None
+    return value if type(value) is int and 0 < value <= 2**31 - 1 else _FALLBACK_NUM_CTX
 
 
 @dataclass(frozen=True)
@@ -93,6 +107,7 @@ class OllamaAvailability:
     status: Literal["ok", "unavailable"]
     reason: str
     models: tuple[str, ...] = ()
+    context_limits: tuple[tuple[str, int], ...] = ()
 
 
 class OllamaExecutor:
@@ -106,6 +121,7 @@ class OllamaExecutor:
         profile: Literal["disabled", "simulation", "live"] = "disabled",
         url: str | None = None,
         simulation: OllamaSimulation | None = None,
+        num_ctx: int | None = None,
         timeout_s: float = 600,
         max_stdout_bytes: int = 4 * 1024 * 1024,
         max_stderr_bytes: int = 64 * 1024,
@@ -116,6 +132,7 @@ class OllamaExecutor:
             or (profile != "live" and url is not None)
             or (profile == "simulation" and simulation is None)
             or (simulation is not None and not isinstance(simulation, OllamaSimulation))
+            or (num_ctx is not None and (type(num_ctx) is not int or not 0 < num_ctx <= 2**31 - 1))
             or isinstance(timeout_s, bool)
             or not isinstance(timeout_s, (int, float))
             or not math.isfinite(timeout_s)
@@ -128,6 +145,7 @@ class OllamaExecutor:
             raise ValueError("Invalid Ollama execution configuration")
         self.profile = profile
         self.simulation = simulation
+        self.num_ctx = num_ctx
         self.timeout_s = timeout_s
         self.max_stdout_bytes = max_stdout_bytes
         self.max_stderr_bytes = max_stderr_bytes
@@ -207,9 +225,10 @@ class OllamaExecutor:
             installed = {line.split()[0] for line in lines[1:] if line.split()}
         except (UnicodeError, ValueError):
             return OllamaAvailability("unavailable", "inventory_invalid")
-        if not set(requested).issubset(installed):
+        available = tuple(model for model in requested if model in installed)
+        if not available:
             return OllamaAvailability("unavailable", "model_not_available")
-        return OllamaAvailability("ok", "simulation_ready", requested)
+        return OllamaAvailability("ok", "simulation_ready", available)
 
     def _live_availability(
         self, models: Sequence[str], *, timeout_s: float, cancelled: Callable[[], bool]
@@ -249,12 +268,24 @@ class OllamaExecutor:
             installed = {
                 entry.get("name") for entry in entries if isinstance(entry.get("name"), str)
             }
-            if not set(requested).issubset(installed):
-                return OllamaAvailability("unavailable", "model_not_available")
+            available: list[str] = []
+            context_limits: list[tuple[str, int]] = []
+            reason = "model_not_available"
             for model in requested:
-                info = self.client.show(f"{model}:local", timeout_s=budget(), cancelled=cancelled)
+                if model not in installed:
+                    continue
+                try:
+                    info = self.client.show(
+                        f"{model}:local", timeout_s=budget(), cancelled=cancelled
+                    )
+                except OllamaHTTPError as exc:
+                    if exc.reason in {"timeout", "cancelled"}:
+                        raise
+                    reason = f"inventory_{exc.reason}"
+                    continue
                 if info.get("remote_host") or info.get("remote_model"):
-                    return OllamaAvailability("unavailable", "model_unsupported")
+                    reason = "model_unsupported"
+                    continue
                 capabilities = info.get("capabilities")
                 if (
                     not isinstance(capabilities, list)
@@ -264,10 +295,18 @@ class OllamaExecutor:
                         value not in {"completion", "thinking", "tools"} for value in capabilities
                     )
                 ):
-                    return OllamaAvailability("unavailable", "model_capability_unsupported")
+                    reason = "model_capability_unsupported"
+                    continue
+                # Lane configuration wins; metadata and the safe fallback are secondary.
+                context_limits.append(
+                    (model, self.num_ctx if self.num_ctx is not None else _model_context(info))
+                )
+                available.append(model)
         except OllamaHTTPError as exc:
             return OllamaAvailability("unavailable", f"inventory_{exc.reason}")
-        return OllamaAvailability("ok", "live_ready", requested)
+        if not available:
+            return OllamaAvailability("unavailable", reason)
+        return OllamaAvailability("ok", "live_ready", tuple(available), tuple(context_limits))
 
     def execute(self, context: AttemptContext) -> ResultV1:
         """Send exactly the archived text once; discard incomplete or unsafe output."""
@@ -362,9 +401,11 @@ class OllamaExecutor:
             self.last_metadata.update(
                 {"model": context.model, "ollama_version": self._ollama_version}
             )
-            # A conservative byte estimate reserves space for template and output.
+            num_ctx = dict(available.context_limits).get(context.model, _FALLBACK_NUM_CTX)
+            # Estimate one token per three UTF-8 bytes, rounding up, plus reserve.
             # Exact tokenizer/template accounting still requires owner validation.
-            if len(payload) + _CONTEXT_RESERVE > _NUM_CTX:
+            estimated_tokens = (len(payload) + 2) // 3
+            if estimated_tokens + _CONTEXT_RESERVE > num_ctx:
                 return finish(
                     ResultStatus.FAILED,
                     code=ErrorCode.ACCEPTANCE_FAILED,
@@ -383,7 +424,7 @@ class OllamaExecutor:
                     timeout_s=timeout,
                     cancelled=context.cancel_requested,
                     format_json=context.json_format,
-                    num_ctx=_NUM_CTX,
+                    num_ctx=num_ctx,
                     keep_alive="1m",
                 )
             except OllamaHTTPError as exc:

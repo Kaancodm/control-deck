@@ -68,6 +68,7 @@ class OllamaLaneRunner:
                 self._record(LaneHealthState.PAUSED, "lane_disabled")
                 return RunOutcome("idle", error_code="lane_disabled")
             models = tuple(sorted(set(lane.models.values())))
+            self.executor.num_ctx = lane.num_ctx
             generation = self._record(LaneHealthState.UNAVAILABLE, "probe_pending")
             availability = self.executor.availability(models)
             state = (

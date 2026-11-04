@@ -1,6 +1,6 @@
 # Referenz-Faelle (Reference Cases)
 
-Referenz-Faelle pruefen das Verhalten von Control Deck ohne echte Worker-Anbindung.
+Referenz-Faelle pruefen das Verhalten von Control Deck standardmaessig in Simulation.
 Sie liegen als YAML unter `tests/reference/cases/` und werden ueber `make reference`
 bzw. `scripts/run_reference.py` ausgefuehrt.
 
@@ -116,5 +116,24 @@ und werden normal gegen die Erwartung geprueft.
 
 Die eingabeabhaengige Fake-Ausgabe bestaetigt den technischen Ablauf und die
 Redaktionsgrenze, keine semantische Modellqualitaet. Inhaltliche neue Faelle und die
-spaetere echte Modellabnahme bleiben beim Owner. Es gibt keinen Live-Executor-Schalter;
-die konkreten Grenzen stehen unter [Inbetriebnahme in LANES.md](LANES.md#inbetriebnahme).
+spaetere echte Modellabnahme bleiben beim Owner. Die Transportpruefungen aus #37
+bleiben auch bei separat erfasster Live-Provenienz erhalten.
+
+## Ollama live
+
+Nach den Owner-Pruefungen unter [Inbetriebnahme in LANES.md](LANES.md#inbetriebnahme)
+kann derselbe Runner mit `--executor ollama-live --model <konfiguriertes-modell>` laufen.
+Er verlangt die Runner-Umgebung mit `DECK_LIVE_ENABLED=1` oder `true` und einer gueltigen
+`DECK_OLLAMA_URL`. Das Modell muss mit explizitem Tag in `lanes.ollama.models` stehen.
+Routing und Datenschranke verwenden dann die echte lokale Konfiguration einschliesslich
+der externen Blockliste. Vor der Ausfuehrung muss die Vorpruefung alle konfigurierten
+Modelle bestaetigen. Die Transportgrenzen sind dieselben wie beim Host-Runner.
+
+Die Zusammenfassung nennt unter `Live evidence` ausschliesslich bestandene Faelle mit
+erfolgreicher Live-Modellausfuehrung. Simulationen und schon vor dem Modell blockierte
+Fallen erhoehen diesen Zaehler nicht. Die bisherigen `pass`/`fail`/`skip`-Zaehler bleiben
+als technische Testauswertung erhalten; ein gruenes Simulationsresultat ist kein
+Live-Nachweis. `reference_case.v1` bleibt unveraendert.
+
+Die automatisierten Tests verwenden ausschliesslich einen lokalen HTTP-Stub. Ein
+echter Referenzlauf und die Beurteilung der semantischen Modellqualitaet bleiben offen.

@@ -1,5 +1,30 @@
 # Stand des Repositorys
 
+## Nachtrag: Ollama Live-Adapter als Draft
+
+Der auf `main` nach #37 neu aufgebaute Stack ergaenzt gemaess [ADR 0009](DECISIONS/0009-ollama-loopback-http.md)
+den strikten Runner-Schalter, Loopback-HTTP fuer Ollama 0.40.14 und getrennte
+Executor-Provenienz. Simulation und nicht attestierte Remote-Ergebnisse zaehlen
+nicht als Live-Erfolg. Canary und Live-Referenzmodus sind fuer die gesonderte
+Owner-Abnahme vorbereitet; echte Modelle und Serverbetrieb bleiben ungeprueft.
+Die folgenden Etappenabschnitte beschreiben ihren historischen Simulationsstand.
+Aktueller Ausfuehrungsvertrag: [LANES.md](LANES.md), Betrieb: [OPERATIONS.md](OPERATIONS.md).
+
+Der systemd-Prueftest verwendet jetzt passend zu den installierten User-Units
+`systemd-analyze --user` und ein privates Runtime-Verzeichnis. Die bisherige
+System-Scope-Annahme erforderte unnoetig lokale Systemrechte. Gültige Vorlagen
+bestehen; eine absichtlich beschaedigte Vorlage wird weiterhin abgewiesen.
+Aktuelle Lint-, Test- und CI-Nachweise stehen in den Draft-PRs.
+
+Merge-Reihenfolge: #37 zuerst, danach #39, #40, #41, #42, #44, #45, #46, #47.
+#37 wurde ausserhalb dieser Arbeit als `a33cc3f` uebernommen; der Live-Stack
+ist auf diesen tatsaechlichen Main-Commit neu aufgebaut.
+Die Login-Migration `20261104_0017` bleibt unveraendert; die Provenienz-Migration
+`20261104_0018` folgt mit `down_revision = "20261104_0017"`. Health ermittelt den
+Alembic-Head weiterhin dynamisch. #43 ist nach dem dokumentierten Abgleich zugunsten
+von #39 zurueckgezogen. Der Live-Stack bleibt ungemergt; ein Serverlauf erfolgte
+nicht. Jeder weitere Merge verlangt weiterhin ausdrueckliches Owner-GO.
+
 ## Etappe 17 implementiert und lokal geprueft
 
 Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.

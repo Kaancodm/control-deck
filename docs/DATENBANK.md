@@ -253,19 +253,29 @@ DB-Default. Einzelheiten: [WISSENS_DB.md](WISSENS_DB.md).
 Neue Zeilen ohne ausdrückliche Herkunft erhalten `simulation`. Altzeilen erhalten
 `unknown`, da ihr Profil nicht attestiert wurde. Das eingefrorene JSON-Schema bleibt gleich.
 
-`lane_status.simulated_attempts` zählt alle angenommenen Versuche ohne Live-Nachweis,
-also auch `remote` und `unknown`. Nur `live` verändert `completed_attempts`,
-`last_attempt_at` und `last_attempt_success_at`. Angenommene Fehler jeder Herkunft
-erhöhen `consecutive_failures` und aktualisieren `last_error_code` und `last_error_at`.
-Nur ein Live-Erfolg setzt die Fehlerserie zurück; ein Nicht-Live-Erfolg oder Abbruch
-erhält sie. Die Fehlerserie ist höchstens die Summe beider Versuchszähler.
-Die Ergebnisannahme und die Zähler bleiben
-in derselben gefencten Transaktion; ein abgelehntes oder zurückgerolltes Ergebnis zählt nie.
+`lane_status.simulated_attempts` zählt ausschliesslich `simulation`; `remote_attempts`
+und `unknown_attempts` halten Remote- und unbekannte Herkunft getrennt.
+`completed_attempts`, `last_attempt_at` und `last_attempt_success_at` bleiben Live-Nachweise.
+Fehler und blockierte Ergebnisse jeder Herkunft erhöhen die Fehlerserie und aktualisieren
+Fehlercode/-zeit. Nur ein angenommener erfolgreicher Live-Versuch setzt die Serie zurück.
+Ergebnisannahme und Zähler bleiben in derselben gefencten Transaktion; abgelehnte,
+doppelte oder zurückgerollte Ergebnisse zählen nie.
 
-Bisherige Zähler aus Revision 0016 belegen keine Live-Herkunft. Die Migration überträgt
-`completed_attempts` nach `simulated_attempts` und setzt die bisherigen Live-Zähler und
-Live-Versuchszeitpunkte zurück. Bestehende Fehlerserien und Fehlerzeitpunkte bleiben
-ebenso wie Gesundheitsbeobachtungen, Ergebnisse und Events erhalten.
-Health bezeichnet den neuen Zählerzeitraum mit `live_since_migration_0018`.
-Ein Downgrade mit neuen Herkunftsbelegen oder nichtleerem Nicht-Live-Zähler wird verweigert.
-Nur eine leere Entwicklungs-/Testdatenbank ist für den vollständigen Roundtrip vorgesehen.
+Alte Zähler aus Revision 0016 belegen keine Live-Herkunft. Migration 0018 übernimmt
+`completed_attempts` nach `unknown_attempts`, setzt den Live-Abschlusszähler auf null
+und leert die beiden Live-Versuchszeitpunkte. Die Fehlerhistorie bleibt erhalten;
+Altdaten werden nicht zu Simulation umklassifiziert. Gesundheitsbeobachtungen,
+Ergebnisse und Events bleiben erhalten. Health bezeichnet den Live-Zeitraum mit
+`live_since_migration_0018`; die Fehlerhistorie umfasst alle Herkünfte.
+
+`probe_generation` wird vor jeder externen Probe unter Row-Lock erhöht und vor dem I/O
+committet. `probe_pending` verhindert zwischenzeitliche Live-Bereitschaft. Nur das Ergebnis
+der aktuellen Generation darf die Beobachtung ersetzen; Pause und andere neue Beobachtungen
+invalidieren ältere Proben ebenfalls. `updated_at` bleibt beim Abschluss der Probe deren
+Startzeit. `live_available` verlangt zusätzlich `ok`, `live_ready`, eine aktivierte,
+nicht pausierte Lane und ein Alter ab null bis ausschliesslich 30 Sekunden.
+
+Der Downgrade hält Results und Lane-Status exklusiv gesperrt. Er verweigert nicht-`unknown`
+Result-Herkunft, jeden Herkunfts-/Live-Zähler, Probe-Generation und erhaltene Fehler- oder
+Live-Versuchszeitpunkte. So kann ein späteres Upgrade keine bestehenden Nachweise neu
+einordnen. Ein evidenzfreier Roundtrip über 0017 erhält die Login-Kapazitätsspalten.

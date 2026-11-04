@@ -838,7 +838,8 @@ def test_two_independent_ollama_runners_complete_twenty_tasks_once(
     health = get_lane_status(db_session, lane=Worker.OLLAMA)
     assert health.status == "ok"
     assert health.reason == "simulation_ready"
-    assert health.updated_at == health.last_success_at
+    assert health.updated_at <= health.last_success_at
+    assert health.probe_generation > 0
 
 
 def test_simulation_after_live_failure_preserves_live_evidence(db_session, tmp_path, monkeypatch):

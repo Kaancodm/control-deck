@@ -38,19 +38,28 @@ def _validate_lane(lane: Worker) -> None:
 
 
 def update_lane_status(
-    session: Session, *, lane: Worker, status: LaneHealthState, reason: str
+    session: Session,
+    *,
+    lane: Worker,
+    status: LaneHealthState,
+    reason: str,
+    probe_generation: int | None = None,
 ) -> LaneStatus:
     """Atomically observe one lane; caller commits or rolls back the observation.
 
     Success denotes a positive health observation, including an explicitly marked
     simulation. It is not proof of a live model run or a known provider quota.
-    Failure preserves the last positive observation. The row lock is acquired
-    before reading the database clock, so concurrent updates cannot backdate it.
+    Failure preserves the last positive observation. Start an external probe with
+    ``probe_pending`` and commit its generation before I/O. Its result may update
+    only that generation and retains the probe start time for freshness checks.
+    Any newer observation invalidates older probes, including across processes.
     """
     _validate_lane(lane)
     if not isinstance(status, LaneHealthState) or not isinstance(reason, str):
         raise LaneHealthError()
     if not _REASON_CODE.fullmatch(reason):
+        raise LaneHealthError()
+    if probe_generation is not None and (type(probe_generation) is not int or probe_generation < 1):
         raise LaneHealthError()
     statement = insert(LaneStatus).values(lane=lane.value, status=status.value, reason=reason)
     session.execute(statement.on_conflict_do_nothing(index_elements=[LaneStatus.lane]))
@@ -61,11 +70,15 @@ def update_lane_status(
         .execution_options(populate_existing=True)
     )
     assert row is not None
+    if probe_generation is not None and row.probe_generation != probe_generation:
+        return row
     now = session.scalar(select(func.clock_timestamp()))
     assert isinstance(now, datetime)
     row.status = status.value
     row.reason = reason
-    row.updated_at = now
+    if probe_generation is None:
+        row.probe_generation += 1
+        row.updated_at = now
     if status == LaneHealthState.OK:
         row.last_success_at = now
     session.flush()
@@ -115,6 +128,8 @@ def record_completed_attempt(
     state = completed_attempt(
         AttemptHealth(
             simulated_attempts=row.simulated_attempts,
+            remote_attempts=row.remote_attempts,
+            unknown_attempts=row.unknown_attempts,
             completed_attempts=row.completed_attempts,
             consecutive_failures=row.consecutive_failures,
             last_error_code=ErrorCode(row.last_error_code) if row.last_error_code else None,
@@ -128,6 +143,8 @@ def record_completed_attempt(
         execution_profile=execution_profile,
     )
     row.simulated_attempts = state.simulated_attempts
+    row.remote_attempts = state.remote_attempts
+    row.unknown_attempts = state.unknown_attempts
     row.completed_attempts = state.completed_attempts
     row.consecutive_failures = state.consecutive_failures
     row.last_error_code = state.last_error_code.value if state.last_error_code else None

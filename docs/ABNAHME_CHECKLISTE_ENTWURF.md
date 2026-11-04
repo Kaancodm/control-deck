@@ -31,7 +31,7 @@ Alle Ergebnisse sind offen. Die Etappen-PRs enthalten bereits separate lokale En
 |---|---|---|---|
 | Pflichtchecks | `make lint`, `uv run alembic -x target=test check`, `make test`, `make reference` am gewählten Commit | Grün; Testzahl, Skips und xfail getrennt ausweisen | Offen |
 | Migration und Wiederanlauf | Neue isolierte DB sowie Upgrade vom dokumentierten vorherigen Stand | Schema passend; bestehende Aufträge bleiben konsistent | Offen |
-| Provenienz-Migration 0018 und Zähler-Reset | Upgrade von `20261104_0017`, Altzeile mit Fehlerserie und geschützter Downgrade | Genau ein Head `20261104_0018`; Altresultate `unknown`; alte Abschlusszahlen nach `simulated_attempts`; Live-Zähler und Live-Versuchszeitpunkte neu, Fehlerserie und letzte Fehlerdaten erhalten; keine unbelegte Live-Evidenz | Offen |
+| Provenienz-Migration 0018 und Zähler-Reset | Upgrade von `20261104_0017`, Altzeile mit Fehlerserie und geschützter Downgrade | Genau ein Head `20261104_0018`; Altresultate `unknown`; alte Abschlusszahlen nach `unknown_attempts`; Live-Zähler und Live-Versuchszeitpunkte neu, Fehlerserie und letzte Fehlerdaten erhalten; keine unbelegte Live-Evidenz | Offen |
 | Pflicht-Datenklasse | API, UI, Import und Wissens-Export ohne `data_class` prüfen | Keine implizite Klasse im Schema oder DB-Default; ausdrückliche Eingabe erforderlich | Offen |
 | Freigabe und Abschluss | Entwurf, Owner-Freigabe, Lauf, automatische Abnahme, Owner-Review | Keine Arbeit vor Freigabe; erfolgreicher Lauf standardmässig `review`; Review-Ablehnung `failed` | Offen |
 | Deadline und Lease | Owner-Deadline, Lease-Ablauf, Worker-Absturz, verspätetes Resultat | Nur Owner-Deadline erzeugt `expired`; Lease-Ablauf bleibt Retry/Verlust; kein später Status-Overwrite | Offen |
@@ -48,6 +48,18 @@ Alle Ergebnisse sind offen. Die Etappen-PRs enthalten bereits separate lokale En
 | Backup und Restore | Manifestversion 2 mit zentraler DB und Wissens-DB samt pgvector, beiden Dumps/Prüfsummen, zwei getrennten leeren Testzielen sowie beiden Schema-/Alembic-Prüfungen und Zählungen | Konsistenter Snapshot je DB; fehlende/ungültige Archive und nichtleere Ziele vor Eingriff abgewiesen; Teilfehler bleiben fehlgeschlagen ohne Erfolgsnachweis; Timer ist nur Trockenlauf-Erinnerung | Offen |
 | Aufbewahrung | 14-/90-Tage-Grenzen, aktive Aufgaben, unbestätigte Abbrüche, Teilfehler | Aktive Aufgaben geschützt; nur vorgesehene Daten entfernt; wiederaufnehmbarer und auditierter Ablauf | Offen |
 | Audit und Gesundheit | Geschützte Ansichten, Auth-Fehler im selben Lauf, CSV und Filter | Sichere Metadaten; Zugriffsschutz; unbekannte Anbieter-Kontingente bleiben unbekannt | Offen |
+
+## Migration 0018: Zählerbeginn prüfen
+
+- [ ] Vor Upgrade historische Zähler dokumentieren. Migration 0018 übernimmt alte
+  Abschlusszahlen als `unknown_attempts`, setzt Live-Abschlüsse und Live-Versuchszeitpunkte
+  einmalig zurück und erhält die Fehlerhistorie. Altdaten sind keine Simulation.
+- [ ] Nach Upgrade genau ein Head `20261104_0018`, Elternrevision `20261104_0017`;
+  Login-Kapazität bleibt erhalten. Geschützter Downgrade und evidenzfreier Roundtrip geprüft.
+- [ ] Kontextpriorität Lane → Modellmetadaten → 4096, exakte Grenze und Grenze +1 geprüft.
+  Die Byte-Schätzung ersetzt keine Modellqualitäts- oder Tokenizer-Abnahme.
+- [ ] Live-Anzeige nur mit aktueller erfolgreicher Probe unter 30 Sekunden;
+  veraltete Probe darf einen neueren Zustand nicht ersetzen.
 
 ## Inbetriebnahme: separat und erst nach ausdrücklicher Freigabe
 

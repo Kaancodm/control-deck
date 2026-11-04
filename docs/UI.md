@@ -102,7 +102,7 @@ Payload, Ergebnisse, Credentials, Dateipfade und freie Detail-Dictionaries bleib
 Die Lane-Ansicht trennt positive Vorprüfungen von tatsächlich angenommenen Ergebnissen.
 Seit Migration `0018` zählen `completed_attempts` und die Live-Versuchszeitpunkte
 ausschliesslich attestierte Live-Ergebnisse. Frühere Abschlusszahlen sind in
-`simulated_attempts` enthalten; vorhandene Fehlerserien und Fehlerzeitpunkte bleiben
+`unknown_attempts` enthalten; vorhandene Fehlerserien und Fehlerzeitpunkte bleiben
 erhalten. Angenommene Fehler aller Herkünfte erhöhen die Fehlerserie. Ein Ergebnis
 zählt atomar erst nach letzter Lease-/Identitäts-/Deadline-Prüfung und lokaler Acceptance.
 Doppelte oder verworfene Ergebnisse zählen nicht. Nur Live-Erfolg setzt die Fehlerserie zurück;

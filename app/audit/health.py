@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict
 from app.core.schemas import ErrorCode, ResultStatus, Worker
 from app.workers.contracts import ExecutionProfile
 
+LIVE_OBSERVATION_TTL = timedelta(seconds=30)
+
 _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "simulation_ready",
     "simulation_auth_required",
@@ -35,9 +37,10 @@ _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "context_limit_exceeded",
     "inventory_invalid",
     "inventory_unavailable",
-    "inventory_cancelled",
     "inventory_timeout",
+    "inventory_cancelled",
     "inventory_internal",
+    "probe_pending",
     "attempt_recorded",
 }
 
@@ -53,6 +56,8 @@ class LaneObservation:
 @dataclass(frozen=True)
 class AttemptHealth:
     simulated_attempts: int = 0
+    remote_attempts: int = 0
+    unknown_attempts: int = 0
     completed_attempts: int = 0
     consecutive_failures: int = 0
     last_error_code: ErrorCode | None = None
@@ -78,8 +83,10 @@ def completed_attempt(
     failed = status in (ResultStatus.FAILED, ResultStatus.BLOCKED)
     succeeded = live and status == ResultStatus.SUCCEEDED
     return AttemptHealth(
-        simulated_attempts=previous.simulated_attempts + (0 if live else 1),
-        completed_attempts=previous.completed_attempts + (1 if live else 0),
+        simulated_attempts=previous.simulated_attempts + (execution_profile == "simulation"),
+        remote_attempts=previous.remote_attempts + (execution_profile == "remote"),
+        unknown_attempts=previous.unknown_attempts + (execution_profile == "unknown"),
+        completed_attempts=previous.completed_attempts + live,
         consecutive_failures=(
             previous.consecutive_failures + 1
             if failed
@@ -110,6 +117,8 @@ class LaneHealthView(BaseModel):
     observed_at: datetime | None
     last_observation_success_at: datetime | None
     simulated_attempts: int
+    remote_attempts: int
+    unknown_attempts: int
     completed_attempts: int
     consecutive_failures: int
     last_error_code: ErrorCode | None
@@ -171,7 +180,13 @@ def lane_health_view(
             "status": status,
             "reason": reason,
             "execution_mode": mode,
-            "live_available": mode == "live" and enabled and not paused,
+            "live_available": (
+                mode == "live"
+                and enabled
+                and not paused
+                and observation is not None
+                and timedelta(0) <= now - observation.observed_at < LIVE_OBSERVATION_TTL
+            ),
             "daily_attempt_limit": daily_attempt_limit,
             "claims_today": claims_today,
             "configured_attempts_remaining": (
@@ -184,6 +199,8 @@ def lane_health_view(
             if observation
             else None,
             "simulated_attempts": attempts.simulated_attempts,
+            "remote_attempts": attempts.remote_attempts,
+            "unknown_attempts": attempts.unknown_attempts,
             "completed_attempts": attempts.completed_attempts,
             "consecutive_failures": attempts.consecutive_failures,
             "last_error_code": attempts.last_error_code,

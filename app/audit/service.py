@@ -43,6 +43,8 @@ def read_lane_health(session: Session) -> list[LaneHealthView]:
                 if row is None
                 else AttemptHealth(
                     simulated_attempts=row.simulated_attempts,
+                    remote_attempts=row.remote_attempts,
+                    unknown_attempts=row.unknown_attempts,
                     completed_attempts=row.completed_attempts,
                     consecutive_failures=row.consecutive_failures,
                     last_error_code=ErrorCode(row.last_error_code) if row.last_error_code else None,

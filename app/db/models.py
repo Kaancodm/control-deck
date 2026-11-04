@@ -290,6 +290,9 @@ class LaneStatus(Base):
     )
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     simulated_attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    remote_attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    unknown_attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    probe_generation: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     completed_attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     consecutive_failures: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default="0"
@@ -309,9 +312,13 @@ class LaneStatus(Base):
         ),
         CheckConstraint("reason ~ '^[a-z][a-z0-9_]{0,63}$'", name="ck_lane_status_reason"),
         CheckConstraint("simulated_attempts >= 0", name="ck_lane_status_simulated_attempts"),
+        CheckConstraint("remote_attempts >= 0", name="ck_lane_status_remote_attempts"),
+        CheckConstraint("unknown_attempts >= 0", name="ck_lane_status_unknown_attempts"),
+        CheckConstraint("probe_generation >= 0", name="ck_lane_status_probe_generation"),
         CheckConstraint(
             "completed_attempts >= 0 AND consecutive_failures >= 0 "
-            "AND consecutive_failures <= completed_attempts + simulated_attempts",
+            "AND consecutive_failures <= completed_attempts + simulated_attempts "
+            "+ remote_attempts + unknown_attempts",
             name="ck_lane_status_counters",
         ),
         CheckConstraint(

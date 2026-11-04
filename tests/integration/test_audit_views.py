@@ -208,9 +208,11 @@ def test_auth_required_result_appears_on_next_ui_response(api_client, ui_client,
     assert 'data-lane-warning="auth_required"' in response.text
     assert "Anmeldung erforderlich" in response.text and "ollama" in response.text
     row = db_session.get(LaneStatus, "ollama")
-    assert row.completed_attempts == row.consecutive_failures == 0
-    assert row.simulated_attempts == 1
-    assert row.last_error_code is None
+    assert row.completed_attempts == row.simulated_attempts == row.unknown_attempts == 0
+    assert row.remote_attempts == row.consecutive_failures == 1
+    assert row.last_error_code == "auth_required"
+    assert row.last_error_at is not None
+    assert row.last_attempt_success_at is None
     assert 'data-lane-warning="auth_required"' in ui_client.get("/ui/fragments/status").text
 
 

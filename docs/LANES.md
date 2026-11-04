@@ -1,4 +1,4 @@
-# Lanes und CLI-Simulation
+# Lanes, Simulation und lokaler Live-Adapter
 
 ## Ollama in Etappe 9
 
@@ -74,12 +74,15 @@ Die Aktualisierung erfolgt in kurzen eigenen Transaktionen.
 `ok` mit Grund **`simulation_ready`** bezeichnet ausschliesslich eine erfolgreiche
 Fake-Inventarpruefung. Es bestaetigt weder einen erfolgreichen echten Modelllauf noch eine
 verfuegbare Live-Lane. `last_success_at` ist der Zeitpunkt dieser Gesundheitsbeobachtung.
-Das Live-Profil meldet stets **`unavailable` / `live_profile_unavailable`**. Oberflaeche und
-spaetere Health-Endpunkte muessen diesen Unterschied anzeigen.
+Das deaktivierte Profil meldet **`unavailable` / `live_profile_unavailable`**.
+Der neue Live-Vertrag folgt unten; `live_ready` ist eine positive Vorpruefung,
+kein Nachweis fuer Modellqualitaet. Die persistierte Anzeige beschreibt die letzte
+Vorpruefung samt Zeitpunkt; ein gestoppter Runner aktualisiert sie nicht mehr.
 
 ## Inbetriebnahme
 
-Die Live-Lane ist in dieser Etappe **nicht aktivierbar**. Die offizielle CLI bietet keinen
+Der CLI-Live-Pfad aus Etappe 9 bleibt gesperrt. ADR 0009 erlaubt die nachfolgend
+beschriebene HTTP-Anbindung. Die offizielle CLI bietet keinen
 No-Pull-Schalter: `run` kann ein fehlendes Modell automatisch laden. Eine vorgaengige
 Inventarpruefung schliesst das Rennen bis zum Aufruf nicht. Ein `:local`-Suffix begrenzt die
 Modellquelle, verhindert aber den Download nicht. `OLLAMA_NO_CLOUD` muss im Daemon gelten;
@@ -87,13 +90,77 @@ eine Variable ausschliesslich im CLI-Kindprozess konfiguriert einen laufenden Da
 Multimodale CLI-Pfade koennen zudem im Prompt genannte Bild-/Audiodateien vom Host lesen.
 Ein Exit-Code null allein beweist fuer alle CLI-Pfade keinen vollstaendigen Modellabschluss.
 
-Vor einer spaeteren Live-Anbindung braucht es nachweisbare Grenzen fuer automatische
-Downloads und Cloud-Wege, Dateisystem-Isolation gegen promptgesteuerte Dateizugriffe sowie
-ein eindeutiges Abschlussprotokoll. Diese Grenzen muessen auch bei Rennen, Abbruch und
-Daemon-Neustart gelten und separat getestet werden. Ein Konfigurations-Boolean allein
-genuegt nicht. Echte Logins, Serveraenderungen, Modellinstallationen und Modelltests wurden
-nicht ausgefuehrt. Die semantische Qualitaet prueft erst das vom Owner erstellte Referenzset
-bei der gesonderten Inbetriebnahme.
+Der Live-Adapter verwendet deshalb ausschliesslich die lokale HTTP-API. Echte Logins,
+Serveraenderungen, Modellinstallationen und Modelltests wurden nicht ausgefuehrt.
+Die semantische Qualitaet prueft erst das vom Owner erstellte Referenzset bei der
+Inbetriebnahme. Die folgenden Nachweise betreffen Quellcode und synthetische Tests.
+
+### HTTP-Vertrag gemaess ADR 0009
+
+Die Aktivierung verlangt die Runner-Variablen `DECK_LIVE_ENABLED` (exakt `1` oder
+`true`) und `DECK_OLLAMA_URL`. Nur HTTP, Loopback-Literale und ein expliziter Port sind
+erlaubt. Ohne Freigabe bleibt der Daemon mit Exit 78 gestoppt. Laufzeitfehler eines
+Ollama-Dienstes verhindern Claims, halten aber die Supervisor-Schleife am Leben.
+
+Die Vorpruefung kontrolliert die exakte Version **0.40.14**, alle konfigurierten
+Modellkennungen gegen `/api/tags` und ihre Faehigkeiten mittels `/api/show`.
+Explizite Tags sind Pflicht; Cloud-Kennungen, Remote-Felder und multimodale
+Faehigkeiten werden abgewiesen. Der HTTP-Modellname traegt zusaetzlich `:local`.
+Das Inventar und die Provenienz behalten die konfigurierte Kennung ohne Quellensuffix.
+Damit wird auch ein zwischenzeitlich auf Remote geaenderter Alias vor Inferenz abgewiesen.
+
+Ein Versuch sendet eine User-Nachricht mit genau dem archivierten Text. JSON-Escaping
+veraendert die logischen Nachrichtenbytes nicht; `payload_hash` bezeichnet den
+UTF-8-Inhalt, nicht den gesamten JSON-Request. Es gibt keine `images` oder `tools`.
+`stream: true`, Temperatur null, kurze Modellhaltezeit und ein ausdrueckliches
+Kontextbudget gelten pro Request. `format: json` wird nur fuer JSON-Schema-Acceptance
+verwendet. `truncate: false` und `shift: false` verhindern die standardmaessige
+Kontextkuerzung im gepinnten Quellvertrag. Eine konservative Groessenpruefung weist
+zu grosse Payloads bereits lokal ab; sie ist kein exakter Tokenizer.
+
+Metadata-Antworten sind auf 1 MiB begrenzt, Ausgabe auf 4 MiB, jede NDJSON-Zeile auf
+64 KiB und der gesamte Stream einschliesslich verworfenen Denktexten auf 8 MiB.
+Bis zum ersten vollstaendigen Chunk gelten 120 Sekunden, danach 60 Sekunden Leerlauf;
+das kleinere Task-/Adapter-/Deadline-Budget bleibt verbindlich. Abbruch unterbricht
+auch blockierte Header- und Body-Leseoperationen. Provider-Fehlertexte werden verworfen.
+
+Nur ein vollstaendiger letzter Chunk mit `done: true` und `done_reason: stop` erlaubt
+Erfolg. `length` wird als `acceptance_failed` dem Review zugefuehrt. Fehlender Abschluss,
+Werkzeugaufrufe oder unerwartete Protokollfelder fuehren zu einem sicheren Fehler.
+Denktext wird nicht persistiert. Timeout und Abbruch geben keine Teilausgabe zurueck.
+Ein bestaetigter Owner-Abbruch nutzt den vorhandenen Abbruchpfad ohne Result-Zeile.
+Ein `local_only`-Prompt mit Dateipfad bleibt gemaess bestehender Datenschranke Text;
+der Adapter oeffnet daraus keine Datei. Eine pauschale Pfadsperre ist kein Teil dieses Vertrags.
+`/api/pull` wird nie aufgerufen. Ein Modell-404 nach dem Claim bleibt
+`worker_unavailable`; zentrale Retry-Regeln entscheiden ueber spaetere Versuche.
+
+`results.execution_profile` stammt vom Executor. Nur `live` beeinflusst Live-Zaehler,
+Fehlerserie und letzten erfolgreichen Versuch. Simulation, Remote-Ergebnisse ohne
+Attestierung und historische unbekannte Ergebnisse sind kein Live-Nachweis.
+Das eingefrorene `result.v1` traegt die Herkunft als separaten Check nach Acceptance.
+Events und JSON-Zeilen im Lane-Log enthalten nur begrenzte technische Metadaten,
+niemals Prompt, Antwort oder Provider-Diagnosen.
+
+### Gepruefte Quellstellen und offene Server-Nachweise
+
+Der Release-Tag wurde gegen den folgenden Commit geprueft. Am gepinnten Quellstand:
+
+- `server/routes.go`, `ChatHandler`: vorhandenes Modell laden, bei Fehlen 404;
+  der Pull-Handler ist getrennt. Lokale Quellen verweigern Remote-Aliase vor Inferenz.
+- `internal/modelref/modelref.go`: terminaler `:local`-Suffix bindet die Modellquelle.
+- `api/types.go`: Show-Antworten enthalten Faehigkeiten und Remote-Felder; Chat kennt
+  `truncate`, `shift`, `thinking`, `done` und `done_reason`.
+- `server/prompt.go`, `server/routes.go`, `server/sched.go`, `llm/llama_server.go`:
+  keine Nachrichtenkuerzung bei `truncate: false`, Context Shift nur auf Anforderung;
+  HTTP-Request-Kontexte werden an die Modellverarbeitung weitergegeben.
+- Der untersuchte API-Medienpfad verarbeitet explizite Medienbytes. Ohne `images`
+  ist kein aus Prompttext abgeleiteter Host-Dateizugriff ersichtlich.
+
+Ein Verbindungsende beweist noch keine vollstaendige Freigabe daemonseitiger
+Ressourcen: Callback-Kanaele koennen nach einem Schreibfehler blockieren. Abbruch,
+Kaltstart, Modellqualität und Ressourcenfreigabe gehoeren deshalb in den Owner-Serverlauf.
+`OLLAMA_NO_CLOUD=1`, Loopback-Bindung und vorab geladene Modelle muss der Owner am
+Ollama-Dienst einrichten; der Client konfiguriert diesen Dienst nicht.
 
 Quellenstand: offizielles Ollama `v0.40.14`, Commit
 `9a3e8177767245acc62b735eba7d5d8a553606d0`:

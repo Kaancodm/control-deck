@@ -1,4 +1,4 @@
-"""Explicit simulated host-runner command; no provider process or model is invoked."""
+"""Run one explicitly selected simulation or permitted live Ollama attempt."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from app.workers.contracts import AttemptContext, DeclaredProfile
 from app.workers.lanes.claude import ClaudeExecutor, ClaudeSimulation
 from app.workers.lanes.codex import CodexExecutor, CodexSimulation
 from app.workers.lanes.ollama import OllamaExecutor, OllamaSimulation
+from app.workers.live_config import LiveConfigurationError, load_live_config
 from app.workers.ollama_lane import OllamaLaneRunner
 from app.workers.runner import HostRunner
 
@@ -64,13 +65,21 @@ class SimulationExecutor:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run one explicitly simulated host attempt")
+    parser = argparse.ArgumentParser(description="Run one explicitly selected host attempt")
     parser.add_argument("--worker", required=True, choices=[worker.value for worker in Worker])
-    parser.add_argument("--simulate", required=True, action="store_true")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--simulate", action="store_true")
+    mode.add_argument("--live", action="store_true")
     parser.add_argument("--once", required=True, action="store_true")
     parser.add_argument(
         "--executor",
-        choices=["simulation", "ollama-fake-cli", "claude-fake-cli", "codex-fake-cli"],
+        choices=[
+            "simulation",
+            "ollama-fake-cli",
+            "claude-fake-cli",
+            "codex-fake-cli",
+            "ollama-live",
+        ],
         default="simulation",
     )
     args = parser.parse_args()
@@ -81,9 +90,24 @@ def main() -> int:
         parser.error("The Claude fake CLI can only serve the claude lane")
     if args.executor == "codex-fake-cli" and worker != Worker.CODEX:
         parser.error("The Codex fake CLI can only serve the codex lane")
+    endpoint = None
+    if args.live:
+        try:
+            endpoint = load_live_config(worker)
+        except LiveConfigurationError as exc:
+            print(json.dumps({"action": "unavailable", "error_code": exc.code}))
+            return 78
+        if args.executor != "ollama-live":
+            parser.error("Live mode requires the ollama-live executor")
+    elif args.executor == "ollama-live":
+        parser.error("The ollama-live executor requires live mode")
     factory = get_session_factory()
     runs_root = Path(os.environ.get("DECK_RUNS_DIR", "runs"))
-    if args.executor == "codex-fake-cli":
+    if args.executor == "ollama-live":
+        assert endpoint is not None
+        live_executor = OllamaExecutor(profile="live", url=endpoint.url)
+        outcome = OllamaLaneRunner(factory, runs_root=runs_root, executor=live_executor).run_once()
+    elif args.executor == "codex-fake-cli":
         configuration = get_router_config()
         models = tuple(sorted(set(configuration.lanes[Worker.CODEX].models.values())))
         codex_executor = CodexExecutor(
@@ -113,7 +137,9 @@ def main() -> int:
             {"action": outcome.action, "status": outcome.status, "error_code": outcome.error_code}
         )
     )
-    return 1 if outcome.action in ("error", "unavailable") else 0
+    return (
+        1 if outcome.action == "error" or (outcome.action == "unavailable" and not args.live) else 0
+    )
 
 
 if __name__ == "__main__":

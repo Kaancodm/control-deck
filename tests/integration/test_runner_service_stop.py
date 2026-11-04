@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -21,6 +22,7 @@ from app.workers.daemon import run_loop
 from app.workers.runner import HostRunner
 from app.workers.runner_main import SimulationExecutor
 from tests.integration.test_host_runner import _queued
+from tests.support.ollama_stub import OllamaStub
 
 _CHILD = """
 import os
@@ -42,6 +44,20 @@ runner = HostRunner(get_session_factory(for_tests=True),
                     runs_root=Path(os.environ['DECK_RUNS_DIR']),
                     lease_ttl=timedelta(seconds=2), heartbeat_interval_s=0.05)
 runner.run_once(Worker.OLLAMA, WaitingExecutor(Worker.OLLAMA))
+"""
+
+_LIVE_CHILD = """
+import os
+from datetime import timedelta
+from pathlib import Path
+from app.db.session import get_session_factory
+from app.workers.ollama_lane import OllamaLaneRunner
+from app.workers.lanes.ollama import OllamaExecutor
+runner = OllamaLaneRunner(get_session_factory(for_tests=True),
+                         runs_root=Path(os.environ['DECK_RUNS_DIR']),
+                         executor=OllamaExecutor(profile='live', url=os.environ['DECK_OLLAMA_URL']),
+                         lease_ttl=timedelta(seconds=2), heartbeat_interval_s=0.05)
+runner.run_once()
 """
 
 
@@ -106,3 +122,73 @@ def test_service_stop_preserves_lease_retry_instead_of_owner_cancel(
     finally:
         stop.set()
         thread.join(timeout=5)
+
+
+def test_live_stream_service_stop_preserves_recoverable_lease(db_session, tmp_path):
+    task_id = _queued(db_session)
+    router = tmp_path / "router.yaml"
+    router.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "lanes": {"ollama": {"enabled": True, "models": {"default": "fixture:latest"}}},
+            }
+        )
+    )
+    blocklist = tmp_path / "blocklist.txt"
+    blocklist.write_text("")
+    runs = tmp_path / "runs"
+    stop = threading.Event()
+    outcomes = []
+    with OllamaStub(initial_delay_s=10) as stub:
+        environment = {
+            "PATH": os.defpath,
+            "DECK_TEST_DATABASE_URL": get_test_database_url(),
+            "DECK_RUNS_DIR": str(runs),
+            "DECK_ROUTER_FILE": str(router),
+            "DECK_BLOCKLIST_PATH": str(blocklist),
+            "DECK_LIVE_ENABLED": "1",
+            "DECK_OLLAMA_URL": stub.url,
+        }
+
+        def supervise():
+            outcomes.append(
+                run_loop(
+                    Worker.OLLAMA,
+                    environment=environment,
+                    stop=stop,
+                    iterations=1,
+                    live=True,
+                    attempt_timeout_s=15,
+                    command=(sys.executable, "-c", _LIVE_CHILD),
+                )
+            )
+
+        thread = threading.Thread(target=supervise)
+        thread.start()
+        try:
+            assert stub.chat_started.wait(timeout=10)
+            stop.set()
+            thread.join(timeout=5)
+            assert not thread.is_alive()
+            assert outcomes == [0]
+            db_session.expire_all()
+            task = db_session.get(Task, task_id)
+            assert task.status == TaskState.RUNNING and not task.cancel_requested
+            assert db_session.scalar(select(func.count()).select_from(Result)) == 0
+            lease = db_session.scalar(select(Lease).where(Lease.task_id == task_id))
+            assert lease is not None
+            lease.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            db_session.commit()
+            reap_expired_leases(db_session)
+            db_session.commit()
+            assert db_session.get(Task, task_id).status == TaskState.QUEUED
+            factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
+            outcome = HostRunner(factory, runs_root=runs).run_once(
+                Worker.OLLAMA, SimulationExecutor(Worker.OLLAMA)
+            )
+            assert outcome.action == "completed" and outcome.attempt == 2
+            assert outcome.status == "review"
+        finally:
+            stop.set()
+            thread.join(timeout=5)

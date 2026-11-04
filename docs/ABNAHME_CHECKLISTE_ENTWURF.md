@@ -68,7 +68,11 @@ Diese Punkte wurden im Repo-Ausbau nicht ausgeführt und sind keine automatisch 
 
 - [ ] Tatsachliche Bindung, HTTPS-/Tailnet-Betrieb und externe Erreichbarkeit prüfen; sichere Cookie- und Proxy-Konfiguration bestätigen.
 - [ ] Lokale Betriebsrechte, systemd-Benutzerdienste, Lingering, Speicherorte und Dateirechte am Ziel bestätigen.
-- [ ] Echte Ollama-CLI: installierte Modelle, Kontextlimit, technisch erzwungene Grenzen für Downloads, Cloud-Nutzung und Dateizugriff sowie Abbruch und Vollständigkeit prüfen. Kein Aktivieren durch ein unbelegtes Sicherheits-Flag.
+- [ ] Ollama-Live über Loopback-HTTP: gepinnte Version, installierte Modelle mit expliziten Tags und Kontextlimit prüfen; Inventar vor/nach dem Lauf unverändert, kein Auto-Pull.
+- [ ] Der Owner bestätigt `OLLAMA_NO_CLOUD=1` und die Loopback-Bindung im Ollama-Dienst. Cloud-Aliasse und Modelle mit Remote-Metadaten oder Vision-Fähigkeit werden im Preflight abgewiesen.
+- [ ] Live-Flag und Loopback-URL nur in der privaten Runner-Umgebungsdatei; Flag aus ergibt `78` ohne Neustart, unerreichbarer Ollama-Dienst lässt die Poll-Schleife weiterlaufen. Zunächst eine Instanz und `max_parallel=1`.
+- [ ] Live-Canary erreicht `review` mit Profil `live`, bestandener Acceptance und aktualisiertem Live-Erfolgszähler. Simulationserfolg erhöht nur den separaten Simulationszähler; Fehler jeder Herkunft erhöhen die Fehlerserie. Nur Live-Erfolg setzt sie zurück.
+- [ ] Prompt mit System-Dateipfad bleibt Text ohne Dateizugriff. Abbruch/Timeout verwerfen Teilantworten; Dienstende hinterlässt eine wiederaufnehmbare Lease. Logs und Ereignisse enthalten keine Prompt-/Antworttexte.
 - [ ] Echte Claude-/Codex-CLI: genaue Version, Subscription-Anmeldung ohne API-Keys, isoliertes Profil, rootless Reinraum, ausgeschlossene Host-/Repo-/DB-Zugänge, technisch deaktivierte Tools, Netzwerkgrenzen und unabhängige Container-Bereinigung nachweisen.
 - [ ] Interne Anbieter-Retries, Kontingente, Auth-Ablauf und Kosten-/Nutzungsregeln kontrollieren; unbekannte Werte nicht schätzen.
 - [ ] Tatsachlichen Wissens-DB-Vertrag, Datenklassen, Schreibrechte, Schema-Version, Embedding-Modell und Dimension vor Aktivierung bestätigen. Der isolierte Testvertrag behauptet keine Kompatibilität mit einem fremden Schema.

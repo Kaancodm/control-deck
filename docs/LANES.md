@@ -2,8 +2,10 @@
 
 ## Ollama in Etappe 9
 
-Der Owner hat `ollama run` mit Fake-CLI-Tests gewaehlt. Der Adapter in
-`app/workers/lanes/ollama.py` unterstuetzt deshalb ein ausdrueckliches Profil `simulation`.
+In Etappe 9 hatte der Owner `ollama run` mit Fake-CLI-Tests gewaehlt. Der neue
+Owner-Entscheid aus [ADR 0009](DECISIONS/0009-ollama-loopback-http-provenance.md)
+ersetzt diese Wahl fuer den geplanten Live-Transport durch Loopback-HTTP. Der vorhandene
+Adapter in `app/workers/lanes/ollama.py` unterstuetzt weiterhin ein Profil `simulation`.
 Es startet nur die mitgelieferte Fake-CLI mit dem aktuellen Python-Interpreter. Es gibt keine
 Option fuer ein beliebiges Executable, keinen echten Modellaufruf und keinen Download.
 Das Standardprofil `disabled` bleibt ohne Prozessstart `unavailable` mit dem Grund
@@ -79,7 +81,8 @@ spaetere Health-Endpunkte muessen diesen Unterschied anzeigen.
 
 ## Inbetriebnahme
 
-Die Live-Lane ist in dieser Etappe **nicht aktivierbar**. Die offizielle CLI bietet keinen
+Die geplante Live-Lane verwendet gemaess ADR 0009 die lokale HTTP-API. Sie ist im
+vorliegenden Stand weiterhin **nicht aktivierbar**. Die offizielle CLI bietet keinen
 No-Pull-Schalter: `run` kann ein fehlendes Modell automatisch laden. Eine vorgaengige
 Inventarpruefung schliesst das Rennen bis zum Aufruf nicht. Ein `:local`-Suffix begrenzt die
 Modellquelle, verhindert aber den Download nicht. `OLLAMA_NO_CLOUD` muss im Daemon gelten;
@@ -87,13 +90,20 @@ eine Variable ausschliesslich im CLI-Kindprozess konfiguriert einen laufenden Da
 Multimodale CLI-Pfade koennen zudem im Prompt genannte Bild-/Audiodateien vom Host lesen.
 Ein Exit-Code null allein beweist fuer alle CLI-Pfade keinen vollstaendigen Modellabschluss.
 
-Vor einer spaeteren Live-Anbindung braucht es nachweisbare Grenzen fuer automatische
-Downloads und Cloud-Wege, Dateisystem-Isolation gegen promptgesteuerte Dateizugriffe sowie
-ein eindeutiges Abschlussprotokoll. Diese Grenzen muessen auch bei Rennen, Abbruch und
-Daemon-Neustart gelten und separat getestet werden. Ein Konfigurations-Boolean allein
-genuegt nicht. Echte Logins, Serveraenderungen, Modellinstallationen und Modelltests wurden
-nicht ausgefuehrt. Die semantische Qualitaet prueft erst das vom Owner erstellte Referenzset
-bei der gesonderten Inbetriebnahme.
+Der Bau erfolgt in getrennten PRs: zuerst der Entscheid, dann Executor-Provenienz und
+getrennte Simulationszaehler, danach `DECK_LIVE_ENABLED` und die streng gepruefte
+`DECK_OLLAMA_URL` ohne Transport. Nur exakt `1` oder `true` gibt das Flag frei.
+Die URL verlangt `http`, ein Loopback-IP-Literal und einen expliziten Port; Hostnamen,
+Userinfo, Pfad, Query und Fragment werden verworfen. `--simulate` bleibt Simulation.
+Bis zur spaeteren Transport-Anbindung endet der produktive Daemon weiterhin mit Exit 78.
+
+Die HTTP-Anbindung muss danach nachweisen: kein Auto-Pull, keine Cloud-Aliase, nur
+Text ohne `images` oder `tools`, keine promptgesteuerten Dateizugriffe und ein eindeutiges
+Abschlussprotokoll. Die Grenzen gelten auch bei Rennen, Abbruch und Daemon-Neustart.
+Ein Flag oder ein erfolgreicher Simulationslauf ersetzt diesen Nachweis nicht.
+Die gepinnte API, die reale Loopback-/Cloud-Konfiguration und die Abbruchsemantik
+bleiben **Inbetriebnahme**; reale Logins, Serveraenderungen, Modellinstallationen und
+Modelltests wurden nicht ausgefuehrt. Inhaltliche Qualitaet prueft erst das Owner-Referenzset.
 
 Quellenstand: offizielles Ollama `v0.40.14`, Commit
 `9a3e8177767245acc62b735eba7d5d8a553606d0`:

@@ -5,6 +5,15 @@
 Die Eintraege beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unveraendert.
 
+### Live-Adapter, PR 0 – Transportentscheid
+
+- ADR 0009 dokumentiert den Owner-Entscheid fuer Ollama ueber Loopback-HTTP und ersetzt
+  die geplante CLI-Live-Anbindung aus Etappe 9; die Cloud-CLI-Regel bleibt unveraendert.
+- Flag, strenge Loopback-URL und Executor-Provenienz sind verbindliche Grenzen der
+  nachfolgenden PRs. Dieser PR aendert nur Dokumentation und aktiviert keinen Live-Pfad.
+- Die Kollision mit der Login-Migration 0017 aus PR #37 ist ausdruecklich zu loesen;
+  API-Verhalten und reale Daemon-Grenzen bleiben Inbetriebnahme.
+
 ### Etappe 17 – Audit und lokale Lane-Gesundheit (#32)
 
 - Geschuetzte Audit-Ansicht fuer sichere Auftrags-, Betriebs- und Auth-Metadaten;

@@ -1,0 +1,356 @@
+"""Bounded text-only Ollama HTTP transport; all connections use literal loopback."""
+
+from __future__ import annotations
+
+import hashlib
+import http.client
+import json
+import math
+import socket
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Literal, TypeVar, cast
+
+from app.workers.live_config import validate_ollama_url
+
+FailureReason = Literal["cancelled", "timeout", "unavailable", "internal"]
+T = TypeVar("T")
+
+
+class OllamaHTTPError(Exception):
+    """Only safe categories cross the adapter boundary, never server error text."""
+
+    def __init__(self, reason: FailureReason, status_code: int | None = None) -> None:
+        self.reason = reason
+        self.status_code = status_code
+        super().__init__(f"Ollama HTTP request failed ({reason})")
+
+
+@dataclass(frozen=True)
+class ChatResponse:
+    content: str = field(repr=False)
+    done_reason: str
+    model: str
+    prompt_eval_count: int | None
+    eval_count: int | None
+    output_sha256: str
+    status_code: int = 200
+
+
+def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _invalid_constant(value: str) -> object:
+    raise ValueError("Non-finite JSON number")
+
+
+def _json(data: bytes) -> dict[str, object]:
+    try:
+        value = json.loads(
+            data.decode("utf-8"), object_pairs_hook=_object, parse_constant=_invalid_constant
+        )
+        if not isinstance(value, dict):
+            raise ValueError
+        return cast(dict[str, object], value)
+    except (ValueError, UnicodeError, RecursionError):
+        raise OllamaHTTPError("internal") from None
+
+
+def _count(value: object) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or not 0 <= value <= 2**63 - 1:
+        raise OllamaHTTPError("internal")
+    return value
+
+
+class OllamaHTTPClient:
+    """Use one close-only connection per request with no proxies, redirects or retries."""
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        first_chunk_timeout_s: float = 120,
+        idle_timeout_s: float = 60,
+        max_metadata_bytes: int = 1024 * 1024,
+        max_output_bytes: int = 4 * 1024 * 1024,
+        max_line_bytes: int = 64 * 1024,
+        max_stream_bytes: int = 8 * 1024 * 1024,
+    ) -> None:
+        self.endpoint = validate_ollama_url(url)
+        for duration in (first_chunk_timeout_s, idle_timeout_s):
+            if (
+                isinstance(duration, bool)
+                or not isinstance(duration, (float, int))
+                or not math.isfinite(duration)
+                or not 0 < duration <= 7200
+            ):
+                raise ValueError("Invalid HTTP timeout")
+        for limit in (max_metadata_bytes, max_output_bytes, max_line_bytes, max_stream_bytes):
+            if type(limit) is not int or not 0 < limit <= 16 * 1024 * 1024:
+                raise ValueError("Invalid HTTP size limit")
+        self.first_chunk_timeout_s = first_chunk_timeout_s
+        self.idle_timeout_s = idle_timeout_s
+        self.max_metadata_bytes = max_metadata_bytes
+        self.max_output_bytes = max_output_bytes
+        self.max_line_bytes = max_line_bytes
+        self.max_stream_bytes = max_stream_bytes
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, object] | None,
+        *,
+        timeout_s: float,
+        cancelled: Callable[[], bool],
+        consume: Callable[[http.client.HTTPResponse, Callable[[], None]], T],
+        streaming: bool = False,
+    ) -> T:
+        if not math.isfinite(timeout_s) or timeout_s <= 0:
+            raise OllamaHTTPError("timeout")
+        if cancelled():
+            raise OllamaHTTPError("cancelled")
+        started = time.monotonic()
+        # HTTP work is isolated so the caller keeps polling control even while a
+        # peer stalls headers, a partial line, or a chunked-transfer frame.
+        connection = http.client.HTTPConnection(
+            self.endpoint.host, self.endpoint.port, timeout=min(1.0, timeout_s)
+        )
+        stopped = threading.Event()
+        finished = threading.Event()
+        progress = [started]
+        received_chunk = threading.Event()
+        results: list[T] = []
+        failures: list[OllamaHTTPError] = []
+        sockets: list[socket.socket] = []
+
+        def made_progress() -> None:
+            progress[0] = time.monotonic()
+            received_chunk.set()
+
+        def request() -> None:
+            try:
+                connection.connect()
+                assert connection.sock is not None
+                sockets.append(connection.sock)
+                connection.sock.settimeout(timeout_s)
+                if stopped.is_set():
+                    return
+                encoded = (
+                    json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
+                    if body is not None
+                    else None
+                )
+                connection.request(
+                    method,
+                    path,
+                    body=encoded,
+                    headers={"Connection": "close", "Content-Type": "application/json"},
+                )
+                response = connection.getresponse()
+                try:
+                    if response.status != 200:
+                        raise OllamaHTTPError("unavailable", response.status)
+                    if response.getheader("Content-Encoding", "identity") != "identity":
+                        raise OllamaHTTPError("internal")
+                    results.append(consume(response, made_progress))
+                finally:
+                    response.close()
+            except OllamaHTTPError as exc:
+                failures.append(exc)
+            except TimeoutError:
+                failures.append(OllamaHTTPError("timeout"))
+            except (OSError, http.client.HTTPException):
+                failures.append(OllamaHTTPError("unavailable"))
+            except Exception:
+                failures.append(OllamaHTTPError("internal"))
+            finally:
+                connection.close()
+                finished.set()
+
+        thread = threading.Thread(target=request, name="deck-ollama-http", daemon=True)
+        thread.start()
+        failure: OllamaHTTPError | None = None
+        try:
+            while not finished.wait(0.025):
+                now = time.monotonic()
+                if cancelled():
+                    failure = OllamaHTTPError("cancelled")
+                    break
+                idle_budget = (
+                    self.idle_timeout_s if received_chunk.is_set() else self.first_chunk_timeout_s
+                )
+                if now - started >= timeout_s or streaming and now - progress[0] >= idle_budget:
+                    failure = OllamaHTTPError("timeout")
+                    break
+            if failure is None and cancelled():
+                failure = OllamaHTTPError("cancelled")
+            if failure is None and time.monotonic() - started >= timeout_s:
+                failure = OllamaHTTPError("timeout")
+        except Exception:
+            failure = OllamaHTTPError("internal")
+        finally:
+            stopped.set()
+            if failure is not None:
+                # shutdown interrupts file-buffer reads; close alone does not.
+                for transport_socket in sockets:
+                    try:
+                        transport_socket.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+            thread.join(timeout=1.1)
+        if failure is not None:
+            raise failure from None
+        if thread.is_alive() or not results and not failures:
+            raise OllamaHTTPError("internal")
+        if failures:
+            raise failures[0] from None
+        return results[0]
+
+    def _metadata(
+        self,
+        path: str,
+        body: dict[str, object] | None,
+        *,
+        timeout_s: float,
+        cancelled: Callable[[], bool],
+    ) -> dict[str, object]:
+        def consume(
+            response: http.client.HTTPResponse, progress: Callable[[], None]
+        ) -> dict[str, object]:
+            data = response.read(self.max_metadata_bytes + 1)
+            if len(data) > self.max_metadata_bytes:
+                raise OllamaHTTPError("internal")
+            return _json(data)
+
+        return self._request(
+            "GET" if body is None else "POST",
+            path,
+            body,
+            timeout_s=timeout_s,
+            cancelled=cancelled,
+            consume=consume,
+        )
+
+    def version(
+        self, *, timeout_s: float = 5, cancelled: Callable[[], bool] = lambda: False
+    ) -> dict[str, object]:
+        return self._metadata("/api/version", None, timeout_s=timeout_s, cancelled=cancelled)
+
+    def tags(
+        self, *, timeout_s: float = 5, cancelled: Callable[[], bool] = lambda: False
+    ) -> dict[str, object]:
+        return self._metadata("/api/tags", None, timeout_s=timeout_s, cancelled=cancelled)
+
+    def show(
+        self,
+        model: str,
+        *,
+        timeout_s: float = 5,
+        cancelled: Callable[[], bool] = lambda: False,
+    ) -> dict[str, object]:
+        return self._metadata(
+            "/api/show", {"model": model}, timeout_s=timeout_s, cancelled=cancelled
+        )
+
+    def chat(
+        self,
+        *,
+        model: str,
+        payload_text: str,
+        timeout_s: float,
+        cancelled: Callable[[], bool],
+        format_json: bool = False,
+        num_ctx: int = 4096,
+        keep_alive: str = "1m",
+    ) -> ChatResponse:
+        body: dict[str, object] = {
+            "model": model,
+            "messages": [{"role": "user", "content": payload_text}],
+            "stream": True,
+            "truncate": False,
+            "shift": False,
+            "options": {"temperature": 0, "num_ctx": num_ctx},
+            "keep_alive": keep_alive,
+        }
+        if format_json:
+            body["format"] = "json"
+
+        def consume(
+            response: http.client.HTTPResponse, progress: Callable[[], None]
+        ) -> ChatResponse:
+            pending = bytearray()
+            output: list[str] = []
+            output_size = 0
+            total_size = 0
+            terminal: dict[str, object] | None = None
+            while data := response.read1(4096):
+                total_size += len(data)
+                if total_size > self.max_stream_bytes:
+                    raise OllamaHTTPError("internal")
+                pending.extend(data)
+                while b"\n" in pending:
+                    line, _, remaining = pending.partition(b"\n")
+                    pending = bytearray(remaining)
+                    if len(line) > self.max_line_bytes or terminal is not None:
+                        raise OllamaHTTPError("internal")
+                    chunk = _json(bytes(line))
+                    message = chunk.get("message")
+                    if (
+                        chunk.get("model") not in {model, model.removesuffix(":local")}
+                        or type(chunk.get("done")) is not bool
+                        or "error" in chunk
+                        or chunk.get("remote_host")
+                        or chunk.get("remote_model")
+                        or not isinstance(message, dict)
+                        or message.get("role") != "assistant"
+                        or not isinstance(message.get("content"), str)
+                        or message.get("tool_calls")
+                        or message.get("images")
+                    ):
+                        raise OllamaHTTPError("internal")
+                    content = message["content"]
+                    output_size += len(content.encode("utf-8"))
+                    if output_size > self.max_output_bytes:
+                        raise OllamaHTTPError("internal")
+                    output.append(content)
+                    progress()
+                    if chunk["done"]:
+                        if chunk.get("done_reason") not in {"stop", "length"}:
+                            raise OllamaHTTPError("internal")
+                        terminal = chunk
+                    elif chunk.get("done_reason"):
+                        raise OllamaHTTPError("internal")
+                if len(pending) > self.max_line_bytes:
+                    raise OllamaHTTPError("internal")
+            if pending or terminal is None:
+                raise OllamaHTTPError("internal")
+            content = "".join(output)
+            return ChatResponse(
+                content=content,
+                done_reason=str(terminal["done_reason"]),
+                model=model,
+                prompt_eval_count=_count(terminal.get("prompt_eval_count")),
+                eval_count=_count(terminal.get("eval_count")),
+                output_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            )
+
+        return self._request(
+            "POST",
+            "/api/chat",
+            body,
+            timeout_s=timeout_s,
+            cancelled=cancelled,
+            consume=consume,
+            streaming=True,
+        )

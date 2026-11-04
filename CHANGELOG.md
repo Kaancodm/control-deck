@@ -23,13 +23,14 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - Angenommene Fehler jeder Herkunft zählen in der Fehlerserie; nur ein Live-Erfolg
   setzt sie zurück. Die Migration erhält alte Fehlerdaten, die Health-Ansicht alle
   vorgesehenen Fehlergründe. Der neue Live-Zählerzeitraum steht in der Abnahme-Checkliste.
-
-### Ollama Live-Adapter – Transport, Daemon, Canary, Referenz (#41 bis #47, Draft)
-
-- Striktes Runner-Flag, Text-Streaming, lokale Modellquelle, Abbruch und sichere
-  Metadaten; Laufzeit-Ausfälle stoppen die Poll-Schleife nicht dauerhaft.
-- Canary und Referenzmodus werden für die gesonderte Owner-Abnahme vorbereitet.
-  Echte Modelle, Serverbetrieb und daemonseitige Ressourcenfreigabe sind ungeprüft.
+- `safe_execution_metadata` übernimmt aus Adapter-Metadaten nur geprüfte Schlüssel
+  (Transport, Modell, Versionen, Zähler, HTTP-Status, Ausgabe-Digest) in Ergebnisereignis
+  und Lane-Log. Der Runner leert die Metadaten vor jedem Versuch; Rohtext wird nie gespiegelt.
+- `probe_generation` zäunt externe Lane-Proben ein: ein Probenergebnis ändert nur seine
+  eigene Generation, jede neuere Beobachtung verwirft ältere Proben, und ein Probenabschluss
+  ohne gestartete Zeile wird abgewiesen, statt eine neue Beobachtung anzulegen.
+- Folgestack #41 ff., nicht Teil dieses Eintrags: Runner-Flags, Loopback-HTTP-Transport,
+  Live-Executor, Daemon-Überwachung, Canary und Referenzmodus.
 
 ### Etappe 17 – Audit und lokale Lane-Gesundheit (#32)
 

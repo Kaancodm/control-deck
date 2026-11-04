@@ -56,7 +56,8 @@ Alle Ergebnisse sind offen. Die Etappen-PRs enthalten bereits separate lokale En
   einmalig zurück und erhält die Fehlerhistorie. Altdaten sind keine Simulation.
 - [ ] Nach Upgrade genau ein Head `20261104_0018`, Elternrevision `20261104_0017`;
   Login-Kapazität bleibt erhalten. Geschützter Downgrade und evidenzfreier Roundtrip geprüft.
-- [ ] Kontextpriorität Lane → Modellmetadaten → 4096, exakte Grenze und Grenze +1 geprüft.
+- [ ] Vorbereitung, nicht Teil von #40: Kontextpriorität Lane → Modellmetadaten → 4096,
+  exakte Grenze und Grenze +1 werden im Executor-PR (#44) umgesetzt und dort geprüft.
   Die Byte-Schätzung ersetzt keine Modellqualitäts- oder Tokenizer-Abnahme.
 - [ ] Live-Anzeige nur mit aktueller erfolgreicher Probe unter 30 Sekunden;
   veraltete Probe darf einen neueren Zustand nicht ersetzen.

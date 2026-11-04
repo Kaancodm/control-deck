@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook for Edit|Write: refuse writes to secret-bearing paths.
+# PreToolUse hook for Edit|Write|Bash: refuse direct access to secret-bearing paths.
 # Exit 2 blocks the tool call; the message on stderr is shown to Claude.
 # Fail closed: invalid input or missing python3 always blocks.
 set -u
@@ -20,6 +20,8 @@ export GUARD_HOOK_INPUT_FILE="$hook_input_file"
 result="$(python3 <<'PY'
 import json
 import os
+import re
+import shlex
 import sys
 
 project = os.path.realpath(os.environ.get("GUARD_PROJECT_DIR", os.getcwd()))
@@ -37,22 +39,16 @@ except json.JSONDecodeError:
     print("INVALID_JSON")
     sys.exit(0)
 
-tool_input = data.get("tool_input")
+tool_input = data.get("tool_input") if isinstance(data, dict) else None
 if not isinstance(tool_input, dict):
     print("MISSING_TOOL_INPUT")
     sys.exit(0)
-
-file_path = tool_input.get("file_path")
-if not isinstance(file_path, str) or file_path == "":
-    print("MISSING_FILE_PATH")
-    sys.exit(0)
-
 
 def is_secret_path(resolved: str) -> bool:
     name = os.path.basename(resolved)
     if name == ".env" or name.startswith(".env."):
         return True
-    if name.endswith(".pem") or name.endswith(".key"):
+    if name.endswith((".pem", ".key", ".env", ".runner")):
         return True
     if name.startswith("id_rsa"):
         return True
@@ -60,6 +56,49 @@ def is_secret_path(resolved: str) -> bool:
         return True
     return False
 
+
+if data.get("tool_name") == "Bash":
+    command = tool_input.get("command")
+    if not isinstance(command, str) or not command.strip():
+        print("INVALID_COMMAND")
+        sys.exit(0)
+    # This hook checks explicit paths, not arbitrary program semantics. Do not
+    # pretend to resolve dynamic shell paths or pipe-fed arguments statically.
+    if any(character in command for character in "$`*?[]"):
+        print("DYNAMIC_COMMAND")
+        sys.exit(0)
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars="|&;<>()")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        print("INVALID_COMMAND")
+        sys.exit(0)
+    if any(token in {"|", "|&", "<(", ">(", "-exec", "-execdir", "xargs", "eval"} for token in tokens):
+        print("DYNAMIC_COMMAND")
+        sys.exit(0)
+    for token in tokens:
+        # Keep the complete token for quoted paths with spaces, then inspect
+        # literal paths embedded in options, shell wrappers or interpreter text.
+        candidates = [token, *re.split(r"[\s\"'`(){};|&<>=:]", token)]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            path = candidate if os.path.isabs(candidate) else os.path.join(project, candidate)
+            try:
+                if is_secret_path(path) or is_secret_path(os.path.realpath(path)):
+                    print("SECRET_COMMAND")
+                    sys.exit(0)
+            except (OSError, ValueError):
+                print("INVALID_COMMAND")
+                sys.exit(0)
+    print("OK")
+    sys.exit(0)
+
+file_path = tool_input.get("file_path")
+if not isinstance(file_path, str) or file_path == "":
+    print("MISSING_FILE_PATH")
+    sys.exit(0)
 
 candidate = file_path if os.path.isabs(file_path) else os.path.join(project, file_path)
 
@@ -74,7 +113,7 @@ if resolved != project and not resolved.startswith(project_prefix):
     print(f"OUTSIDE_REPO\t{file_path}\t{resolved}")
     sys.exit(0)
 
-if is_secret_path(resolved):
+if is_secret_path(candidate) or is_secret_path(resolved):
     print(f"SECRET\t{file_path}\t{resolved}")
     sys.exit(0)
 
@@ -96,6 +135,18 @@ case "$result" in
     ;;
   MISSING_FILE_PATH)
     echo "guard.sh: missing file_path in tool_input; blocking write" >&2
+    exit 2
+    ;;
+  INVALID_COMMAND)
+    echo "guard.sh: invalid Bash command; blocking" >&2
+    exit 2
+    ;;
+  DYNAMIC_COMMAND)
+    echo "guard.sh: cannot validate dynamic Bash paths; use explicit paths" >&2
+    exit 2
+    ;;
+  SECRET_COMMAND)
+    echo "guard.sh: refusing Bash access to a secret-bearing path" >&2
     exit 2
     ;;
   READ_ERROR*)

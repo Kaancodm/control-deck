@@ -25,6 +25,10 @@ ENV/
 
 # Environment
 .env
+.env.*
+*.env
+*.runner
+!.env.example
 
 # Logs
 *.log

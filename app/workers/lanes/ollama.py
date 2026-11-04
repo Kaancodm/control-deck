@@ -33,6 +33,7 @@ _BEHAVIORS = frozenset(
     {
         "ok",
         "echo",
+        "reference",
         "empty",
         "fail",
         "delay",

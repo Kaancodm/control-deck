@@ -75,6 +75,12 @@ Regressionstests. Sie ersetzen die vom Owner verfassten Referenzfaelle nicht.
 - In Etappe 5 ruft dieser die echte Datenschranke auf, mit einer ausdruecklich leeren
   Blockliste nur fuer den lokalen Testlauf. Worker-Ausfuehrung und Ergebnistext bleiben
   simuliert; der Lauf bestaetigt keine produktive Konfiguration oder Cloud-Anbindung.
+- Beide simulierten Executoren geben den vorbereiteten Eingabetext mit `reference-ok`
+  zurueck. Nur vorhandene Redaktionsplatzhalter werden zu `[redacted]` vereinfacht;
+  unredigierte Werte bleiben sichtbar. `must_not_contain` prueft sowohl die tatsaechlichen
+  Versandbytes als auch das Ergebnis. Negativtests umgehen die Redaktion bei `007`/`013`
+  beziehungsweise die Datenschranke bei `010` und verlangen einen fehlgeschlagenen Fall.
+  `010` bleibt eine blockierende Schluesselfalle, kein erfolgreich redigierter Auftrag.
 - Die bestehenden vier YAML-Faelle blieben in Etappe 5 und 6 unveraendert. In Etappe 7
   prueft Fall `004` gemaess Owner-Vorgabe den Ollama-Override: eine vorgeschlagene Cloud-Kette
   bei `local_only` wird lokal ausgefuehrt, sofern die Policy Ollama erlaubt.
@@ -108,7 +114,7 @@ die nach Datenschranke und Routing auf einer Cloud-Lane landen (`cloud_redacted`
 zaehlen in diesem Lauf als `skip`. Fallen, die die Datenschranke blockiert, bleiben `blocked`
 und werden normal gegen die Erwartung geprueft.
 
-Die vier bestehenden Faelle bleiben unveraendert. Die feste Fake-Ausgabe bestaetigt den
-technischen Ablauf, keine semantische Modellqualitaet. Inhaltliche neue Faelle und die
+Die eingabeabhaengige Fake-Ausgabe bestaetigt den technischen Ablauf und die
+Redaktionsgrenze, keine semantische Modellqualitaet. Inhaltliche neue Faelle und die
 spaetere echte Modellabnahme bleiben beim Owner. Es gibt keinen Live-Executor-Schalter;
 die konkreten Grenzen stehen unter [Inbetriebnahme in LANES.md](LANES.md#inbetriebnahme).

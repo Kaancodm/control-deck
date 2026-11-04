@@ -9,7 +9,7 @@ from datetime import timedelta
 
 import pytest
 from argon2 import PasswordHasher
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.session import get_engine
@@ -23,8 +23,8 @@ from app.db.ui_auth import (
     check_csrf,
     create_anonymous_session,
     get_ui_session,
+    observe_owner_login_state_on_startup,
     owner_login_locked,
-    release_owner_login_lock_on_startup,
     revoke_ui_session,
 )
 from app.ui.auth import AuthSettings, SessionCredentials, issue_token, token_digest
@@ -274,25 +274,96 @@ def test_daily_lock_is_global_across_clients(
     assert _event_types(auth_session).count("auth.login_failed") == 4
 
 
-def test_restart_clears_global_lock(auth_session: Session, auth_settings: AuthSettings) -> None:
-    settings = replace(auth_settings, max_daily_failures=1)
+def test_restart_preserves_twenty_failures_and_global_lock(
+    auth_session: Session, auth_settings: AuthSettings
+) -> None:
+    settings = auth_settings
     challenge = create_anonymous_session(auth_session, settings)
     auth_session.commit()
-    assert _attempt(auth_session, challenge, settings, "wrong", client=_CLIENT_A) == "login_locked"
+    for index in range(20):
+        code = _attempt(
+            auth_session, challenge, settings, "wrong", client=f"synthetic-client-{index // 5}"
+        )
+    assert code == "login_locked"
     assert owner_login_locked(auth_session)
-    # The launcher calls this on every process start (stage 15, D3: lock until restart).
-    assert release_owner_login_lock_on_startup(auth_session)
+    before = auth_session.execute(
+        select(UiLoginState.daily_failures, UiLoginState.day_started_at, UiLoginState.locked_at)
+    ).one()
+    observe_owner_login_state_on_startup(auth_session)
     auth_session.commit()
-    assert not owner_login_locked(auth_session)
-    assert auth_session.scalar(select(UiLoginState.daily_failures)) == 0
-    assert not release_owner_login_lock_on_startup(auth_session)
-    auth_session.commit()
+    assert (
+        auth_session.execute(
+            select(UiLoginState.daily_failures, UiLoginState.day_started_at, UiLoginState.locked_at)
+        ).one()
+        == before
+    )
     assert _attempt(auth_session, challenge, settings, _PASSWORD, client=_CLIENT_A) == (
-        "authenticated"
+        "login_locked"
     )
     events = _event_types(auth_session)
     assert events.count("auth.login_locked") == 1
-    assert events.count("auth.login_unlocked") == 1
+    assert events.count("auth.login_unlocked") == 0
+
+
+def test_password_verification_releases_transaction_and_rechecks_lock(
+    auth_session: Session, auth_settings: AuthSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    challenge = create_anonymous_session(auth_session, auth_settings)
+    auth_session.commit()
+
+    def verify(password, settings):
+        assert not auth_session.in_transaction()
+        # A separate connection can lock every login row while Argon2 is running.
+        with Session(auth_session.get_bind()) as concurrent:
+            concurrent.execute(select(UiSession).with_for_update(nowait=True)).all()
+            state = concurrent.scalar(select(UiLoginState).with_for_update(nowait=True))
+            concurrent.execute(select(UiLoginClient).with_for_update(nowait=True)).all()
+            state.daily_failures = 20
+            state.locked_at = concurrent.scalar(select(func.clock_timestamp()))
+            concurrent.commit()
+        return True
+
+    monkeypatch.setattr("app.db.ui_auth.verify_owner_password", verify)
+    assert _attempt(auth_session, challenge, auth_settings, _PASSWORD, client=_CLIENT_A) == (
+        "login_locked"
+    )
+    assert auth_session.scalar(select(UiLoginState.daily_failures)) == 20
+    assert "auth.login_succeeded" not in _event_types(auth_session)
+
+
+@pytest.mark.parametrize(
+    "change,expected",
+    [
+        ("revoked", "session_required"),
+        ("expired", "session_required"),
+        ("client_budget", "login_throttled"),
+        ("daily_budget", "login_locked"),
+    ],
+)
+def test_verification_rechecks_concurrent_changes(
+    auth_session, auth_settings, monkeypatch, change, expected
+):
+    challenge = create_anonymous_session(auth_session, auth_settings)
+    auth_session.commit()
+
+    def verify(password, settings):
+        assert not auth_session.in_transaction()
+        with Session(auth_session.get_bind()) as concurrent:
+            if change == "revoked":
+                statement = update(UiSession).values(revoked_at=func.clock_timestamp())
+            elif change == "expired":
+                statement = update(UiSession).values(expires_at=func.clock_timestamp())
+            elif change == "client_budget":
+                statement = update(UiLoginClient).values(failures=settings.max_failures)
+            else:
+                statement = update(UiLoginState).values(daily_failures=settings.max_daily_failures)
+            concurrent.execute(statement)
+            concurrent.commit()
+        return True
+
+    monkeypatch.setattr("app.db.ui_auth.verify_owner_password", verify)
+    assert _attempt(auth_session, challenge, auth_settings, _PASSWORD, client=_CLIENT_A) == expected
+    assert "auth.login_succeeded" not in _event_types(auth_session)
 
 
 def test_concurrent_failures_cannot_exceed_limit(

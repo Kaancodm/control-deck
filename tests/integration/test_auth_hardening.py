@@ -237,6 +237,8 @@ def test_auth_audit_contains_no_credentials_or_client_metadata(configured, setti
         "failures",
         "window_started_at",
         "throttled_at",
+        "page_requests",
+        "page_window_started_at",
     }
 
 

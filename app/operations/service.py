@@ -8,8 +8,14 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from uuid import UUID, uuid4
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from app.operations.audit import record_operation
 from app.operations.backup import configured_knowledge_url, create_backup
+from app.operations.environment import operation_path
 from app.operations.errors import OperationError
 from app.operations.files import private_root, read_file, write_file
 from app.operations.process import run_command
@@ -46,7 +52,11 @@ def default_runner_environment_file(environment_file: Path) -> Path:
 
 
 def render_units(
-    repository: Path, environment_file: Path, runner_environment_file: Path | None = None
+    repository: Path,
+    environment_file: Path,
+    runner_environment_file: Path | None = None,
+    *,
+    backup_directory: Path | None = None,
 ) -> dict[str, bytes]:
     """Render fixed templates without shell expansion or untrusted systemd directives."""
     runner_file = runner_environment_file or default_runner_environment_file(environment_file)
@@ -54,6 +64,7 @@ def render_units(
         "@RUNNER_ENVIRONMENT@": _template_path(runner_file),
         "@REPOSITORY@": _template_path(repository),
         "@ENVIRONMENT@": _template_path(environment_file),
+        "@BACKUP_DIRECTORY@": _template_path(backup_directory or repository / "backups"),
         "@PYTHON@": _template_path(repository / ".venv" / "bin" / "python"),
     }
     result = {}
@@ -68,6 +79,30 @@ def render_units(
     return result
 
 
+def _backup_directory(repository: Path, configuration: bytes) -> Path:
+    """Read the one sandbox path as a literal; never evaluate the private environment."""
+    try:
+        assignments = [
+            line.partition("=")[2].strip()
+            for line in configuration.decode("utf-8").splitlines()
+            if line.partition("=")[0].strip() == "DECK_BACKUP_DIR"
+        ]
+    except UnicodeError:
+        raise OperationError("invalid_backup_directory") from None
+    if len(assignments) > 1:
+        raise OperationError("invalid_backup_directory")
+    value = assignments[0] if assignments else "backups"
+    if value[:1] in {"'", '"'} and value[-1:] == value[:1]:
+        value = value[1:-1]
+    if not value or re.fullmatch(r"[A-Za-z0-9_./-]+", value) is None:
+        raise OperationError("invalid_backup_directory")
+    path = Path(value)
+    if not path.is_absolute():
+        path = repository / path
+    _template_path(path)
+    return path
+
+
 def install_units(
     repository: Path,
     environment_file: Path,
@@ -76,10 +111,16 @@ def install_units(
 ) -> None:
     """Create units without replacing existing user files, and never start services."""
     runner_file = runner_environment_file or default_runner_environment_file(environment_file)
-    rendered = render_units(repository, environment_file, runner_file)
+    runtime_configuration = b""
     for configured in (environment_file, runner_file):
         with private_root(configured.parent) as configuration:
-            read_file(configuration, configured.name, maximum=65536)
+            content = read_file(configuration, configured.name, maximum=65536)
+            if configured == environment_file:
+                runtime_configuration = content
+    backup_directory = _backup_directory(repository, runtime_configuration)
+    rendered = render_units(
+        repository, environment_file, runner_file, backup_directory=backup_directory
+    )
     with private_root(destination, create=True) as directory:
         for name, expected in rendered.items():
             try:
@@ -88,6 +129,10 @@ def install_units(
                 continue
             if existing != expected:
                 raise OperationError("unit_conflict")
+        # ReadWritePaths requires the path to exist before systemd creates its sandbox.
+        # Private descriptor traversal also rejects symlinks and overly broad access.
+        with private_root(backup_directory, create=True):
+            pass
         for name, data in rendered.items():
             try:
                 write_file(directory, name, data)
@@ -100,7 +145,10 @@ def install_units(
 def service_environment() -> dict[str, str]:
     """Allow only values required to reach the invoking user's service manager."""
     allowed = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
-    return {"PATH": os.defpath, **{key: os.environ[key] for key in allowed if key in os.environ}}
+    return {
+        "PATH": operation_path(),
+        **{key: os.environ[key] for key in allowed if key in os.environ},
+    }
 
 
 def service_command(action: str) -> tuple[str, ...]:
@@ -121,51 +169,143 @@ def _read_command(command: tuple[str, ...], environment: dict[str, str]) -> byte
         return stream.read(65536)
 
 
+def _record_update(
+    database_url: str, operation_id: UUID, phase: str, *, reason: str | None = None
+) -> None:
+    """Persist update phases separately from the subprocesses and their diagnostics."""
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with Session(engine) as session:
+            record_operation(
+                session,
+                operation_id=operation_id,
+                operation_type="update",
+                phase=phase,
+                reason=reason,
+            )
+            session.commit()
+    finally:
+        engine.dispose()
+
+
+def _recover_update(
+    repository: Path, previous: str, active: tuple[str, ...], environment: dict[str, str]
+) -> bool:
+    """Attempt each recovery step even if another fails; never claim schema rollback."""
+    root = str(repository.absolute())
+    commands: list[tuple[str, ...]] = []
+    if active:
+        commands.append(("systemctl", "--user", "stop", *active))
+    commands.extend(
+        [
+            ("git", "-C", root, "checkout", "--detach", previous),
+            ("uv", "sync", "--frozen", "--project", root),
+        ]
+    )
+    recovered = True
+    try:
+        for command in commands:
+            try:
+                run_command(command, env=environment, maximum_output=65536, cwd=repository)
+            except Exception:
+                recovered = False
+    finally:
+        # A failed checkout/sync/start must not hide the original update failure or
+        # prevent an independent attempt to restore another previously active unit.
+        for unit in active:
+            try:
+                run_command(
+                    ("systemctl", "--user", "start", unit),
+                    env=environment,
+                    maximum_output=65536,
+                    cwd=repository,
+                )
+            except Exception:
+                recovered = False
+    return recovered
+
+
 def update_checkout(
     repository: Path, *, database_url: str, backup_root: Path, knowledge_url: str | None = None
 ) -> None:
-    """Backup before mutation; require a clean main branch and only fast-forward updates."""
-    root = _template_path(repository)
+    """Back up before mutation and restore the prior checkout/service state on failure."""
+    operation_id = uuid4()
+    previous: str | None = None
+    active: tuple[str, ...] = ()
+    mutation_started = False
     environment = service_environment()
-    if _read_command(("git", "-C", root, "status", "--porcelain"), environment).strip():
-        raise OperationError("dirty_checkout")
-    if (
-        _read_command(("git", "-C", root, "branch", "--show-current"), environment).strip()
-        != b"main"
-    ):
-        raise OperationError("unsupported_update_branch")
-    create_backup(database_url, backup_root, knowledge_url=knowledge_url)
-    run_command(("systemctl", "--user", "stop", *_SERVICES), env=environment, maximum_output=65536)
-    run_command(("git", "-C", root, "fetch", "origin"), env=environment, maximum_output=65536)
-    run_command(
-        ("git", "-C", root, "merge", "--ff-only", "origin/main"),
-        env=environment,
-        maximum_output=65536,
-    )
-    run_command(
-        ("uv", "sync", "--frozen", "--project", root),
-        env=environment,
-        maximum_output=65536,
-        cwd=repository,
-    )
-    runtime = {**environment, "DECK_DATABASE_URL": database_url}
-    run_command(
-        (
-            str(repository / ".venv" / "bin" / "python"),
-            "-m",
-            "alembic",
-            "-c",
-            str(repository / "alembic.ini"),
-            "upgrade",
-            "head",
-        ),
-        env=runtime,
-        maximum_output=65536,
-        cwd=repository,
-    )
-    run_command(
-        ("systemctl", "--user", "restart", *_SERVICES), env=environment, maximum_output=65536
-    )
+    try:
+        root = _template_path(repository)
+        if _read_command(("git", "-C", root, "status", "--porcelain"), environment).strip():
+            raise OperationError("dirty_checkout")
+        if (
+            _read_command(("git", "-C", root, "branch", "--show-current"), environment).strip()
+            != b"main"
+        ):
+            raise OperationError("unsupported_update_branch")
+        _record_update(database_url, operation_id, "started")
+        create_backup(database_url, backup_root, knowledge_url=knowledge_url)
+        previous = (
+            _read_command(("git", "-C", root, "rev-parse", "--verify", "HEAD"), environment)
+            .decode("ascii")
+            .strip()
+        )
+        if re.fullmatch(r"(?:[a-f0-9]{40}|[a-f0-9]{64})", previous) is None:
+            raise OperationError("invalid_update_revision")
+        states = service_status()
+        if any(states[unit] in {"activating", "deactivating", "reloading"} for unit in _SERVICES):
+            raise OperationError("unstable_service_state")
+        active = tuple(unit for unit in _SERVICES if states[unit] == "active")
+        mutation_started = True
+        if active:
+            run_command(
+                ("systemctl", "--user", "stop", *active), env=environment, maximum_output=65536
+            )
+        run_command(("git", "-C", root, "fetch", "origin"), env=environment, maximum_output=65536)
+        run_command(
+            ("git", "-C", root, "merge", "--ff-only", "origin/main"),
+            env=environment,
+            maximum_output=65536,
+        )
+        run_command(
+            ("uv", "sync", "--frozen", "--project", root),
+            env=environment,
+            maximum_output=65536,
+            cwd=repository,
+        )
+        runtime = {**environment, "DECK_DATABASE_URL": database_url}
+        run_command(
+            (
+                str(repository / ".venv" / "bin" / "python"),
+                "-m",
+                "alembic",
+                "-c",
+                str(repository / "alembic.ini"),
+                "upgrade",
+                "head",
+            ),
+            env=runtime,
+            maximum_output=65536,
+            cwd=repository,
+        )
+        if active:
+            run_command(
+                ("systemctl", "--user", "start", *active), env=environment, maximum_output=65536
+            )
+        _record_update(database_url, operation_id, "completed")
+    except Exception as error:
+        recovered = True
+        if mutation_started and previous is not None:
+            recovered = _recover_update(repository, previous, active, environment)
+        reason = "update_failed" if recovered else "update_rollback_failed"
+        try:
+            _record_update(database_url, operation_id, "failed", reason=reason)
+        except Exception:
+            # An unavailable audit database never turns a failed update into success.
+            pass
+        if not mutation_started and isinstance(error, OperationError):
+            raise
+        raise OperationError(reason) from None
 
 
 def service_status() -> dict[str, str]:
@@ -239,7 +379,7 @@ def main() -> int:
     except Exception as error:
         reason = error.code if isinstance(error, OperationError) else "service_operation_failed"
         print(json.dumps({"status": "failed", "reason": reason}))
-        return 1
+        return 78 if arguments.action == "update" else 1
 
 
 if __name__ == "__main__":

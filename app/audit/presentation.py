@@ -50,6 +50,11 @@ _SAFE_REASONS = frozenset(code.value for code in ErrorCode) | {
     "attempts_exhausted",
     "restore_failed",
     "restore_partial_failure",
+    "invalid_backup_set",
+    "backup_retention_failed",
+    "restic_failed",
+    "update_failed",
+    "update_rollback_failed",
 }
 _COUNT_KEYS = frozenset(
     {"tasks", "files", "maps", "snapshots", "backups", "bytes", "rows", "sessions"}

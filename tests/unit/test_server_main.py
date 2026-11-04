@@ -34,7 +34,7 @@ def test_validated_server_disables_proxy_and_access_log(monkeypatch: pytest.Monk
     assert options["app"] == "app.api.app:create_app"
 
 
-def test_restart_releases_login_lock_before_serving(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_startup_observes_login_state_before_serving(monkeypatch: pytest.MonkeyPatch) -> None:
     configure(monkeypatch)
     order: list[str] = []
     assert (
@@ -55,7 +55,7 @@ def test_restart_releases_login_lock_before_serving(monkeypatch: pytest.MonkeyPa
         OperationalError("SELECT synthetic", {}, Exception("synthetic-private-dsn")),
     ],
 )
-def test_failed_lock_release_never_starts_server(
+def test_failed_state_read_never_starts_server(
     monkeypatch: pytest.MonkeyPatch, capsys, failure: Exception
 ) -> None:
     configure(monkeypatch)
@@ -68,7 +68,7 @@ def test_failed_lock_release_never_starts_server(
         == 2
     )
     captured = capsys.readouterr().err
-    assert "HTTP startup rejected: login_lock_release_failed" in captured
+    assert "HTTP startup rejected: login_state_unavailable" in captured
     assert "synthetic-private" not in captured
 
 

@@ -104,8 +104,19 @@ def test_operations_are_projected_without_host_details():
     assert "private" not in item.model_dump_json()
 
 
-@pytest.mark.parametrize("reason", ["restore_failed", "restore_partial_failure"])
-def test_known_restore_failures_remain_distinct_without_raw_details(reason):
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "restore_failed",
+        "restore_partial_failure",
+        "invalid_backup_set",
+        "backup_retention_failed",
+        "restic_failed",
+        "update_failed",
+        "update_rollback_failed",
+    ],
+)
+def test_known_operation_failures_remain_distinct_without_raw_details(reason):
     item = project_record(
         record(
             source="operation",

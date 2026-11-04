@@ -289,6 +289,7 @@ def test_reference_rehydration_rejects_unknown_placeholder():
     executor = OllamaReferenceExecutor(model=MODEL)
     executor._executor.simulation = replace(
         executor._executor.simulation,
+        behavior="ok",
         output_text="[[CD_" + task.task_id.hex + "_EMAIL_999]]",
     )
     result = executor.execute(task)

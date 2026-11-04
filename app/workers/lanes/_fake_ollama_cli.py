@@ -4,8 +4,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
+
+
+def reference_output(text: str) -> str:
+    """Echo prepared input, summarizing only existing redaction placeholders.
+
+    This deliberately does not detect or remove raw PII. A broken redaction path
+    must leave the original text visible to the reference expectations.
+    """
+    summarized = re.sub(
+        r"\[\[CD_[a-f0-9]{32}_(?:EMAIL|PHONE|IBAN|AHV|IP|TERM)_[1-9][0-9]{0,9}\]\]",
+        "[redacted]",
+        text,
+    )
+    return "reference-ok: " + summarized
 
 
 def main() -> int:
@@ -25,6 +40,8 @@ def main() -> int:
         time.sleep(float(os.environ.get("DECK_SIMULATION_DELAY", "0")))
     if behavior == "echo":
         sys.stdout.buffer.write(payload)
+    elif behavior == "reference":
+        sys.stdout.buffer.write(reference_output(payload.decode("utf-8")).encode("utf-8"))
     elif behavior in {"empty", "incomplete_zero"}:
         pass
     elif behavior == "fail":

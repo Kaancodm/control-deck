@@ -418,8 +418,8 @@ Migration `0014` und ihre UI-Anbindung liefern Passwortbindung, 30 Minuten
 Inaktivitaetsablauf, eine unverlaengerbare absolute 12-Stunden-Grenze, Drosselung je
 Client-Kennung (Peer-Adresse der Verbindung, nur als Digest gespeichert), globale Login-Sperre
 nach 20 Fehlern in 24 Stunden und sichere Auth-Ereignisse. Die Sperre erscheint mit HTTP 423
-ohne Passwortformular und endet gemaess D3 mit einem Neustart des Dienstes oder der
-ausdruecklichen lokalen Entsperrung. «Ueberall abmelden» widerruft alle bestehenden Sessions
+ohne Passwortformular. Seit der P1-Nachbesserung endet sie ausschliesslich mit der
+ausdruecklichen lokalen Entsperrung; Neustarts erhalten Sperre und Tagesbudget. «Ueberall abmelden» widerruft alle bestehenden Sessions
 mit Owner-/CSRF-Pruefung.
 Die Sperrreihenfolge bleibt Login-State vor Session, auch in der HTTP-Anbindung.
 
@@ -469,8 +469,9 @@ Ein atomar publizierter Backup-Satz in Manifestversion 2 verlangt beide Datenban
 zentral `public` und separat `public`/`deck_kb` samt pgvector. Pro DB teilen Dump,
 Revision und schemaqualifizierte Tabellenzaehler einen exportierten Snapshot. Fehlende
 Wissenskonfiguration oder ein fehlgeschlagener zweiter Dump publizieren kein zentrales
-Ersatzbackup. CLI, Update, Restic und Pruning verlangen vollstaendige Saetze; alte zentrale
-Manifestversion-1-Saetze werden weder als vollstaendig akzeptiert noch automatisch geloescht.
+Ersatzbackup. CLI, Update und Restic verlangen vollstaendige Saetze. Pruning ueberspringt und auditiert
+seit der P1-Nachbesserung defekte Saetze; alte zentrale Manifestversion-1-Saetze werden weder
+als vollstaendig akzeptiert noch automatisch geloescht.
 
 Restore verlangt zwei leere `_test`-Ziele, getrennt voneinander und von beiden Quellen.
 Beide Archive, Pruefsummen, Revisionen und Ziele werden vor dem ersten Eingriff validiert.
@@ -505,3 +506,35 @@ Der woechentliche Restore-Timer ist eine Trockenlauf-Erinnerung ohne `--apply`, 
 Restore-Nachweis; automatische Bereitstellung leerer Ziele bleibt Inbetriebnahme.
 Keine echten Logins, Anbieteraufrufe, API-Keys, produktiven Verbindungen oder Serveraenderungen.
 Details: [OPERATIONS.md](OPERATIONS.md). Etappe 18 bleibt eine vorbereitete Checkliste.
+
+## Review-Nachbesserung P1 (Befunde 0–7)
+
+Branch `fix/review-p1` basiert auf `main` nach Referenz-PR #36. Die ausdruecklich genannten
+Review-Befunde sind die Quelle; der externe Bericht wurde nicht ins Repository uebernommen.
+
+- Git ignoriert private Umgebungs- und Runner-Dateien mit Ausnahme `.env.example`;
+  CI prueft die Regeln mit `git check-ignore`. Der Claude-Guard erfasst direkte Bash-Zugriffe.
+- Neustarts beobachten die Login-Sperre nur. Tagesbudget und Fensterbeginn bleiben erhalten;
+  nur `make unlock-login` entsperrt. Argon2 haelt keine DB-Transaktion oder Zeilensperre;
+  Session, Sperre und Budgets werden danach erneut geprueft. UI-DB-Handler laufen im Threadpool.
+- Migration `0017` begrenzt anonyme Sessions je Client und GET-Aufrufe der Login-Seite.
+  Kapazitaet und Rate liefern 429; eine Flut eines Clients sperrt den anderen Owner nicht aus.
+- Updates merken Revision und aktive Units, stellen bei Fehler den vorigen Checkout wieder her,
+  starten zuvor aktive Units im `finally` und melden Exit 78 samt fehlgeschlagenem Audit-Ereignis.
+- Betriebssubprozesse erhalten einen explizit konfigurierbaren Werkzeug-PATH. Die Backup-Unit
+  verwendet das konfigurierte private Schreibziel; Restic braucht keine Home-Schreibrechte.
+- Defekte Backup-Saetze werden bei Retention uebersprungen und auditiert. Erfolgreicher Dump
+  und Retention-Status bleiben getrennt; ein Restic-Fehler setzt den Gesamtstatus auf `failed`.
+- Referenz-Executoren verwenden den vorbereiteten Eingang. Negative Tests fuer 007/013
+  erkennen fehlende Redaktion auch bei konstanter Worker-Antwort; 010 prueft die echte
+  Datenschranke. Die freigegebenen Dateien 013/014 bleiben unveraendert.
+- Owner-Health liest den Alembic-Head dynamisch; CI synchronisiert Abhaengigkeiten mit `--frozen`.
+
+Gezielte Regressionen, Lint, beide Alembic-Checks, Hooks und `make reference` (14/14) sind gruen.
+Der PR enthaelt den Gesamtnachweis mit Testzahl und CI-Status. Alle Datenbanken und Git-Repositories
+fuer diese Tests sind lokal und wegwerfbar; Dienst-, Anbieter- und Off-site-Aufrufe sind simuliert.
+
+**Inbetriebnahme:** Reale systemd-Sandbox und Werkzeugpfade, Restic-Transport/Restore und die
+Bereitschaft wieder gestarteter Dienste bleiben offen. Ein Code-Ruecksprung macht keine bereits
+ausgefuehrte DB-Migration rueckgaengig; die Kompatibilitaet des alten Codes zum neuen Schema
+muss betrieblich geprueft werden. Keine Serverzugriffe, echten Logins oder Merges durchgefuehrt.

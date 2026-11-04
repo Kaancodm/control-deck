@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -92,7 +91,9 @@ def test_retention_keeps_last_backup_without_recent_verified_set(tmp_path: Path)
 
 
 @pytest.mark.parametrize("corruption", ["checksum", "contents", "symlink", "manifest"])
-def test_corrupt_backups_prevent_retention(tmp_path: Path, corruption: str) -> None:
+def test_corrupt_backups_are_preserved_and_cannot_justify_retention(
+    tmp_path: Path, corruption: str
+) -> None:
     now = datetime.now(UTC)
     root = tmp_path / "backups"
     old = _backup(root, now - timedelta(days=30))
@@ -106,9 +107,8 @@ def test_corrupt_backups_prevent_retention(tmp_path: Path, corruption: str) -> N
         (fresh / "database.dump").symlink_to(old / "database.dump")
     else:
         (fresh / "manifest.json").write_text('{"untrusted":true}')
-    with pytest.raises((OperationError, OSError)):
-        prune_backups(root, now=now, apply=True)
-    assert old.exists()
+    assert prune_backups(root, now=now, apply=True) == 0
+    assert old.exists() and fresh.exists()
 
 
 @pytest.mark.parametrize(
@@ -136,14 +136,17 @@ def test_restore_accepts_distinct_explicit_test_databases() -> None:
     )
 
 
-def test_postgres_child_environment_is_allowlisted(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgres_child_environment_is_allowlisted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("DECK_OWNER_TOKEN", "fake-value-never-forwarded")
+    monkeypatch.setenv("DECK_OPERATIONS_PATH", str(tmp_path))
     environment = postgres_environment(
         "postgresql+psycopg://worker:fake-password@example/source_test"
     )
     assert environment["PGPASSWORD"] == "fake-password"
     assert environment["PGDATABASE"] == "source_test"
-    assert environment["PATH"] == os.defpath
+    assert environment["PATH"] == str(tmp_path)
     assert "DECK_OWNER_TOKEN" not in environment
 
 
@@ -187,14 +190,13 @@ def test_restore_rejects_aliasing_or_unsafe_knowledge_databases(target, source):
 
 
 @pytest.mark.parametrize("artifact", ["knowledge.dump", "knowledge.sha256"])
-def test_missing_knowledge_artifact_blocks_retention(tmp_path, artifact):
+def test_missing_knowledge_artifact_cannot_justify_retention(tmp_path, artifact):
     now = datetime.now(UTC)
     old = _backup(tmp_path, now - timedelta(days=30))
     fresh = _backup(tmp_path, now)
     (fresh / artifact).unlink()
-    with pytest.raises((OperationError, OSError)):
-        prune_backups(tmp_path, now=now, apply=True)
-    assert old.exists()
+    assert prune_backups(tmp_path, now=now, apply=True) == 0
+    assert old.exists() and fresh.exists()
 
 
 def test_legacy_central_only_manifest_is_never_a_complete_set(tmp_path):
@@ -211,10 +213,8 @@ def test_legacy_central_only_manifest_is_never_a_complete_set(tmp_path):
         **manifest["central"],
     }
     (fresh / "manifest.json").write_text(json.dumps(legacy))
-    with pytest.raises(OperationError) as error:
-        prune_backups(tmp_path, now=now, apply=True)
-    assert error.value.code == "invalid_backup_manifest"
-    assert old.exists()
+    assert prune_backups(tmp_path, now=now, apply=True) == 0
+    assert old.exists() and fresh.exists()
 
 
 def test_runtime_knowledge_configuration_never_uses_test_fallback(monkeypatch):
@@ -223,3 +223,54 @@ def test_runtime_knowledge_configuration_never_uses_test_fallback(monkeypatch):
     with pytest.raises(OperationError) as error:
         backup.configured_knowledge_url(for_tests=False)
     assert error.value.code == "knowledge_database_required"
+
+
+def test_prune_skips_and_reports_bad_set_without_blocking_verified_retention(tmp_path):
+    from uuid import UUID
+
+    now = datetime.now(UTC)
+    old = _backup(tmp_path, now - timedelta(days=30))
+    fresh = _backup(tmp_path, now)
+    corrupt = _backup(tmp_path, now - timedelta(days=40))
+    (corrupt / "knowledge.dump").write_bytes(b"corrupted synthetic archive")
+    reported = []
+
+    assert prune_backups(tmp_path, now=now, apply=True, on_invalid=reported.append) == 1
+
+    assert not old.exists()
+    assert fresh.exists() and corrupt.exists()
+    assert (corrupt / "knowledge.dump").read_bytes() == b"corrupted synthetic archive"
+    assert reported == [UUID(hex=corrupt.name.removeprefix("backup-"))]
+
+
+def test_strict_verification_still_refuses_corrupt_sets_before_copy(tmp_path):
+    corrupt = _backup(tmp_path, datetime.now(UTC))
+    (corrupt / "knowledge.dump").write_bytes(b"corrupted synthetic archive")
+    with private_root(tmp_path) as parent, pytest.raises(OperationError):
+        backup.verified_sets(parent)
+
+
+def test_prune_refuses_unsafe_root_even_with_invalid_set_reporter(tmp_path):
+    safe = tmp_path / "private"
+    _backup(safe, datetime.now(UTC))
+    linked = tmp_path / "linked"
+    linked.symlink_to(safe, target_is_directory=True)
+    reported = []
+    with pytest.raises(OperationError):
+        prune_backups(linked, apply=True, on_invalid=reported.append)
+    assert reported == []
+
+
+def test_failed_invalid_set_report_prevents_deletion(tmp_path):
+    now = datetime.now(UTC)
+    old = _backup(tmp_path, now - timedelta(days=30))
+    fresh = _backup(tmp_path, now)
+    corrupt = _backup(tmp_path, now)
+    (corrupt / "knowledge.dump").write_bytes(b"corrupted synthetic archive")
+
+    def unavailable(_operation_id):
+        raise RuntimeError("Synthetic audit unavailable")
+
+    with pytest.raises(RuntimeError, match="Synthetic audit unavailable"):
+        prune_backups(tmp_path, now=now, apply=True, on_invalid=unavailable)
+    assert old.exists() and fresh.exists() and corrupt.exists()

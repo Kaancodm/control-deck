@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.bind import DeploymentConfigurationError, load_deployment_settings
 from app.db.config import DatabaseConfigurationError
 from app.db.session import session_scope
-from app.db.ui_auth import release_owner_login_lock_on_startup
+from app.db.ui_auth import observe_owner_login_state_on_startup
 
 
 def _serve(**kwargs: Any) -> None:
@@ -21,17 +21,17 @@ def _serve(**kwargs: Any) -> None:
     uvicorn.run(**kwargs)
 
 
-def _release_login_lock() -> None:
-    """A service restart lifts the global login lock before the listener opens (D3)."""
+def _observe_login_state() -> None:
+    """Observe persisted login protection without resetting it before serving."""
     with session_scope() as session:
-        release_owner_login_lock_on_startup(session)
+        observe_owner_login_state_on_startup(session)
 
 
 def main(
     argv: Sequence[str] | None = None,
     *,
     serve: Callable[..., None] = _serve,
-    startup: Callable[[], None] = _release_login_lock,
+    startup: Callable[[], None] = _observe_login_state,
 ) -> int:
     parser = argparse.ArgumentParser(description="Validate and serve the Control Deck HTTP app.")
     parser.add_argument(
@@ -49,8 +49,8 @@ def main(
     try:
         startup()
     except (DatabaseConfigurationError, SQLAlchemyError):
-        # Fail closed: a start that cannot honour "locked until restart" must not serve logins.
-        print("HTTP startup rejected: login_lock_release_failed", file=sys.stderr)
+        # Fail closed if persisted login protection cannot be read.
+        print("HTTP startup rejected: login_state_unavailable", file=sys.stderr)
         return 2
     serve(
         app="app.api.app:create_app",

@@ -78,6 +78,17 @@ nachgewiesenes Live-Profil vorhanden ist. Sie verarbeitet keine produktiven Auft
 Fake-Ergebnissen. Nur `--simulate` aktiviert ausdruecklich die Fake-CLI eines Workers.
 `--iterations` begrenzt lokale technische Proben.
 
+Fuer die spaetere Live-Anbindung werden nur in der privaten Runner-Umgebungsdatei
+`DECK_LIVE_ENABLED` und `DECK_OLLAMA_URL` vorgesehen. Ausschliesslich `1` oder `true`
+(klein, ohne Leerraum) aktivieren die Konfigurationspruefung. Flag aus ergibt Exit `78`
+mit `live_disabled`; andere Lanes bei Flag an ergeben `live_lane_not_supported`.
+Nur HTTP mit dem Literal `127.0.0.1` oder `[::1]` und ausdruecklichem Port 1 bis 65535
+ist gueltig; Pfad, Userinfo, Query, Fragment, Hostname und HTTPS sind ausgeschlossen.
+Eine fehlende oder ungueltige URL ergibt `live_url_invalid`. Auch eine gueltige
+Konfiguration endet in diesem Schritt mit `78` / `live_profile_unavailable` ohne Spawn.
+Der Live-Transport wird separat angeschlossen. `--simulate` ignoriert die Live-Variablen.
+Die Unit-Vorlage und der Restore-Timer bleiben unveraendert.
+
 SIGTERM oder SIGINT beendet den aktiven Host-Prozess samt Unterprozessen und stoppt neue
 Claims. Das schreibt **keinen** Owner-Abbruch. Die bestehende Lease laeuft aus; der Reaper
 plant den Versuch gemaess Etappe 10 und verbleibendem Budget erneut ein. Nur eine echte

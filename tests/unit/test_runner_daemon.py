@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -14,9 +15,31 @@ from app.workers import daemon
 
 
 def test_live_service_profile_stays_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DECK_LIVE_ENABLED", raising=False)
     monkeypatch.setattr(sys, "argv", ["daemon", "--worker", "ollama"])
     monkeypatch.setattr(daemon, "run_loop", lambda *args, **kwargs: pytest.fail("No runner"))
     assert daemon.main() == 78
+
+
+@pytest.mark.parametrize(
+    "flag,worker,url,reason",
+    [
+        ("0", "ollama", "", "live_disabled"),
+        ("TRUE", "ollama", "", "live_disabled"),
+        ("1", "claude", "", "live_lane_not_supported"),
+        ("1", "codex", "", "live_lane_not_supported"),
+        ("1", "ollama", "", "live_url_invalid"),
+        ("true", "ollama", "http://localhost:11434", "live_url_invalid"),
+        ("1", "ollama", "http://127.0.0.1:11434", "live_profile_unavailable"),
+    ],
+)
+def test_configuration_refusal_never_spawns(monkeypatch, capsys, flag, worker, url, reason):
+    monkeypatch.setenv("DECK_LIVE_ENABLED", flag)
+    monkeypatch.setenv("DECK_OLLAMA_URL", url)
+    monkeypatch.setattr(sys, "argv", ["daemon", "--worker", worker])
+    monkeypatch.setattr(daemon, "run_loop", lambda *args, **kwargs: pytest.fail("No runner"))
+    assert daemon.main() == 78
+    assert json.loads(capsys.readouterr().out) == {"status": "unavailable", "reason": reason}
 
 
 def test_bounded_supervisor_uses_one_explicit_lane_per_attempt(
@@ -48,6 +71,10 @@ def test_supervisor_passes_only_host_configuration() -> None:
         {
             "DECK_DATABASE_URL": "test-database",
             "DECK_ROUTER_FILE": "fixture-config",
+            "DECK_LIVE_ENABLED": "1",
+            "DECK_OLLAMA_URL": "http://127.0.0.1:11434",
+            "OLLAMA_HOST": "untrusted",
+            "HTTP_PROXY": "untrusted",
             "DECK_OWNER_TOKEN": "fake-owner-value",
             "DECK_WORKER_TOKEN_CLAUDE": "fake-lane-value",
             "ANTHROPIC_API_KEY": "fake-key-value",
@@ -58,6 +85,8 @@ def test_supervisor_passes_only_host_configuration() -> None:
         "PATH": os.defpath,
         "DECK_DATABASE_URL": "test-database",
         "DECK_ROUTER_FILE": "fixture-config",
+        "DECK_LIVE_ENABLED": "1",
+        "DECK_OLLAMA_URL": "http://127.0.0.1:11434",
     }
 
 

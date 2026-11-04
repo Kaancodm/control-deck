@@ -2,10 +2,10 @@
 
 ## Ollama in Etappe 9
 
-Der Owner hat `ollama run` mit Fake-CLI-Tests gewaehlt. Der Adapter in
-`app/workers/lanes/ollama.py` unterstuetzt deshalb ein ausdrueckliches Profil `simulation`.
+Der Owner hat `ollama run` mit Fake-CLI-Tests gewählt. Der Adapter in
+`app/workers/lanes/ollama.py` unterstützt deshalb ein ausdrückliches Profil `simulation`.
 Es startet nur die mitgelieferte Fake-CLI mit dem aktuellen Python-Interpreter. Es gibt keine
-Option fuer ein beliebiges Executable, keinen echten Modellaufruf und keinen Download.
+Option für ein beliebiges Executable, keinen echten Modellaufruf und keinen Download.
 Das Standardprofil `disabled` bleibt ohne Prozessstart `unavailable` mit dem Grund
 `live_profile_unavailable`.
 
@@ -13,23 +13,23 @@ Die Modellkennung stammt aus `lanes.ollama.models.<kind>` oder `.default` in der
 Routing-Konfiguration. Im Code stehen keine echten Modellnamen. Eine Lane ganz ohne
 Modelle, ein konfiguriertes, aber im Inventar fehlendes Modell, eine deaktivierte Lane oder
 Pause verhindern den Claim und verbrauchen keinen Versuch; die Aufgabe bleibt `queued` und
-`lane_status` nennt den Grund. Die Inventarpruefung laeuft vor jedem Poll ausserhalb einer
-DB-Transaktion. Der Claim prueft die aktuelle Modellwahl erneut gegen die zuvor geprueften
+`lane_status` nennt den Grund. Die Inventarprüfung läuft vor jedem Poll ausserhalb einer
+DB-Transaktion. Der Claim prüft die aktuelle Modellwahl erneut gegen die zuvor geprüften
 Modelle.
 
-Fehlt dagegen fuer den `kind` einer Aufgabe ein Eintrag und gibt es kein `default`, ist das
-eine dauerhafte Fehlkonfiguration, die kein spaeterer Poll beheben kann. Die Queue setzt die
+Fehlt dagegen für den `kind` einer Aufgabe ein Eintrag und gibt es kein `default`, ist das
+eine dauerhafte Fehlkonfiguration, die kein späterer Poll beheben kann. Die Queue setzt die
 Aufgabe ohne Versuch auf `blocked` und schreibt das Ereignis `task.block` mit Grund
 `routing`, Code `model_not_configured`, Lane und `kind`. Im selben Commit wird
 `lane_status` auf `unavailable` / `model_not_configured` gesetzt; andere Aufgaben mit
-konfiguriertem Modell werden im selben Poll weiter bearbeitet. Der naechste Poll ohne
-betroffene Aufgabe meldet wieder `ok`. Diese Regel gilt nur fuer Lanes mit vorheriger
-Inventarpruefung; Claims ohne Inventar verhalten sich wie bisher.
+konfiguriertem Modell werden im selben Poll weiter bearbeitet. Der nächste Poll ohne
+betroffene Aufgabe meldet wieder `ok`. Diese Regel gilt nur für Lanes mit vorheriger
+Inventarprüfung; Claims ohne Inventar verhalten sich wie bisher.
 
 Der Host-Runner gibt genau die UTF-8-Bytes aus `payload.sent.md` auf stdin an
-`run <modell>` weiter. Es wird kein zusaetzlicher Prompt davor- oder dahintergesetzt.
-Die SHA-256-Pruefung, lokale Rueckabbildung, Acceptance und Ergebnis-Fencing bleiben im
-Rahmen aus Etappe 8. Die CLI erhaelt weder den Originalauftrag noch die Redaction-Map.
+`run <modell>` weiter. Es wird kein zusätzlicher Prompt davor- oder dahintergesetzt.
+Die SHA-256-Prüfung, lokale Rückabbildung, Acceptance und Ergebnis-Fencing bleiben im
+Rahmen aus Etappe 8. Die CLI erhält weder den Originalauftrag noch die Redaction-Map.
 
 ```bash
 uv run python -m app.workers.runner_main --worker ollama --simulate --once --executor ollama-fake-cli
@@ -37,18 +37,18 @@ uv run python -m app.workers.runner_main --worker ollama --simulate --once --exe
 
 Dieser Befehl verwendet die konfigurierte lokale Testdatenbank und eine vorhandene
 Routing-Konfiguration. Er ist keine Live-Aktivierung. Der vorhandene reine Fake-Executor
-bleibt mit `--executor simulation` verfuegbar.
+bleibt mit `--executor simulation` verfügbar.
 
 ## Prozessgrenzen und Fehler
 
 `app/workers/process.py` verwendet Argumentlisten ohne Shell, ein separates Prozessgruppen-
-Signalziel und eine ausdrueckliche Umgebungs-Allowlist. Geerbte Provider-Variablen,
+Signalziel und eine ausdrückliche Umgebungs-Allowlist. Geerbte Provider-Variablen,
 `OLLAMA_HOST`, Proxy-Werte und das Benutzer-HOME werden nicht weitergegeben.
 stdout und stderr werden gleichzeitig gelesen und getrennt begrenzt; Standardgrenzen
 sind 4 MiB und 64 KiB. Timeout und Abbruch beenden und ernten die Prozessgruppe.
 Die Dauer ist das Minimum aus Task-Limit, Adapter-Limit (Standard 600 Sekunden) und
-verbleibender Owner-Deadline. Pro Versuch gibt es hoechstens einen `run`-Aufruf und keinen
-versteckten Retry. Inventarpruefungen verwenden ein eigenes begrenztes `list`.
+verbleibender Owner-Deadline. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
+versteckten Retry. Inventarprüfungen verwenden ein eigenes begrenztes `list`.
 
 | Ergebnis | `result.v1` |
 |---|---|
@@ -57,108 +57,111 @@ versteckten Retry. Inventarpruefungen verwenden ein eigenes begrenztes `list`.
 | Transport-Timeout | `failed`, `timeout` |
 | Kooperativer Abbruch | `cancelled` |
 | Leere Ausgabe | `failed`, `acceptance_failed` |
-| Ausgabegrenze, ungueltiges UTF-8, interner Prozessfehler | `failed`, `internal` |
+| Ausgabegrenze, ungültiges UTF-8, interner Prozessfehler | `failed`, `internal` |
 
 Bei Timeout, Abbruch und Fehlern werden Teilantworten nicht als Ergebnis weitergegeben.
-Das unveraenderliche Lane-Log schreibt der Host-Runner; es enthaelt sichere Laufmetadaten,
-keinen Prompt, Antworttext oder stderr. Die eingefrorenen v1-Schemas bleiben unveraendert.
+Das unveränderliche Lane-Log schreibt der Host-Runner; es enthält sichere Laufmetadaten,
+keinen Prompt, Antworttext oder stderr. Die eingefrorenen v1-Schemas bleiben unverändert.
 Backoff und Fallback folgen in Etappe 10.
 
 ## Persistierte Gesundheit
 
-Migration `0010` ergaenzt `lane_status` mit Lane, Status, sicherem Grund, `updated_at` und
+Migration `0010` ergänzt `lane_status` mit Lane, Status, sicherem Grund, `updated_at` und
 `last_success_at`. Erlaubte Status sind `ok`, `unavailable`, `auth_required`, `paused`.
 Zeitstempel kommen aus der DB-Uhr; Fehler erhalten die letzte positive Beobachtung.
 Die Aktualisierung erfolgt in kurzen eigenen Transaktionen.
 
 `ok` mit Grund **`simulation_ready`** bezeichnet ausschliesslich eine erfolgreiche
-Fake-Inventarpruefung. Es bestaetigt weder einen erfolgreichen echten Modelllauf noch eine
-verfuegbare Live-Lane. `last_success_at` ist der Zeitpunkt dieser Gesundheitsbeobachtung.
+Fake-Inventarprüfung. Es bestätigt weder einen erfolgreichen echten Modelllauf noch eine
+verfügbare Live-Lane. `last_success_at` ist der Zeitpunkt dieser Gesundheitsbeobachtung.
 Das deaktivierte Profil meldet **`unavailable` / `live_profile_unavailable`**.
-Der neue Live-Vertrag folgt unten; `live_ready` ist eine positive Vorpruefung,
-kein Nachweis fuer Modellqualitaet. Die persistierte Anzeige beschreibt die letzte
-Vorpruefung samt Zeitpunkt; ein gestoppter Runner aktualisiert sie nicht mehr.
+Der neue Live-Vertrag folgt unten; `live_ready` ist eine positive Vorprüfung,
+kein Nachweis für Modellqualität. Die persistierte Anzeige beschreibt die letzte
+Vorprüfung samt Zeitpunkt; ein gestoppter Runner aktualisiert sie nicht mehr.
 
 ## Inbetriebnahme
 
 Der CLI-Live-Pfad aus Etappe 9 bleibt gesperrt. ADR 0009 erlaubt die nachfolgend
 beschriebene HTTP-Anbindung. Die offizielle CLI bietet keinen
-No-Pull-Schalter: `run` kann ein fehlendes Modell automatisch laden. Eine vorgaengige
-Inventarpruefung schliesst das Rennen bis zum Aufruf nicht. Ein `:local`-Suffix begrenzt die
+No-Pull-Schalter: `run` kann ein fehlendes Modell automatisch laden. Eine vorgängige
+Inventarprüfung schliesst das Rennen bis zum Aufruf nicht. Ein `:local`-Suffix begrenzt die
 Modellquelle, verhindert aber den Download nicht. `OLLAMA_NO_CLOUD` muss im Daemon gelten;
 eine Variable ausschliesslich im CLI-Kindprozess konfiguriert einen laufenden Daemon nicht.
-Multimodale CLI-Pfade koennen zudem im Prompt genannte Bild-/Audiodateien vom Host lesen.
-Ein Exit-Code null allein beweist fuer alle CLI-Pfade keinen vollstaendigen Modellabschluss.
+Multimodale CLI-Pfade können zudem im Prompt genannte Bild-/Audiodateien vom Host lesen.
+Ein Exit-Code null allein beweist für alle CLI-Pfade keinen vollständigen Modellabschluss.
 
 Der Live-Adapter verwendet deshalb ausschliesslich die lokale HTTP-API. Echte Logins,
-Serveraenderungen, Modellinstallationen und Modelltests wurden nicht ausgefuehrt.
-Die semantische Qualitaet prueft erst das vom Owner erstellte Referenzset bei der
+Serveränderungen, Modellinstallationen und Modelltests wurden nicht ausgeführt.
+Die semantische Qualität prüft erst das vom Owner erstellte Referenzset bei der
 Inbetriebnahme. Die folgenden Nachweise betreffen Quellcode und synthetische Tests.
 
-### HTTP-Vertrag gemaess ADR 0009
+### HTTP-Vertrag gemäss ADR 0009
 
 Die Aktivierung verlangt die Runner-Variablen `DECK_LIVE_ENABLED` (exakt `1` oder
 `true`) und `DECK_OLLAMA_URL`. Nur HTTP, Loopback-Literale und ein expliziter Port sind
 erlaubt. Ohne Freigabe bleibt der Daemon mit Exit 78 gestoppt. Laufzeitfehler eines
 Ollama-Dienstes verhindern Claims, halten aber die Supervisor-Schleife am Leben.
 
-Die Vorpruefung kontrolliert die exakte Version **0.40.14**, alle konfigurierten
-Modellkennungen gegen `/api/tags` und ihre Faehigkeiten mittels `/api/show`.
+Die Vorprüfung kontrolliert die exakte Version **0.40.14**, alle konfigurierten
+Modellkennungen gegen `/api/tags` und ihre Fähigkeiten mittels `/api/show`.
 Explizite Tags sind Pflicht; Cloud-Kennungen, Remote-Felder und multimodale
-Faehigkeiten werden abgewiesen. Der HTTP-Modellname traegt zusaetzlich `:local`.
+Fähigkeiten werden abgewiesen. Der HTTP-Modellname trägt zusätzlich `:local`.
 Das Inventar und die Provenienz behalten die konfigurierte Kennung ohne Quellensuffix.
-Damit wird auch ein zwischenzeitlich auf Remote geaenderter Alias vor Inferenz abgewiesen.
+Damit wird auch ein zwischenzeitlich auf Remote geänderter Alias vor Inferenz abgewiesen.
 
 Ein Versuch sendet eine User-Nachricht mit genau dem archivierten Text. JSON-Escaping
-veraendert die logischen Nachrichtenbytes nicht; `payload_hash` bezeichnet den
+verändert die logischen Nachrichtenbytes nicht; `payload_hash` bezeichnet den
 UTF-8-Inhalt, nicht den gesamten JSON-Request. Es gibt keine `images` oder `tools`.
-`stream: true`, Temperatur null, kurze Modellhaltezeit und ein ausdrueckliches
-Kontextbudget gelten pro Request. `format: json` wird nur fuer JSON-Schema-Acceptance
-verwendet. `truncate: false` und `shift: false` verhindern die standardmaessige
-Kontextkuerzung im gepinnten Quellvertrag. Eine konservative Groessenpruefung weist
+`stream: true`, Temperatur null, kurze Modellhaltezeit und ein ausdrückliches
+Kontextbudget gelten pro Request. `format: json` wird nur für JSON-Schema-Acceptance
+verwendet. `truncate: false` und `shift: false` verhindern die standardmässige
+Kontextkürzung im gepinnten Quellvertrag. Eine konservative Grössenprüfung weist
 zu grosse Payloads bereits lokal ab; sie ist kein exakter Tokenizer.
 
 Metadata-Antworten sind auf 1 MiB begrenzt, Ausgabe auf 4 MiB, jede NDJSON-Zeile auf
 64 KiB und der gesamte Stream einschliesslich verworfenen Denktexten auf 8 MiB.
-Bis zum ersten vollstaendigen Chunk gelten 120 Sekunden, danach 60 Sekunden Leerlauf;
+Bis zum ersten vollständigen Chunk gelten 120 Sekunden, danach 60 Sekunden Leerlauf;
 das kleinere Task-/Adapter-/Deadline-Budget bleibt verbindlich. Abbruch unterbricht
 auch blockierte Header- und Body-Leseoperationen. Provider-Fehlertexte werden verworfen.
 
-Nur ein vollstaendiger letzter Chunk mit `done: true` und `done_reason: stop` erlaubt
-Erfolg. `length` wird als `acceptance_failed` dem Review zugefuehrt. Fehlender Abschluss,
-Werkzeugaufrufe oder unerwartete Protokollfelder fuehren zu einem sicheren Fehler.
-Denktext wird nicht persistiert. Timeout und Abbruch geben keine Teilausgabe zurueck.
-Ein bestaetigter Owner-Abbruch nutzt den vorhandenen Abbruchpfad ohne Result-Zeile.
-Ein `local_only`-Prompt mit Dateipfad bleibt gemaess bestehender Datenschranke Text;
-der Adapter oeffnet daraus keine Datei. Eine pauschale Pfadsperre ist kein Teil dieses Vertrags.
+Nur ein vollständiger letzter Chunk mit `done: true` und `done_reason: stop` erlaubt
+Erfolg. `length` wird als `acceptance_failed` dem Review zugeführt. Fehlender Abschluss,
+Werkzeugaufrufe oder unerwartete Protokollfelder führen zu einem sicheren Fehler.
+Denktext wird nicht persistiert. Timeout und Abbruch geben keine Teilausgabe zurück.
+Ein bestätigter Owner-Abbruch nutzt den vorhandenen Abbruchpfad ohne Result-Zeile.
+Ein `local_only`-Prompt mit Dateipfad bleibt gemäss bestehender Datenschranke Text;
+der Adapter öffnet daraus keine Datei. Eine pauschale Pfadsperre ist kein Teil dieses Vertrags.
 `/api/pull` wird nie aufgerufen. Ein Modell-404 nach dem Claim bleibt
-`worker_unavailable`; zentrale Retry-Regeln entscheiden ueber spaetere Versuche.
+`worker_unavailable`; zentrale Retry-Regeln entscheiden über spätere Versuche.
 
-`results.execution_profile` stammt vom Executor. Nur `live` beeinflusst Live-Zaehler,
-Fehlerserie und letzten erfolgreichen Versuch. Simulation, Remote-Ergebnisse ohne
-Attestierung und historische unbekannte Ergebnisse sind kein Live-Nachweis.
-Das eingefrorene `result.v1` traegt die Herkunft als separaten Check nach Acceptance.
+`results.execution_profile` stammt vom Executor. Nur `live` beeinflusst Live-Zähler
+und den letzten erfolgreichen Live-Versuch. Angenommene Fehler jeder Herkunft
+erhöhen die Fehlerserie und aktualisieren Fehlercode und Fehlerzeitpunkt. Nur ein
+Live-Erfolg setzt die Serie zurück; Simulationserfolg und Abbruch tun dies nicht.
+Simulation, Remote-Ergebnisse ohne Attestierung und historische unbekannte
+Ergebnisse sind kein Live-Nachweis.
+Das eingefrorene `result.v1` trägt die Herkunft als separaten Check nach Acceptance.
 Events und JSON-Zeilen im Lane-Log enthalten nur begrenzte technische Metadaten,
 niemals Prompt, Antwort oder Provider-Diagnosen.
 
-### Gepruefte Quellstellen und offene Server-Nachweise
+### Geprüfte Quellstellen und offene Server-Nachweise
 
-Der Release-Tag wurde gegen den folgenden Commit geprueft. Am gepinnten Quellstand:
+Der Release-Tag wurde gegen den folgenden Commit geprüft. Am gepinnten Quellstand:
 
 - `server/routes.go`, `ChatHandler`: vorhandenes Modell laden, bei Fehlen 404;
   der Pull-Handler ist getrennt. Lokale Quellen verweigern Remote-Aliase vor Inferenz.
 - `internal/modelref/modelref.go`: terminaler `:local`-Suffix bindet die Modellquelle.
-- `api/types.go`: Show-Antworten enthalten Faehigkeiten und Remote-Felder; Chat kennt
+- `api/types.go`: Show-Antworten enthalten Fähigkeiten und Remote-Felder; Chat kennt
   `truncate`, `shift`, `thinking`, `done` und `done_reason`.
 - `server/prompt.go`, `server/routes.go`, `server/sched.go`, `llm/llama_server.go`:
-  keine Nachrichtenkuerzung bei `truncate: false`, Context Shift nur auf Anforderung;
+  keine Nachrichtenkürzung bei `truncate: false`, Context Shift nur auf Anforderung;
   HTTP-Request-Kontexte werden an die Modellverarbeitung weitergegeben.
 - Der untersuchte API-Medienpfad verarbeitet explizite Medienbytes. Ohne `images`
   ist kein aus Prompttext abgeleiteter Host-Dateizugriff ersichtlich.
 
-Ein Verbindungsende beweist noch keine vollstaendige Freigabe daemonseitiger
-Ressourcen: Callback-Kanaele koennen nach einem Schreibfehler blockieren. Abbruch,
-Kaltstart, Modellqualität und Ressourcenfreigabe gehoeren deshalb in den Owner-Serverlauf.
+Ein Verbindungsende beweist noch keine vollständige Freigabe daemonseitiger
+Ressourcen: Callback-Kanäle können nach einem Schreibfehler blockieren. Abbruch,
+Kaltstart, Modellqualität und Ressourcenfreigabe gehören deshalb in den Owner-Serverlauf.
 `OLLAMA_NO_CLOUD=1`, Loopback-Bindung und vorab geladene Modelle muss der Owner am
 Ollama-Dienst einrichten; der Client konfiguriert diesen Dienst nicht.
 
@@ -172,7 +175,7 @@ Quellenstand: offizielles Ollama `v0.40.14`, Commit
 
 ## Claude in Etappe 12
 
-`ClaudeExecutor` unterstuetzt ausschliesslich das ausdrueckliche Profil `simulation`.
+`ClaudeExecutor` unterstützt ausschliesslich das ausdrückliche Profil `simulation`.
 Der Standard `disabled` meldet ohne Prozessstart `unavailable` / `live_profile_unavailable`.
 Die mitgelieferte Fake-Container-CLI startet nur die Fake-Claude-CLI. Sie simuliert einen
 Lebenszyklus und ist keine Sandbox. Es gibt keinen Executable-Override oder Live-Schalter.
@@ -185,20 +188,20 @@ Modelle stammen aus `lanes.claude.models.<kind>` oder `.default`. Fehlende Model
 Pause, deaktivierte Lanes, Versionsabweichung oder fehlendes simuliertes Rootless verhindern
 den Claim. `simulation_ready` belegt nur die Simulationskonfiguration. Auth-Fehler werden
 als `auth_required`, Anbieter-Sperren als `paused` beobachtet. Lane-Pause, Backoff und
-Fallback gehoeren der zentralen Fehlerlogik aus Etappe 10; der Adapter wiederholt nichts.
+Fallback gehören der zentralen Fehlerlogik aus Etappe 10; der Adapter wiederholt nichts.
 
-Nach SHA-256-Pruefung gehen exakt die archivierten Versandbytes auf stdin: kein Wrapper,
+Nach SHA-256-Prüfung gehen exakt die archivierten Versandbytes auf stdin: kein Wrapper,
 Host-Dateimount, Originalauftrag oder Redaction-Map. `local_only` bleibt durch die
 lanegebundene Vorbereitung bei Ollama. Textausgaben haben `output.files=[]`; erzeugter
-Code wird niemals ausgefuehrt. Geerbte Host-/Provider-/Proxy-Variablen werden verworfen.
+Code wird niemals ausgeführt. Geerbte Host-/Provider-/Proxy-Variablen werden verworfen.
 
 ### Versionierter Claude-Vertrag
 
 Referenz ist das offizielle Claude Code **2.1.317**. `docker/lane-claude/VERSION` benennt
 die SHA-256-Werte des Linux-amd64-Archivs und beider Distroless-Images. Die ungebaute
 Dockerfile-Vorlage kopiert nur die CLI ins finale Image, ohne Shell oder Paketmanager,
-mit UID/GID 10001. Das Lesen der veroeffentlichten Digests und des Archiv-Headers belegt
-keine lauffaehige Installation oder Bibliotheks-Kompatibilitaet.
+mit UID/GID 10001. Das Lesen der veröffentlichten Digests und des Archiv-Headers belegt
+keine lauffähige Installation oder Bibliotheks-Kompatibilität.
 
 | Argument | Zweck |
 |---|---|
@@ -213,7 +216,7 @@ keine lauffaehige Installation oder Bibliotheks-Kompatibilitaet.
 `--bare` wird nicht verwendet: Dieser Modus liest laut offizieller Dokumentation keine
 OAuth-/Abo-Anmeldung und verlangt API-Key- oder andere Provider-Zugangsdaten. `--tools ""`
 alleine deaktiviert keine MCP-Werkzeuge. Safe Mode kann verwaltete Vorgaben nicht beliebig
-ueberschreiben; die Flags ersetzen keine Isolation.
+überschreiben; die Flags ersetzen keine Isolation.
 
 Der Containervertrag erlaubt keine beliebigen Mounts, Programme, Umgebungen oder Netzmodi.
 Er verwendet `--read-only`, entfernte Capabilities, `no-new-privileges`, UID/GID 10001 und
@@ -222,51 +225,51 @@ begrenzte CPU-/RAM-/Prozesszahlen. Nur `/work` und `/tmp` sind private begrenzte
 **`none`**; dieser Vertrag kann keinen echten Anbieter erreichen. Explizite CLI-Variablen
 deaktivieren Wiederholungen, Updates, Zusatzverkehr und Marketplace-Autoinstallation.
 
-Jeder gestartete Versuch erhaelt einen separaten Aufraeumaufruf mit zwei Sekunden
+Jeder gestartete Versuch erhält einen separaten Aufräumaufruf mit zwei Sekunden
 Zusatzbudget, auch bei Timeout, Abbruch oder Client-Fehler. Dieser Aufruf ignoriert das
 Task-Abbruchsignal. Misslingt Cleanup, wird kein Erfolg angenommen. Nur den Client zu
-beenden wuerde einen daemonseitigen Container nicht sicher stoppen. Die echte Grenze
+beenden würde einen daemonseitigen Container nicht sicher stoppen. Die echte Grenze
 bleibt bei der Inbetriebnahme nachzuweisen.
 
 ### Claude-Ergebnisse und Fehler
 
 Nur ein finales JSON-Objekt mit `type=result`, `subtype=success`, `is_error=false`, einem
 Turn und `terminal_reason=completed` gilt als abgeschlossen. Werkzeug-/Berechtigungs-
-befunde, doppelte JSON-Schluessel, ungueltige Tokenzahlen und unvollstaendige Antworten
+befunde, doppelte JSON-Schlüssel, ungültige Tokenzahlen und unvollständige Antworten
 werden verworfen. Exit null alleine belegt keinen Erfolg. Optionale Tokenzahlen werden
-geprueft; Kosten und Anbieter-Kontingente werden nicht daraus geschaetzt.
+geprüft; Kosten und Anbieter-Kontingente werden nicht daraus geschätzt.
 
 | Signal | Fehlercode |
 |---|---|
 | Strukturiertes Fehlerobjekt, Status 401 | `auth_required` |
 | Strukturiertes Fehlerobjekt, Status 403 | `policy_blocked` |
 | Strukturiertes Fehlerobjekt, Status 429 | `rate_limited` |
-| Bekannte Server-/Kapazitaetsfehler 500, 502, 503, 529 | `worker_unavailable` |
+| Bekannte Server-/Kapazitätsfehler 500, 502, 503, 529 | `worker_unavailable` |
 | Transport-Timeout | `timeout` |
 | Leeres finales Ergebnis | `acceptance_failed` |
 | Sonstige Prozess-/Protokoll-/Cleanup-Fehler | `internal` |
 
 Unbekannte Fehler werden nicht aus Ziffern in stderr erraten. Fixtures sind synthetische
-Protokollfaelle, keine aufgenommenen Anbieterantworten oder semantischen Referenzfaelle.
+Protokollfälle, keine aufgenommenen Anbieterantworten oder semantischen Referenzfälle.
 Provider-Fehlertexte, Prompt und Antwort erscheinen nicht im normalen Lauf-Log oder in
-Fehlergruenden. Lokale Ergebnisartefakte behalten die bestehenden Owner-Zugriffsregeln.
+Fehlergründen. Lokale Ergebnisartefakte behalten die bestehenden Owner-Zugriffsregeln.
 
 ### Inbetriebnahme: Claude
 
 Das Live-Profil bleibt gesperrt. Separat nachzuweisen sind:
 
-- Gepinntes Image bauen, Digests, `claude --version`, Bibliotheken und Flags pruefen.
+- Gepinntes Image bauen, Digests, `claude --version`, Bibliotheken und Flags prüfen.
 - Rootless-Daemon, UID, Dateisystem, Ressourcen, Werkzeug-/MCP-/Hook-/Plugin-Abschaltung
-  sowie Cleanup bei Client-Absturz und Daemon-Neustart pruefen.
+  sowie Cleanup bei Client-Absturz und Daemon-Neustart prüfen.
 - Technisch begrenzten Anbieter-Netzweg ohne Host-/DB-Zugriff festlegen. Standard-Bridge
   und ein Konfigurations-Boolean belegen keine solche Grenze.
 - Der Owner richtet die Abo-Anmeldung mit `claude auth login` im separaten CLI-Profil
   ein; kein API-Key, Hostprofil-Mount oder Zugangswert in Repo, `.env`, Logs oder PR.
-  Kontomodell und deaktivierte Zusatzabrechnung pruefen.
+  Kontomodell und deaktivierte Zusatzabrechnung prüfen.
 - Abgelaufene Anmeldung, Anbieter-Sperre, Rate-Limit, keine versteckten Wiederholungen
-  und echte JSON-Abschlussmerkmale pruefen. Inhaltliche Faelle liefert der Owner.
+  und echte JSON-Abschlussmerkmale prüfen. Inhaltliche Fälle liefert der Owner.
 
-Nichts davon wurde ausgefuehrt. Es gibt keinen automatischen Login oder Live-Schalter.
+Nichts davon wurde ausgeführt. Es gibt keinen automatischen Login oder Live-Schalter.
 Quellenstand 2026-11-03:
 
 - [Offizieller Release 2.1.317](https://github.com/anthropics/claude-code/releases/tag/v2.1.317)
@@ -277,8 +280,8 @@ Quellenstand 2026-11-03:
 
 ## Codex in Etappe 13
 
-`CodexExecutor` verwendet einen versionierten Textvertrag fuer die offizielle CLI
-**0.166.0**. Ausgefuehrt wird ausschliesslich die mitgelieferte Python-Fake-CLI durch den
+`CodexExecutor` verwendet einen versionierten Textvertrag für die offizielle CLI
+**0.166.0**. Ausgeführt wird ausschliesslich die mitgelieferte Python-Fake-CLI durch den
 Reinraum-Simulator. Es gibt keine Auswahl eines echten Executables und keinen Schalter,
 der das Live-Profil aktiviert. Das Standardprofil bleibt
 `unavailable` / `live_profile_unavailable` ohne Prozessstart.
@@ -291,57 +294,57 @@ Modelle stammen aus `lanes.codex.models`. Eine falsche Worker-Lane wird vor dem 
 abgewiesen. Die Queue und der Host-Rahmen geben `local_only` niemals an Codex weiter.
 Der Simulator verwendet ein eigenes Codex-Profil; es werden keine Host-Umgebungsvariablen,
 DB-Verbindungen oder CLI-Anmeldedaten vererbt. Der beschriebene Container-Befehl hat ein
-schreibgeschuetztes Dateisystem, einen Benutzer ohne Root-Rechte, begrenzte Ressourcen und
-`network=none`. Er wird nicht mit Docker ausgefuehrt. Die separat begrenzte Bereinigung
+schreibgeschütztes Dateisystem, einen Benutzer ohne Root-Rechte, begrenzte Ressourcen und
+`network=none`. Er wird nicht mit Docker ausgeführt. Die separat begrenzte Bereinigung
 des generierten Container-Namens bleibt auch bei Timeout und Abbruch aktiv.
 
 Der Aufrufvertrag nutzt `codex exec --strict-config --json --ephemeral --ignore-user-config
 --ignore-rules --skip-git-repo-check --sandbox read-only --color never --model <modell> -`.
 Das letzte `-` liest genau die archivierten Payload-Bytes von stdin; kein weiterer Prompt
-wird hinzugefuegt. Ausdrueckliche Konfiguration verlangt Subscription-Anmeldung und
+wird hinzugefügt. Ausdrückliche Konfiguration verlangt Subscription-Anmeldung und
 schaltet die dokumentierten Shell-, Code-, Plugin-, MCP-, Web- und Mehragenten-Funktionen
-im Kandidatenprofil ab. Diese Konfiguration ist kein vollstaendiger Tool-Sperrnachweis.
+im Kandidatenprofil ab. Diese Konfiguration ist kein vollständiger Tool-Sperrnachweis.
 
 Der Parser verlangt einen geordneten JSONL-Strom mit Thread-Start, Turn-Start, abgeschlossener
-Agenten-Nachricht und genau einem erfolgreichen Turn-Abschluss. Tokenzaehler sind begrenzte,
-nichtnegative Ganzzahlen. Doppelte JSON-Schluessel, unvollstaendige oder widerspruechliche
-Ereignisse, Tool-Aufrufe und ungueltiges UTF-8 werden abgewiesen. Ein Exit-Code null ersetzt
+Agenten-Nachricht und genau einem erfolgreichen Turn-Abschluss. Tokenzähler sind begrenzte,
+nichtnegative Ganzzahlen. Doppelte JSON-Schlüssel, unvollständige oder widersprüchliche
+Ereignisse, Tool-Aufrufe und ungültiges UTF-8 werden abgewiesen. Ein Exit-Code null ersetzt
 keinen Abschluss. Reasoning, Teilantworten und rohe Fehlermeldungen werden nicht gespeichert.
-Nur die letzte vollstaendige Textnachricht wird zur lokalen Rueckabbildung und zentralen
-Acceptance weitergegeben. `output.files` bleibt leer; auch Code-Auftraege liefern nur Text.
-Es gibt weder `workspace-write` noch eine Ausfuehrung erzeugten Codes.
+Nur die letzte vollständige Textnachricht wird zur lokalen Rückabbildung und zentralen
+Acceptance weitergegeben. `output.files` bleibt leer; auch Code-Aufträge liefern nur Text.
+Es gibt weder `workspace-write` noch eine Ausführung erzeugten Codes.
 
-Synthetische, versionierte Fehlerfixtures pruefen `auth_required`, `policy_blocked`,
+Synthetische, versionierte Fehlerfixtures prüfen `auth_required`, `policy_blocked`,
 `rate_limited`, `worker_unavailable` und unbekannte Fehler (`internal`). Die Zuordnung ist
 eng und verwendet keine Teilstrings aus einem beliebigen Modelltext. Diese Fixtures sind
 technische Tests, keine aufgezeichneten echten Providerantworten und keine inhaltlichen
-Referenzfaelle. Backoff, Lane-Pause und Fallback entscheidet ausschliesslich Etappe 10;
+Referenzfälle. Backoff, Lane-Pause und Fallback entscheidet ausschliesslich Etappe 10;
 der Fake-Adapter startet pro Versuch genau einen CLI-Lauf.
 
 ### Codex: Inbetriebnahme
 
 Das Build-Rezept unter `docker/lane-codex/` pinnt Linux/amd64, die offizielle CLI-Archivversion,
 deren SHA-256 sowie die Basis-Images. Archiv-Metadaten und der Pfad `bin/codex` wurden lesend
-geprueft; ein Image-Build, echter CLI-Aufruf oder Login wurde nicht ausgefuehrt.
+geprüft; ein Image-Build, echter CLI-Aufruf oder Login wurde nicht ausgeführt.
 Vor Aktivierung sind unter anderem diese konkreten Grenzen nachzuweisen:
 
 - **Tool-Deaktivierung:** Im gepinnten Quellstand entfernt `shell_tool=false` die Shell-Werkzeuge,
   aber `ApplyPatch` kann weiterhin anhand des Modellkatalogs registriert werden. Read-only,
-  verweigerte Rueckfragen und das nachtraegliche Ablehnen von Tool-Ereignissen beweisen keine
+  verweigerte Rückfragen und das nachträgliche Ablehnen von Tool-Ereignissen beweisen keine
   vorbeugende Tool-Sperre.
-- **Interne Retries:** Der eingebaute OpenAI-Provider uebernimmt aus
+- **Interne Retries:** Der eingebaute OpenAI-Provider übernimmt aus
   `model_providers.openai` nur die Katalog-Konfiguration. Dort gesetzte Request-/Stream-Retry-
   Werte werden ignoriert. Solche wirkungslosen Schalter werden deshalb nicht mitgegeben.
   Eine Subscription-Anbindung ohne versteckte Retries ist noch nicht nachgewiesen.
 - **Isolation:** Rootless Betrieb, Profiltrennung, begrenzte Provider-Netzverbindung ohne
-  Host-/Repo-/DB-Zugang, Dateisystemgrenzen und zuverlaessige Container-Bereinigung brauchen
+  Host-/Repo-/DB-Zugang, Dateisystemgrenzen und zuverlässige Container-Bereinigung brauchen
   eigene Live-Nachweise. Der geschlossene Simulationsvertrag hat bewusst keinen Providerzugang.
-- **Anmeldung:** Ein spaeterer Owner-Login mit `codex login --device-auth` gehoert ausschliesslich
+- **Anmeldung:** Ein späterer Owner-Login mit `codex login --device-auth` gehört ausschliesslich
   ins isolierte Profil. `login status` mit Exit-Code null allein unterscheidet nicht zwischen
-  Subscription- und API-Key-Anmeldung; der verwendete Modus muss zusaetzlich geprueft werden.
+  Subscription- und API-Key-Anmeldung; der verwendete Modus muss zusätzlich geprüft werden.
 
 `simulation_ready` ist auch hier ausschliesslich ein Simulationsnachweis. Echte
-Anbieter-Kontingente, semantische Modellqualitaet und Produktionsbereitschaft bleiben offen.
+Anbieter-Kontingente, semantische Modellqualität und Produktionsbereitschaft bleiben offen.
 
 Quellenstand: [offizielle Version 0.166.0](https://github.com/openai/codex/releases/tag/rust-v0.166.0),
 Commit `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`:

@@ -242,14 +242,19 @@ Details und Limits: [WISSENS_DB.md](WISSENS_DB.md).
 `GET /api/v1/health` liefert ohne Credentials ausschliesslich `{"status":"ok"}` und
 benoetigt dafuer keine DB. Mit Owner-Bearer oder gueltiger Browser-Session enthaelt die
 Antwort `db`, `paused`, `stop_requested`, `ollama`, `lanes` und
-`counter_scope: "since_migration_0016"`. Worker-Tokens sind unzulaessig; ein ungueltiger
+`counter_scope: "live_since_migration_0018"`. Worker-Tokens sind unzulaessig; ein ungueltiger
 Authorization-Header faellt nicht auf eine daneben vorhandene Session zurueck.
 
-`db` zeigt nur Verbindung und den Vergleich des Schemas mit Migration `0016`.
-Lane-Felder unterscheiden `last_observation_success_at` von `last_attempt_success_at`;
-Ausfuehrungszaehler beginnen bei dieser Migration. `claims_today`, `daily_attempt_limit`
-und `configured_attempts_remaining` sind lokale Einstellungen und Claim-Zaehlungen.
-`provider_quota` bleibt `unknown`, `live_available` bleibt `false`.
+`db` zeigt nur Verbindung und den Vergleich des Schemas mit dem aktuellen Alembic-Head.
+Lane-Felder unterscheiden `last_observation_success_at` von `last_attempt_success_at`.
+`completed_attempts`, `last_attempt_at` und `last_attempt_success_at` zaehlen nur
+Live-Ergebnisse seit Migration `0018`; `simulated_attempts`, `remote_attempts` und
+`unknown_attempts` zaehlen Versuche ohne Live-Nachweis. `consecutive_failures`,
+`last_error_code` und `last_error_at` zaehlen Fehler jeder Herkunft; nur ein Live-Erfolg
+setzt die Serie zurueck. `claims_today`, `daily_attempt_limit` und
+`configured_attempts_remaining` sind lokale Einstellungen und Claim-Zaehlungen.
+`provider_quota` bleibt `unknown`; `live_available` ist nur innerhalb von 30 Sekunden nach
+einer positiven Live-Vorpruefung (`execution_mode: "live"`) `true`.
 Gesundheitsdaten entstehen aus gespeicherten Beobachtungen; kein HTTP- oder CLI-Probeaufruf.
 
 DB-/Konfigurationsfehler liefern redigierte 503-Antworten, ungueltige Credentials 401.

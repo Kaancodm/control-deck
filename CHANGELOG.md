@@ -5,6 +5,24 @@
 Die Eintraege beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unveraendert.
 
+### Lasttest und Lane-Entscheid (2026-11-04)
+
+- `scripts/loadtest.py` und `make loadtest` ergaenzen den Queue-Lasttest aus
+  Spec 18 (D2): 50 synthetische Auftraege, 3 getrennte Runner-Prozesse gegen den
+  Simulations-Stub, Nachweise fuer genau ein Ergebnis und ein `task.acquire` je
+  Versuch sowie keine haengenden Leases. Nur `DECK_TEST_DATABASE_URL` (Suffix `_test`).
+- Owner-Entscheid: Die Codex-Lane ist in `config/router.yaml` deaktiviert
+  (`enabled: false`), weil kein aktives Codex-Konto besteht. Claude bleibt die
+  aktive Cloud-Lane, Ollama die lokale Lane; beide weiterhin nur als Simulation,
+  die Live-Profile bleiben gesperrt. Der Lasttest unterstuetzt `ollama` und `claude`.
+- `tests/integration/test_loadtest.py` prueft beide Lanes in der Testsuite;
+  Fehlerpolitik- und Admission-Tests erhalten eine eigene Routing-Konfiguration
+  und haengen nicht mehr am ausgelieferten Lane-Zustand.
+- Lokal geprueft (Python 3.11, PostgreSQL 16 der Sandbox): Lasttest 50/50 auf
+  ollama und claude bestanden, Referenzsuite 14/14, Ruff und Mypy gruen.
+  CI mit Python 3.12 und PostgreSQL 17 bleibt der verbindliche Nachweis.
+  Details: [docs/LASTTEST.md](docs/LASTTEST.md).
+
 ### Etappe 17 – Audit und lokale Lane-Gesundheit (#32)
 
 - Geschuetzte Audit-Ansicht fuer sichere Auftrags-, Betriebs- und Auth-Metadaten;

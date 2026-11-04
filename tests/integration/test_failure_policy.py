@@ -37,6 +37,14 @@ def empty_blocklist(tmp_path, monkeypatch):
     monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(blocklist))
 
 
+@pytest.fixture(autouse=True)
+def all_lanes_enabled(tmp_path, monkeypatch):
+    """Fallback mechanics must not depend on the shipped lane/account state."""
+    router = tmp_path / "router.yaml"
+    router.write_text("version: 1\n", encoding="utf-8")
+    monkeypatch.setenv("DECK_ROUTER_FILE", str(router))
+
+
 def _queued(session, *, chain=None, max_attempts=5, local_only=False, acceptance=None):
     payload = _minimal_task_payload(uuid.uuid4(), max_attempts=max_attempts)
     payload["data_class"] = "local_only" if local_only else "cloud_ok"

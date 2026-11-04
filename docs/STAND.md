@@ -1,5 +1,26 @@
 # Stand des Repositorys
 
+## Arbeitsstand 2026-11-04: Lasttest und Lane-Entscheid
+
+Der fehlende Queue-Lasttest aus Spec 18 (D2) ist als `scripts/loadtest.py` mit
+`make loadtest` umgesetzt: 50 synthetische Auftraege, 3 getrennte Runner-Prozesse
+gegen den Simulations-Stub, Nachweise fuer genau ein Ergebnis und ein
+`task.acquire` je Versuch sowie keine haengenden Leases. Nur
+`DECK_TEST_DATABASE_URL` mit Suffix `_test`; keine Anbieteraufrufe.
+
+Owner-Entscheid: Codex-Konti sind aus, deshalb ist die Codex-Lane in
+`config/router.yaml` deaktiviert. Claude bleibt die aktive Cloud-Lane, Ollama die
+lokale Lane; beide weiterhin ausschliesslich simuliert, die Live-Profile bleiben
+gesperrt. Der Lasttest laeuft auf `ollama` und `claude`; Fehlerpolitik- und
+Admission-Tests bringen ihre eigene Routing-Konfiguration mit.
+
+Lokal geprueft in der Sandbox (Python 3.11, PostgreSQL 16): Lasttest 50/50 auf
+beiden Lanes bestanden (je rund 6 Sekunden), Referenzsuite 14/14, Ruff und Mypy
+gruen, Testsuite ohne Chromium-Smokes gruen (Browser und pgvector der Sandbox
+nicht verfuegbar; KB-Tests uebersprungen). CI mit Python 3.12 und PostgreSQL 17
+bleibt der verbindliche Nachweis. Etappe 18 ist damit nicht gestartet; Abnahme,
+externes Review und Inbetriebnahme bleiben offen. Details: [LASTTEST.md](LASTTEST.md).
+
 ## Etappe 17 implementiert und lokal geprueft
 
 Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.

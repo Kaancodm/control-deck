@@ -25,6 +25,14 @@ from tests.integration.test_database import _insert_task, _minimal_task_payload
 _TTL = timedelta(seconds=30)
 
 
+@pytest.fixture(autouse=True)
+def all_lanes_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Admission mechanics must not depend on the shipped lane/account state."""
+    router = tmp_path / "router.yaml"
+    router.write_text("version: 1\n", encoding="utf-8")
+    monkeypatch.setenv("DECK_ROUTER_FILE", str(router))
+
+
 @pytest.fixture
 def privacy_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     blocklist = tmp_path / "private-literals.txt"

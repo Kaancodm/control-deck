@@ -54,6 +54,7 @@ beschrieben. Der Runner liefert ausschliesslich geprueften Versandtext aus; unte
 bei `cloud_redacted` lokal ersetzt. Details: [docs/RUNNER.md](docs/RUNNER.md).
 
 Routing und Tagesbudgets: [docs/ROUTING.md](docs/ROUTING.md).
+Queue-Lasttest (nur Test-Datenbank, Simulation): [docs/LASTTEST.md](docs/LASTTEST.md).
 Ollama-Fake-CLI, Lane-Gesundheit und die gesperrte Live-Anbindung:
 [docs/LANES.md](docs/LANES.md).
 Fehlervertrag, Wartezeiten und Owner-Fehlerliste:

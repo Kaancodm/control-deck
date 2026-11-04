@@ -27,7 +27,12 @@ Verbrauch werden ausdruecklich uebergeben. `task.v1` und `result.v1` bleiben unv
 
 ## Konfiguration
 
-`config/router.yaml` liefert explizite Standardwerte ohne Modellnamen. Mit
+`config/router.yaml` liefert explizite Standardwerte ohne Modellnamen. Ausgeliefert
+ist die Codex-Lane seit dem Owner-Entscheid vom 2026-11-04 deaktiviert (`enabled: false`),
+weil kein aktives Codex-Konto besteht; Claude bleibt die aktive Cloud-Lane und Ollama
+die lokale Lane. Eine deaktivierte Lane entfernt der Router aus jeder Entscheidung
+(Schritt 5 oben); Auftraege mit ausschliesslich Codex in der Kette bleiben wartend,
+bis eine andere zulaessige Lane verfuegbar ist. Mit
 `DECK_ROUTER_FILE` kann eine lokale Konfiguration gewaehlt werden. Ungueltige oder explizit
 konfigurierte, aber nicht lesbare Dateien ergeben einen sicheren Konfigurationsfehler.
 Die Datei ist groessenbegrenzt; unbekannte Felder, doppelte YAML-Schluessel, Aliase,

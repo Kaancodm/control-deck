@@ -10,8 +10,10 @@ lanes:
     enabled: true
     daily_attempt_limit: null
     models: {}
+  # Disabled by owner decision (2026-11-04): no active Codex account.
+  # Claude remains the active cloud lane; re-enable only with a working account.
   codex:
-    enabled: true
+    enabled: false
     daily_attempt_limit: null
     models: {}
 # First matching rule can only restrict the task's worker set.

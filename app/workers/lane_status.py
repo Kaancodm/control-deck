@@ -53,6 +53,8 @@ def update_lane_status(
     ``probe_pending`` and commit its generation before I/O. Its result may update
     only that generation and retains the probe start time for freshness checks.
     Any newer observation invalidates older probes, including across processes.
+    A probe result never creates the row: without its started observation it is
+    rejected instead of fabricating fresh evidence.
     """
     _validate_lane(lane)
     if not isinstance(status, LaneHealthState) or not isinstance(reason, str):
@@ -61,15 +63,18 @@ def update_lane_status(
         raise LaneHealthError()
     if probe_generation is not None and (type(probe_generation) is not int or probe_generation < 1):
         raise LaneHealthError()
-    statement = insert(LaneStatus).values(lane=lane.value, status=status.value, reason=reason)
-    session.execute(statement.on_conflict_do_nothing(index_elements=[LaneStatus.lane]))
+    if probe_generation is None:
+        statement = insert(LaneStatus).values(lane=lane.value, status=status.value, reason=reason)
+        session.execute(statement.on_conflict_do_nothing(index_elements=[LaneStatus.lane]))
     row = session.scalar(
         select(LaneStatus)
         .where(LaneStatus.lane == lane.value)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    assert row is not None
+    if row is None:
+        # Fail closed: a probe completion must find the observation that started it.
+        raise LaneHealthError()
     if probe_generation is not None and row.probe_generation != probe_generation:
         return row
     now = session.scalar(select(func.clock_timestamp()))

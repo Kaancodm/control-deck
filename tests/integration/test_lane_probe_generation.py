@@ -3,13 +3,13 @@
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import delete, update
 from sqlalchemy.orm import Session
 
 from app.audit.health import AttemptHealth, LaneObservation, lane_health_view
 from app.core.schemas import Worker
 from app.db.models import LaneStatus
-from app.workers.lane_status import LaneHealthState, update_lane_status
+from app.workers.lane_status import LaneHealthError, LaneHealthState, update_lane_status
 from app.workers.lanes.ollama import OllamaAvailability, OllamaExecutor
 from app.workers.ollama_lane import OllamaLaneRunner
 from tests.integration.test_ollama_lane import _write_config
@@ -185,3 +185,44 @@ def test_probe_is_committed_before_availability_io(db_session, tmp_path, monkeyp
     assert row.reason == "inventory_unavailable"
     assert row.probe_generation == observed_generations[0]
     assert all(not session.in_transaction() for session in sessions)
+
+
+def test_probe_completion_without_prior_row_is_rejected(db_session):
+    db_session.execute(delete(LaneStatus).where(LaneStatus.lane == "ollama"))
+    db_session.commit()
+    with Session(db_session.get_bind()) as writer:
+        with pytest.raises(LaneHealthError):
+            update_lane_status(
+                writer,
+                lane=Worker.OLLAMA,
+                status=LaneHealthState.OK,
+                reason="live_ready",
+                probe_generation=1,
+            )
+        writer.rollback()
+    with Session(db_session.get_bind()) as reader:
+        assert reader.get(LaneStatus, "ollama") is None
+
+
+def test_probe_completion_after_row_loss_fails_closed(db_session, tmp_path, monkeypatch):
+    router = tmp_path / "router.yaml"
+    _write_config(router, models={"default": "fixture-model"})
+    monkeypatch.setenv("DECK_ROUTER_FILE", str(router))
+
+    def session_factory():
+        return Session(db_session.get_bind(), autoflush=False)
+
+    def availability(models):
+        # The started observation disappears while the probe performs its I/O.
+        with Session(db_session.get_bind()) as eraser:
+            eraser.execute(delete(LaneStatus).where(LaneStatus.lane == "ollama"))
+            eraser.commit()
+        return OllamaAvailability("ok", "live_ready", models)
+
+    executor = OllamaExecutor()
+    monkeypatch.setattr(executor, "availability", availability)
+    runner = OllamaLaneRunner(session_factory, runs_root=tmp_path / "runs", executor=executor)
+    outcome = runner.run_once()
+    assert outcome.action == "error" and outcome.error_code == "lane_preflight_failed"
+    with Session(db_session.get_bind()) as reader:
+        assert reader.get(LaneStatus, "ollama") is None

@@ -272,7 +272,8 @@ Ergebnisse und Events bleiben erhalten. Health bezeichnet den Live-Zeitraum mit
 committet. `probe_pending` verhindert zwischenzeitliche Live-Bereitschaft. Nur das Ergebnis
 der aktuellen Generation darf die Beobachtung ersetzen; Pause und andere neue Beobachtungen
 invalidieren ältere Proben ebenfalls. `updated_at` bleibt beim Abschluss der Probe deren
-Startzeit. `live_available` verlangt zusätzlich `ok`, `live_ready`, eine aktivierte,
+Startzeit. Ein Probenabschluss ohne vorhandene Zeile wird abgewiesen und legt keine
+Beobachtung an. `live_available` verlangt zusätzlich `ok`, `live_ready`, eine aktivierte,
 nicht pausierte Lane und ein Alter ab null bis ausschliesslich 30 Sekunden.
 
 Der Downgrade hält Results und Lane-Status exklusiv gesperrt. Er verweigert nicht-`unknown`

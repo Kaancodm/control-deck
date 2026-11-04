@@ -1,20 +1,35 @@
-# Aenderungen
+# Änderungen
 
-## Unveroeffentlicht
+## Unveröffentlicht
 
-Die Eintraege beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
-Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unveraendert.
+Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
+Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
 
 ### Ollama Live-Adapter – Entscheid (#39, Draft)
 
-- ADR 0009 ersetzt fuer die lokale Live-Lane den CLI-Transport durch begrenztes
+- ADR 0009 ersetzt für die lokale Live-Lane den CLI-Transport durch begrenztes
   Loopback-HTTP: nur `http`, die Literale `127.0.0.1` oder `::1` und ein expliziter
   Port. Ollama ist exakt auf `v0.40.14` gepinnt; der Tag wurde gegen den Upstream-Commit
-  `9a3e8177767245acc62b735eba7d5d8a553606d0` aufgeloest.
-- LANES.md beschreibt den HTTP-Vertrag, die geprueften Quellstellen und die offenen
-  Server-Nachweise. Code, Schemas und Migrationen aendern sich in #39 nicht.
+  `9a3e8177767245acc62b735eba7d5d8a553606d0` aufgelöst.
+- LANES.md beschreibt den HTTP-Vertrag, die geprüften Quellstellen und die offenen
+  Server-Nachweise. Code, Schemas und Migrationen ändern sich in #39 nicht.
 - Folgestack #40 ff., nicht Teil dieses Eintrags: Migration 0018 mit Provenienz- und
-  Live-Zaehlern, Runner-Flags, Text-Streaming, Canary und Referenzmodus.
+  Live-Zählern, Runner-Flags, Text-Streaming, Canary und Referenzmodus.
+
+### Ollama Live-Adapter – Provenienz (#40, Draft)
+
+- Migration 0018 trennt Executor-Provenienz und Live-Erfolgszähler von Simulation
+  und nicht attestierten Remote-Ergebnissen. Die v1-Schemas bleiben unverändert.
+- Angenommene Fehler jeder Herkunft zählen in der Fehlerserie; nur ein Live-Erfolg
+  setzt sie zurück. Die Migration erhält alte Fehlerdaten, die Health-Ansicht alle
+  vorgesehenen Fehlergründe. Der neue Live-Zählerzeitraum steht in der Abnahme-Checkliste.
+
+### Ollama Live-Adapter – Transport, Daemon, Canary, Referenz (#41 bis #47, Draft)
+
+- Striktes Runner-Flag, Text-Streaming, lokale Modellquelle, Abbruch und sichere
+  Metadaten; Laufzeit-Ausfälle stoppen die Poll-Schleife nicht dauerhaft.
+- Canary und Referenzmodus werden für die gesonderte Owner-Abnahme vorbereitet.
+  Echte Modelle, Serverbetrieb und daemonseitige Ressourcenfreigabe sind ungeprüft.
 
 ### Etappe 17 – Audit und lokale Lane-Gesundheit (#32)
 

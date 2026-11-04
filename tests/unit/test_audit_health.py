@@ -193,8 +193,8 @@ def test_naive_attempt_timestamp_is_rejected():
 
 
 @pytest.mark.parametrize("profile", ["simulation", "remote", "unknown"])
-@pytest.mark.parametrize("status", list(ResultStatus))
-def test_nonlive_attempt_never_changes_live_evidence(profile, status):
+@pytest.mark.parametrize("status", [ResultStatus.SUCCEEDED, ResultStatus.CANCELLED])
+def test_nonlive_success_or_cancellation_preserves_failure_and_live_evidence(profile, status):
     from dataclasses import replace
 
     previous = AttemptHealth(
@@ -214,6 +214,77 @@ def test_nonlive_attempt_never_changes_live_evidence(profile, status):
         execution_profile=profile,
     )
     assert actual == replace(previous, simulated_attempts=4)
+
+
+@pytest.mark.parametrize("profile", ["simulation", "remote", "unknown", "live"])
+@pytest.mark.parametrize("status", [ResultStatus.FAILED, ResultStatus.BLOCKED])
+def test_failure_of_every_origin_updates_failure_evidence(profile, status):
+    previous = AttemptHealth(
+        completed_attempts=3,
+        simulated_attempts=2,
+        consecutive_failures=1,
+        last_error_code=ErrorCode.TIMEOUT,
+        last_error_at=NOW,
+        last_attempt_at=NOW,
+        last_attempt_success_at=NOW - timedelta(days=1),
+    )
+    recorded_at = NOW + timedelta(seconds=1)
+    code = ErrorCode.ACCEPTANCE_FAILED if status == ResultStatus.FAILED else None
+    actual = completed_attempt(
+        previous,
+        status=status,
+        error_code=code,
+        recorded_at=recorded_at,
+        execution_profile=profile,
+    )
+    assert actual.consecutive_failures == 2
+    assert actual.last_error_code == code and actual.last_error_at == recorded_at
+    assert actual.last_attempt_success_at == previous.last_attempt_success_at
+    assert actual.completed_attempts == (4 if profile == "live" else 3)
+    assert actual.simulated_attempts == (2 if profile == "live" else 3)
+    assert actual.last_attempt_at == (recorded_at if profile == "live" else NOW)
+
+
+def test_only_live_success_resets_a_mixed_origin_failure_series():
+    state = AttemptHealth()
+    outcomes = [
+        ("remote", ResultStatus.FAILED, ErrorCode.TIMEOUT, 1),
+        ("simulation", ResultStatus.BLOCKED, ErrorCode.POLICY_BLOCKED, 2),
+        ("unknown", ResultStatus.SUCCEEDED, None, 2),
+        ("live", ResultStatus.CANCELLED, None, 2),
+        ("live", ResultStatus.SUCCEEDED, None, 0),
+    ]
+    for index, (profile, status, code, failures) in enumerate(outcomes):
+        state = completed_attempt(
+            state,
+            status=status,
+            error_code=code,
+            recorded_at=NOW + timedelta(seconds=index),
+            execution_profile=profile,
+        )
+        assert state.consecutive_failures == failures
+        if index < 4:
+            assert state.last_attempt_success_at is None
+    assert state.simulated_attempts == 3 and state.completed_attempts == 2
+    assert state.last_error_code == ErrorCode.POLICY_BLOCKED
+    assert state.last_error_at == NOW + timedelta(seconds=1)
+    assert state.last_attempt_success_at == NOW + timedelta(seconds=4)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "inventory_cancelled",
+        "inventory_timeout",
+        "inventory_internal",
+        "rootless_required",
+        "cli_version_unsupported",
+    ],
+)
+def test_known_worker_failures_remain_visible_in_health(reason):
+    actual = view(observation=LaneObservation("unavailable", reason, NOW, None))
+    assert actual.reason == reason
+    assert actual.live_available is False
 
 
 def test_default_profile_cannot_attest_live_success():

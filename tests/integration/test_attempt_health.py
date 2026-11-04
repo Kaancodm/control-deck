@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic.config import Config
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from alembic import command
@@ -315,6 +316,72 @@ def test_public_worker_cannot_promote_result_to_live(api_client, db_session):
     assert evidence["last_attempt_success_at"] is None
 
 
+def test_remote_failure_counts_but_only_live_success_resets_series(api_client, db_session):
+    assert submit(api_client, running(api_client), error="timeout").status_code == 200
+    failed = attempt_evidence(db_session)
+    assert failed["completed_attempts"] == 0 and failed["simulated_attempts"] == 1
+    assert failed["consecutive_failures"] == 1 and failed["last_error_code"] == "timeout"
+    assert failed["last_error_at"] is not None
+    assert failed["last_attempt_at"] is failed["last_attempt_success_at"] is None
+    db_session.commit()
+
+    assert submit(api_client, running(api_client)).status_code == 200
+    recovered = attempt_evidence(db_session)
+    assert recovered == {**failed, "simulated_attempts": 2}
+    db_session.commit()
+
+    assert submit_live(db_session, running(api_client)).status_code == 200
+    live = attempt_evidence(db_session)
+    assert live["completed_attempts"] == 1 and live["simulated_attempts"] == 2
+    assert live["consecutive_failures"] == 0
+    assert live["last_error_code"] == "timeout" and live["last_error_at"] == failed["last_error_at"]
+    assert live["last_attempt_success_at"] is not None
+
+
+@pytest.mark.parametrize("profile", ["simulation", "unknown"])
+def test_nonlive_failure_without_live_attempts_is_persisted(api_client, db_session, profile):
+    envelope = running(api_client)
+    payload = _result(envelope)
+    payload.update(status="failed", error={"code": "timeout", "message": "Synthetic failure"})
+    with Session(db_session.get_bind()) as writer:
+        submit_worker_result(
+            writer,
+            lease_id=UUID(envelope["lease"]["lease_id"]),
+            result_payload=payload,
+            execution_profile=profile,
+        )
+        writer.commit()
+    evidence = attempt_evidence(db_session)
+    assert evidence["completed_attempts"] == 0 and evidence["simulated_attempts"] == 1
+    assert evidence["consecutive_failures"] == 1
+    assert evidence["last_error_code"] == "timeout" and evidence["last_error_at"] is not None
+    assert evidence["last_attempt_success_at"] is None
+
+
+@pytest.mark.parametrize(
+    "counts",
+    [
+        {"completed": -1, "simulated": 2, "failures": 1},
+        {"completed": 2, "simulated": -1, "failures": 1},
+        {"completed": 1, "simulated": 1, "failures": -1},
+        {"completed": 1, "simulated": 1, "failures": 3},
+    ],
+)
+def test_attempt_counter_constraint_rejects_impossible_counts(db_session, counts):
+    with pytest.raises(IntegrityError):
+        db_session.execute(
+            text(
+                "INSERT INTO lane_status (lane, status, reason, completed_attempts, "
+                "simulated_attempts, consecutive_failures) "
+                "VALUES ('ollama', 'unavailable', 'attempt_recorded', "
+                ":completed, :simulated, :failures)"
+            ),
+            counts,
+        )
+        db_session.flush()
+    db_session.rollback()
+
+
 def test_provenance_migration_classifies_old_results_and_removes_unattested_success(
     api_client, db_session
 ):
@@ -341,6 +408,21 @@ def test_provenance_migration_classifies_old_results_and_removes_unattested_succ
             )
             == 2
         )
+        legacy_constraint = db_session.scalar(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid='lane_status'::regclass AND conname='ck_lane_status_counters'"
+            )
+        )
+        assert "simulated_attempts" not in legacy_constraint
+        with pytest.raises(IntegrityError):
+            with db_session.begin_nested():
+                db_session.execute(
+                    text(
+                        "INSERT INTO lane_status (lane,status,reason,completed_attempts,"
+                        "consecutive_failures) VALUES ('ollama','unavailable','timeout',0,1)"
+                    )
+                )
         db_session.execute(
             text(
                 "INSERT INTO results (id, task_id, attempt, payload) "
@@ -351,11 +433,13 @@ def test_provenance_migration_classifies_old_results_and_removes_unattested_succ
         db_session.execute(
             text(
                 "INSERT INTO lane_status (lane,status,reason,completed_attempts,"
-                "consecutive_failures,"
+                "consecutive_failures,last_error_code,last_error_at,"
                 "last_attempt_at,last_attempt_success_at,last_success_at) VALUES "
-                "('ollama','ok','simulation_ready',7,0,clock_timestamp(),clock_timestamp(),clock_timestamp())"
+                "('ollama','unavailable','timeout',7,3,'timeout',clock_timestamp(),"
+                "clock_timestamp(),clock_timestamp(),clock_timestamp())"
             )
         )
+        legacy_error_at = db_session.scalar(text("SELECT last_error_at FROM lane_status"))
         db_session.commit()
         command.upgrade(config, "head")
         command.check(config)
@@ -363,6 +447,8 @@ def test_provenance_migration_classifies_old_results_and_removes_unattested_succ
         assert result.execution_profile == "unknown"
         row = db_session.get(LaneStatus, "ollama")
         assert row.simulated_attempts == 7 and row.completed_attempts == 0
+        assert row.consecutive_failures == 3
+        assert row.last_error_code == "timeout" and row.last_error_at == legacy_error_at
         assert row.last_attempt_success_at is row.last_attempt_at is None
         assert row.last_success_at is not None
         db_session.commit()

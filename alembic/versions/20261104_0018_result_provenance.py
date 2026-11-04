@@ -29,11 +29,17 @@ def upgrade() -> None:
     op.create_check_constraint(
         "ck_lane_status_simulated_attempts", "lane_status", "simulated_attempts >= 0"
     )
+    op.drop_constraint("ck_lane_status_counters", "lane_status", type_="check")
+    op.create_check_constraint(
+        "ck_lane_status_counters",
+        "lane_status",
+        "completed_attempts >= 0 AND consecutive_failures >= 0 "
+        "AND consecutive_failures <= completed_attempts + simulated_attempts",
+    )
     # All earlier counters predate provenance. Retain their count as non-live,
-    # while removing unauthenticated success/failure claims from live evidence.
+    # preserving failures of any origin but discarding unattested live successes.
     op.execute(
         "UPDATE lane_status SET simulated_attempts=completed_attempts, completed_attempts=0, "
-        "consecutive_failures=0, last_error_code=NULL, last_error_at=NULL, "
         "last_attempt_at=NULL, last_attempt_success_at=NULL"
     )
 
@@ -47,6 +53,13 @@ def downgrade() -> None:
         )
     ):
         raise RuntimeError("Downgrade blocked: execution provenance evidence would be lost")
+    op.drop_constraint("ck_lane_status_counters", "lane_status", type_="check")
+    op.create_check_constraint(
+        "ck_lane_status_counters",
+        "lane_status",
+        "completed_attempts >= 0 AND consecutive_failures >= 0 "
+        "AND consecutive_failures <= completed_attempts",
+    )
     op.drop_constraint("ck_lane_status_simulated_attempts", "lane_status", type_="check")
     op.drop_column("lane_status", "simulated_attempts")
     op.drop_constraint("ck_results_execution_profile", "results", type_="check")

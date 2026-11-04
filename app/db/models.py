@@ -311,7 +311,7 @@ class LaneStatus(Base):
         CheckConstraint("simulated_attempts >= 0", name="ck_lane_status_simulated_attempts"),
         CheckConstraint(
             "completed_attempts >= 0 AND consecutive_failures >= 0 "
-            "AND consecutive_failures <= completed_attempts",
+            "AND consecutive_failures <= completed_attempts + simulated_attempts",
             name="ck_lane_status_counters",
         ),
         CheckConstraint(

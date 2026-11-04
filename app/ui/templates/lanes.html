@@ -10,9 +10,9 @@
 <p>Profil der letzten Vorprüfung: {{ lane.execution_mode }} · Live verfügbar: {{ 'ja' if lane.live_available else 'nein' }}.</p>
 <p>Beobachtet: {{ lane.observed_at.isoformat() if lane.observed_at else 'unbekannt' }}</p>
 <p>Positive Vorprüfung: {{ lane.last_observation_success_at.isoformat() if lane.last_observation_success_at else 'keine' }}</p>
-<p>Angenommene Live-Versuche: {{ lane.completed_attempts }} · Fehlerserie: {{ lane.consecutive_failures }}</p>
+<p>Angenommene Live-Versuche: {{ lane.completed_attempts }} · Fehlerserie aller Herkünfte: {{ lane.consecutive_failures }}</p>
 <p>Versuche ohne Live-Nachweis: {{ lane.simulated_attempts }} (Simulation, remote und unbekannt)</p>
-<p>Letzter erfolgreicher Versuch: {{ lane.last_attempt_success_at.isoformat() if lane.last_attempt_success_at else 'keiner' }}</p>
+<p>Letzter erfolgreicher Live-Versuch: {{ lane.last_attempt_success_at.isoformat() if lane.last_attempt_success_at else 'keiner' }}</p>
 <p>Letzter Fehler: {{ lane.last_error_code.value if lane.last_error_code else 'unbekannt' if lane.last_error_at else 'keiner' }} · {{ lane.last_error_at.isoformat() if lane.last_error_at else '—' }}</p>
 <p>Heutige Claims: {{ lane.claims_today }} · Lokales Tageslimit: {{ lane.daily_attempt_limit if lane.daily_attempt_limit is not none else 'unbegrenzt' }} · Verbleibend: {{ lane.configured_attempts_remaining if lane.configured_attempts_remaining is not none else 'unbegrenzt' }}</p>
 <p>Anbieter-Kontingent: unbekannt</p>

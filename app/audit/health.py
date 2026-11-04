@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
@@ -30,9 +30,14 @@ _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "model_not_available",
     "model_unavailable",
     "cli_unavailable",
+    "rootless_required",
+    "cli_version_unsupported",
     "context_limit_exceeded",
     "inventory_invalid",
     "inventory_unavailable",
+    "inventory_cancelled",
+    "inventory_timeout",
+    "inventory_internal",
     "attempt_recorded",
 }
 
@@ -69,13 +74,12 @@ def completed_attempt(
         raise ValueError("Invalid completed attempt metadata")
     if execution_profile not in {"simulation", "live", "remote", "unknown"}:
         raise ValueError("Invalid execution profile")
-    if execution_profile != "live":
-        return replace(previous, simulated_attempts=previous.simulated_attempts + 1)
+    live = execution_profile == "live"
     failed = status in (ResultStatus.FAILED, ResultStatus.BLOCKED)
-    succeeded = status == ResultStatus.SUCCEEDED
+    succeeded = live and status == ResultStatus.SUCCEEDED
     return AttemptHealth(
-        simulated_attempts=previous.simulated_attempts,
-        completed_attempts=previous.completed_attempts + 1,
+        simulated_attempts=previous.simulated_attempts + (0 if live else 1),
+        completed_attempts=previous.completed_attempts + (1 if live else 0),
         consecutive_failures=(
             previous.consecutive_failures + 1
             if failed
@@ -85,7 +89,7 @@ def completed_attempt(
         ),
         last_error_code=error_code if failed else previous.last_error_code,
         last_error_at=recorded_at if failed else previous.last_error_at,
-        last_attempt_at=recorded_at,
+        last_attempt_at=recorded_at if live else previous.last_attempt_at,
         last_attempt_success_at=recorded_at if succeeded else previous.last_attempt_success_at,
     )
 

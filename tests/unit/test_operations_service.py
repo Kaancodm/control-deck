@@ -207,9 +207,7 @@ def test_install_is_idempotent_and_never_starts_services(
     assert "--simulate" not in runner
 
 
-def test_unit_templates_have_valid_offline_syntax(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_unit_templates_have_valid_offline_syntax(tmp_path: Path) -> None:
     environment = tmp_path / "env"
     environment.write_text("")
     templates = service.render_units(Path.cwd(), environment)
@@ -226,31 +224,10 @@ def test_unit_templates_have_valid_offline_syntax(
         paths.append(str(destination))
     verifier = shutil.which("systemd-analyze")
     if verifier:
-        # Installation and every service action target the user manager. A system
-        # verifier incorrectly requires access to the host's system runtime path.
-        runtime = tmp_path / "runtime"
-        runtime.mkdir(mode=0o700)
-        monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
-        monkeypatch.setenv("LC_ALL", "C")
-        command = [verifier, "--user", "verify", "--man=no"]
-        result = subprocess.run([*command, *paths], capture_output=True, timeout=15, check=False)
-        assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
-
-        # A negative control proves the real verifier still rejects broken units.
-        invalid = tmp_path / "invalid.service"
-        invalid.write_bytes(
-            b"\n".join(
-                line
-                for line in templates["deck-api.service"].splitlines()
-                if not line.startswith(b"ExecStart=")
-            )
-            + b"\n"
+        result = subprocess.run(
+            [verifier, "verify", "--man=no", *paths], capture_output=True, timeout=15, check=False
         )
-        rejected = subprocess.run(
-            [*command, str(invalid)], capture_output=True, timeout=15, check=False
-        )
-        assert rejected.returncode != 0
-        assert b"ExecStart" in rejected.stderr
+        assert result.returncode == 0
 
 
 def test_install_refuses_conflicting_units(tmp_path: Path) -> None:

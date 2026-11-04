@@ -5,16 +5,16 @@
 Die Eintraege beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unveraendert.
 
-### Ollama Live-Adapter (Draft)
+### Ollama Live-Adapter – Entscheid (#39, Draft)
 
 - ADR 0009 ersetzt fuer die lokale Live-Lane den CLI-Transport durch begrenztes
-  Loopback-HTTP; Ollama ist exakt auf 0.40.14 geprueft und gepinnt.
-- Migration 0018 trennt Executor-Provenienz und Live-Erfolgszaehler von Simulation
-  und nicht attestierten Remote-Ergebnissen. Die v1-Schemas bleiben unveraendert.
-- Striktes Runner-Flag, Text-Streaming, lokale Modellquelle, Abbruch und sichere
-  Metadaten; Laufzeit-Ausfaelle stoppen die Poll-Schleife nicht dauerhaft.
-- Canary und Referenzmodus werden fuer die gesonderte Owner-Abnahme vorbereitet.
-  Echte Modelle, Serverbetrieb und daemonseitige Ressourcenfreigabe sind ungeprueft.
+  Loopback-HTTP: nur `http`, die Literale `127.0.0.1` oder `::1` und ein expliziter
+  Port. Ollama ist exakt auf `v0.40.14` gepinnt; der Tag wurde gegen den Upstream-Commit
+  `9a3e8177767245acc62b735eba7d5d8a553606d0` aufgeloest.
+- LANES.md beschreibt den HTTP-Vertrag, die geprueften Quellstellen und die offenen
+  Server-Nachweise. Code, Schemas und Migrationen aendern sich in #39 nicht.
+- Folgestack #40 ff., nicht Teil dieses Eintrags: Migration 0018 mit Provenienz- und
+  Live-Zaehlern, Runner-Flags, Text-Streaming, Canary und Referenzmodus.
 
 ### Etappe 17 – Audit und lokale Lane-Gesundheit (#32)
 

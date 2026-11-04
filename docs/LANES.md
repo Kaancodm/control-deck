@@ -166,7 +166,9 @@ Kaltstart, Modellqualität und Ressourcenfreigabe gehören deshalb in den Owner-
 Ollama-Dienst einrichten; der Client konfiguriert diesen Dienst nicht.
 
 Quellenstand: offizielles Ollama `v0.40.14`, Commit
-`9a3e8177767245acc62b735eba7d5d8a553606d0`:
+`9a3e8177767245acc62b735eba7d5d8a553606d0`. Der Tag wurde am 2026-11-04 mit
+`git ls-remote --tags` gegen das offizielle Repository aufgelöst und zeigt auf genau
+diesen Commit:
 
 - [CLI und Auto-Pull](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/cmd/cmd.go)
 - [Dateizugriffe im CLI](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/cmd/interactive.go)

@@ -10,8 +10,11 @@ begrenzen. ADR 0006 für die offiziellen Cloud-CLIs bleibt unverändert.
 ## Entscheid
 
 - Ollama verwendet die lokale HTTP-API mit `http.client` aus der Standardbibliothek.
-  Erlaubt sind ausschliesslich HTTP und die Loopback-Literale `127.0.0.1` und `::1`
-  mit explizitem Port. Proxies und Weiterleitungen werden nicht verwendet.
+  `DECK_OLLAMA_URL` hat genau die Form `http://127.0.0.1:<port>` oder
+  `http://[::1]:<port>` mit explizitem Port von 1 bis 65535. Abgewiesen werden
+  `https`, `localhost` und jeder andere Hostname, Userinfo, Pfad, Query, Fragment
+  sowie jede Normalisierung durch URL-Parser. Proxies und Weiterleitungen werden
+  nicht verwendet.
 - `DECK_LIVE_ENABLED` aktiviert nur mit exakt `1` oder `true`. Es gehört zusammen
   mit `DECK_OLLAMA_URL` in die Runner-Env-Datei. Simulation bleibt ausdrücklich
   wählbar und ignoriert das Live-Flag. Claude und Codex bleiben gesperrt.
@@ -39,7 +42,9 @@ begrenzen. ADR 0006 für die offiziellen Cloud-CLIs bleibt unverändert.
 
 Quellreferenz ist `v0.40.14`, Commit
 `9a3e8177767245acc62b735eba7d5d8a553606d0`; siehe den Quellenvertrag in
-[LANES.md](../LANES.md). Tests verwenden ausschliesslich einen lokalen HTTP-Stub.
+[LANES.md](../LANES.md). Der Tag wurde am 2026-11-04 mit `git ls-remote --tags`
+gegen das offizielle Ollama-Repository aufgelöst und zeigt auf genau diesen Commit.
+Tests verwenden ausschliesslich einen lokalen HTTP-Stub.
 Sie beweisen Client-Verhalten, keine installierte Ollama-Instanz oder Modellqualität.
 
 Der Owner richtet Loopback-Bindung, `OLLAMA_NO_CLOUD=1` und vorab geladene Modelle
@@ -62,8 +67,7 @@ von #39 zurückgezogen. Folgende Abweichungen wurden aufgelöst:
 | Version und Modell-Tags | Exakt 0.40.14 und explizite Tags | Regeln offen | Exakter Versions-Pin und explizite Tags gemäss implementiertem Draftvertrag |
 | Nachweisstand | Quellstellen und Stub-Tests geprüft | HTTP-Verhalten vor Live-Freigabe nachzuweisen | Kein sachlicher Widerspruch: Quellprüfung und Client-Tests liegen vor; echte Server-Abnahme bleibt offen |
 
-Die genauere URL-Regel aus #43 gilt ebenfalls: expliziter Port 1 bis 65535,
-keine Hostnamen, Userinfo, Pfade, Query, Fragmente oder Weiterleitungen.
+Die genauere URL-Regel aus #43 ist in den Abschnitt «Entscheid» übernommen.
 Das Flag ist standardmässig aus. Neue interne Ergebnisse fallen auf
 `simulation` zurück; Altresultate bleiben `unknown`, HTTP-Worker erhalten
 `remote`. Nur `live` verändert Live-Abschluss- und Erfolgszähler. Angenommene
@@ -73,8 +77,13 @@ Fehler. Ausschliesslich ein Live-Erfolg setzt die Fehlerserie zurück.
 Simulation, Remote und unbekannte Herkunft haben jeweils einen eigenen Zähler.
 
 Die Kontextpriorität lautet Lane-Konfiguration → `model_info` → Fallback 4096.
-`ceil(UTF-8-Bytes / 3) + 1024` darf das effektive `num_ctx` nicht überschreiten;
-der Chat erhält denselben Wert. Fehlende Einzelmodelle sperren keine anderen
+Die Grössenprüfung `ceil(UTF-8-Bytes / 3) + 1024` ist eine bewusst konservative
+Heuristik und kein Tokenizer: Sie überschätzt die Tokenzahl eher, weist also im
+Zweifel zu früh ab, und kann eine Überschreitung nicht sicher ausschliessen.
+Überschreitet die Schätzung das effektive `num_ctx`, endet der Versuch ohne
+HTTP-Aufruf mit `acceptance_failed` und dem Check `context_limit_exceeded`;
+schneidet der Server trotz Vorprüfung mit `done_reason: length` ab, gilt ebenfalls
+`acceptance_failed`. Der Chat erhält dasselbe `num_ctx` als Option. Fehlende Einzelmodelle sperren keine anderen
 verifizierten Modelle. Live-Bereitschaft gilt höchstens 30 Sekunden ab Probe-Beginn;
 persistente Probe-Generationen verhindern das Überschreiben durch alte Ergebnisse.
 

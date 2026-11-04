@@ -296,6 +296,9 @@ class HostRunner:
             json_format=prepared.json_format,
         )
         execution_profile = executor_profile(executor)
+        # A failed or silent attempt must not inherit the previous attempt's model,
+        # digest or counters from the adapter.
+        executor.last_metadata = {}
         thread = threading.Thread(target=monitor, name="deck-heartbeat", daemon=True)
         thread.start()
         try:
@@ -344,6 +347,7 @@ class HostRunner:
                     status=ResultStatus.FAILED,
                     code=ErrorCode.TIMEOUT,
                 )
+            execution_metadata = safe_execution_metadata(executor.last_metadata)
             with self.session_factory() as session:
                 try:
                     task = submit_worker_result(
@@ -351,9 +355,7 @@ class HostRunner:
                         lease_id=prepared.lease_id,
                         result_payload=result_payload_for_storage(result),
                         execution_profile=execution_profile,
-                        execution_metadata=safe_execution_metadata(
-                            getattr(executor, "last_metadata", None)
-                        ),
+                        execution_metadata=execution_metadata,
                     )
                 except TaskDeadlineElapsed:
                     session.commit()
@@ -383,7 +385,7 @@ class HostRunner:
                     data=(
                         json.dumps(
                             {
-                                **safe_execution_metadata(getattr(executor, "last_metadata", None)),
+                                **execution_metadata,
                                 "time": result.timing.finished_at.isoformat(),
                                 "phase": "completed",
                                 "attempt": prepared.attempt,

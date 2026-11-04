@@ -13,6 +13,9 @@ from uuid import UUID
 from app.core.schemas import ResultV1, TaskKind, Worker
 
 ExecutionProfile = Literal["simulation", "live", "remote", "unknown"]
+# Profiles an adapter may declare for itself. ``remote`` and ``unknown`` are assigned by
+# the host (HTTP worker API, legacy results) and can never be claimed by an executor.
+DeclaredProfile = Literal["disabled", "simulation", "live"]
 
 
 class ControlAction(StrEnum):
@@ -74,9 +77,12 @@ class AttemptContext:
 
 class LaneExecutor(Protocol):
     lane: Worker
+    # Bounded metadata of the most recent ``execute`` call. The runner clears it before
+    # every attempt and copies only allow-listed keys via ``safe_execution_metadata``.
+    last_metadata: dict[str, object]
 
     @property
-    def profile(self) -> str:
+    def profile(self) -> DeclaredProfile:
         """Declare provenance independently of runner activation flags."""
         ...
 

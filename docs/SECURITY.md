@@ -54,12 +54,11 @@ Die Drosselung zaehlt fuenf Fehler in 15 Minuten je Client-Kennung. Die Kennung 
 Peer-Adresse der Verbindung aus dem ASGI-Scope; `Forwarded`- und `X-Forwarded-*`-Header werden
 nie herangezogen. Migration `0014` speichert je Client nur einen SHA-256-Digest der Adresse,
 Zaehler und Fensterbeginn (`ui_login_clients`). Zusaetzlich sperren 20 Fehler innerhalb von
-24 Stunden ueber alle Clients den Owner-Login global. Diese Sperre endet mit einem Neustart
-des Dienstes oder mit `make unlock-login`: Der Launcher `app.api.server_main` hebt sie vor
-dem Oeffnen des Listeners auf und protokolliert dies; ist die Datenbank dabei nicht
-erreichbar, startet der Dienst nicht. `make unlock-login` ist eine ausdrueckliche lokale
-Verwaltungsaktion, setzt zusaetzlich alle Client-Fenster zurueck und protokolliert die
-Entsperrung. `make set-password` liest zweimal ohne Echo und gibt ausschliesslich einen
+24 Stunden ueber alle Clients den Owner-Login global. Nur `make unlock-login` hebt diese
+Sperre auf. Der Launcher `app.api.server_main` liest und protokolliert den Sperrstatus vor
+dem Oeffnen des Listeners; Sperre, Tagesbudget und Fensterbeginn bleiben bei jedem Start
+unveraendert. Ist die Datenbank nicht erreichbar, startet der Dienst nicht. Die ausdrueckliche
+lokale Verwaltungsaktion setzt auch alle Client-Fenster zurueck und auditiert die Entsperrung. `make set-password` liest zweimal ohne Echo und gibt ausschliesslich einen
 Argon2id-Hash aus; unsichere Terminal-Fallbacks und Passwortargumente werden abgewiesen.
 
 `auth_events` speichert nur Typ, Zeitpunkt, ID und Anzahl betroffener Sessions. Keine
@@ -74,15 +73,28 @@ die HTTP-Anbindung nimmt vorher keine Aktivitaetssperre. Der Widerruf wird vor d
 committed und genau einmal auditiert.
 
 Die globale Login-Sperre erscheint mit HTTP 423, ohne Zeitversprechen und ohne
-Passwortformular. Eine vorhandene gueltige Owner-Session bleibt nutzbar. Erst ein Neustart
-des Dienstes oder die lokale Entsperrung erlaubt weitere Anmeldungen. Die UI-CSRF-Pruefung
+Passwortformular. Eine vorhandene gueltige Owner-Session bleibt nutzbar. Erst die lokale
+Entsperrung erlaubt weitere Anmeldungen; ein Neustart aendert daran nichts. Die UI-CSRF-Pruefung
 verwendet dieselbe validierte feste Proxy-Origin wie die aeusserste HTTP-Schutzmiddleware.
 
 HTTP-Regressionen pruefen Passwortwechsel, Session-Ablauf, Drosselung je Client ohne Einfluss
-gefaelschter Forwarding-Header, globale Sperre, Aufhebung im Startpfad und lokale Entsperrung,
+gefaelschter Forwarding-Header, globale Sperre, Erhaltung im Startpfad und lokale Entsperrung,
 zwei Browser-Sessions, gefaelschte CSRF-/Origin-Werte und die Sperrreihenfolge waehrend einer
 konkurrierenden Transaktion. Chromium prueft globale Abmeldung und Sperranzeige bei
 390 und 1024 Pixeln. Konkrete Gesamtnachweise stehen in `STAND.md` und im Draft-PR.
+
+Migration `0017` begrenzt aktive anonyme Sessions auf fuenf je Client-Digest, insgesamt
+weiterhin auf 1000. GET `/ui/login` erlaubt je Client 20 Aufrufe pro Minute, auch bei
+wiederverwendetem Cookie. Kapazitaets- und Ratenlimits antworten mit HTTP 429 und `Retry-After`.
+Eine Flut desselben Clients belegt dadurch nicht das ganze anonyme Sitzungsbudget. Clients
+hinter derselben Verbindung teilen diese Grenzen; dies ist kein Schutz vor beliebig vielen
+verteilten Absendern. Nur Digests, Zaehler und Fensterzeiten werden gespeichert.
+
+Argon2 laeuft ohne offene DB-Transaktion und ohne gehaltene Zeilensperren. Eine kurze
+Vorpruefung schuetzt den Einstieg; nach der Passwortpruefung werden Session, CSRF, Ablauf,
+globale Sperre sowie beide Fehlerbudgets unter denselben Locks erneut geprueft. Erst dann
+wird ein Ergebnis gezaehlt oder eine Owner-Session ausgestellt. UI-Handler mit synchronem
+DB-Zugriff laufen im Threadpool; Formularlesen und Upload-Bereinigung bleiben asynchron.
 
 ## Private Konfiguration
 

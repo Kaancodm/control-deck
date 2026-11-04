@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from alembic.util.exc import CommandError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, text
@@ -19,6 +24,17 @@ from app.routing.config import RouterConfigurationError
 from app.ui.auth import SESSION_COOKIE, AuthConfigurationError, token_digest
 
 router = APIRouter(tags=["health"])
+
+
+def schema_head() -> str:
+    """Read the deployed migration graph independently of the process working directory."""
+    root = Path(__file__).resolve().parents[3]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "alembic"))
+    head = ScriptDirectory.from_config(config).get_current_head()
+    if head is None:
+        raise CommandError("Schema head unavailable")
+    return head
 
 
 @router.get("/api/v1/health", response_model=None)
@@ -42,7 +58,7 @@ def owner_health(request: Request) -> JSONResponse:
             ):
                 raise HTTPException(status_code=401, detail="Owner authentication required")
             revision = session.scalar(text("SELECT version_num FROM alembic_version"))
-            if revision != "20251103_0016":
+            if revision != schema_head():
                 return JSONResponse(
                     {"status": "unavailable", "db": {"connected": True, "schema": "outdated"}},
                     status_code=503,
@@ -68,6 +84,8 @@ def owner_health(request: Request) -> JSONResponse:
         RouterConfigurationError,
         RunnerSettingsError,
         AuthConfigurationError,
+        CommandError,
+        OSError,
     ):
         return JSONResponse({"status": "unavailable"}, status_code=503)
 

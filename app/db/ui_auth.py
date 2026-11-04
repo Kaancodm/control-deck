@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import math
 from dataclasses import dataclass
 from datetime import datetime
@@ -42,7 +43,10 @@ class UiSession(Base):
     """Only credential digests are persisted; revoked rows can be pruned safely."""
 
     __tablename__ = "ui_sessions"
-    __table_args__ = (Index("ix_ui_sessions_expires_at", "expires_at"),)
+    __table_args__ = (
+        Index("ix_ui_sessions_expires_at", "expires_at"),
+        Index("ix_ui_sessions_client_hash", "client_hash"),
+    )
 
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     csrf_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -52,12 +56,13 @@ class UiSession(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     password_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    client_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class UiLoginState(Base):
     """A singleton row serializes logins and holds the global 24-hour budget and lock.
 
-    The lock lasts until a process restart or ``make unlock-login`` (stage 15, D3).
+    Only explicit local administration via ``make unlock-login`` releases the lock.
     """
 
     __tablename__ = "ui_login_state"
@@ -78,6 +83,7 @@ class UiLoginClient(Base):
     __tablename__ = "ui_login_clients"
     __table_args__ = (
         CheckConstraint("failures >= 0", name="ck_ui_login_clients_failures_nonnegative"),
+        CheckConstraint("page_requests >= 0", name="ck_ui_login_clients_page_requests_nonnegative"),
         Index("ix_ui_login_clients_window_started_at", "window_started_at"),
     )
 
@@ -85,6 +91,10 @@ class UiLoginClient(Base):
     failures: Mapped[int] = mapped_column(Integer, nullable=False)
     window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     throttled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    page_requests: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    page_window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
+    )
 
 
 class AuthEvent(Base):
@@ -119,7 +129,8 @@ class SessionCapacityError(ValueError):
 
     code = "login_capacity"
 
-    def __init__(self) -> None:
+    def __init__(self, retry_after: int = 60) -> None:
+        self.retry_after = retry_after
         super().__init__("Owner login is temporarily unavailable.")
 
 
@@ -177,7 +188,12 @@ def _lock_client_window(session: Session, client_hash: str) -> UiLoginClient:
 
 
 def _issue_session(
-    session: Session, *, settings: AuthSettings, authenticated: bool, now: datetime
+    session: Session,
+    *,
+    settings: AuthSettings,
+    authenticated: bool,
+    now: datetime,
+    client_hash: str | None = None,
 ) -> SessionCredentials:
     credentials = SessionCredentials(
         token=issue_token(),
@@ -197,13 +213,16 @@ def _issue_session(
             expires_at=credentials.expires_at,
             last_active_at=now,
             password_fingerprint=password_fingerprint(settings) if authenticated else None,
+            client_hash=client_hash,
         )
     )
     session.flush()
     return credentials
 
 
-def create_anonymous_session(session: Session, settings: AuthSettings) -> SessionCredentials:
+def create_anonymous_session(
+    session: Session, settings: AuthSettings, *, client: str | None = None
+) -> SessionCredentials:
     """Issue a short-lived login/CSRF challenge; caller owns the transaction."""
     _lock_login_state(session)
     now = _database_now(session)
@@ -213,15 +232,46 @@ def create_anonymous_session(session: Session, settings: AuthSettings) -> Sessio
     # Elapsed client windows carry no protection any more; pruning keeps the table bounded.
     session.execute(
         delete(UiLoginClient).where(
-            UiLoginClient.window_started_at <= now - settings.failure_window
+            (UiLoginClient.window_started_at <= now - settings.failure_window)
+            & (
+                (UiLoginClient.page_requests == 0)
+                | (UiLoginClient.page_window_started_at <= now - settings.login_page_window)
+            )
         )
     )
     count = session.scalar(
         select(func.count()).select_from(UiSession).where(UiSession.authenticated.is_(False))
     )
     if count is None or count >= settings.max_anonymous_sessions:
-        raise SessionCapacityError()
-    return _issue_session(session, settings=settings, authenticated=False, now=now)
+        raise SessionCapacityError(math.ceil(settings.anonymous_lifetime.total_seconds()))
+    digest = client_fingerprint(client)
+    client_count = session.scalar(
+        select(func.count())
+        .select_from(UiSession)
+        .where(UiSession.authenticated.is_(False), UiSession.client_hash == digest)
+    )
+    if client_count is None or client_count >= settings.max_anonymous_sessions_per_client:
+        raise SessionCapacityError(math.ceil(settings.anonymous_lifetime.total_seconds()))
+    return _issue_session(
+        session, settings=settings, authenticated=False, now=now, client_hash=digest
+    )
+
+
+def limit_login_page(session: Session, settings: AuthSettings, *, client: str | None) -> int | None:
+    """Count GETs, including cookie reuse, and return a bounded retry delay when limited."""
+    _lock_login_state(session)
+    window = _lock_client_window(session, client_fingerprint(client))
+    now = _database_now(session)
+    ends = window.page_window_started_at + settings.login_page_window
+    if now >= ends:
+        window.page_requests = 0
+        window.page_window_started_at = now
+        ends = now + settings.login_page_window
+    if window.page_requests >= settings.max_login_page_requests:
+        return max(1, math.ceil((ends - now).total_seconds()))
+    window.page_requests += 1
+    session.flush()
+    return None
 
 
 def get_ui_session(
@@ -286,24 +336,15 @@ def owner_login_locked(session: Session) -> bool:
     return session.scalar(select(UiLoginState.locked_at).where(UiLoginState.id == 1)) is not None
 
 
-def authenticate_owner(
+def _check_login(
     session: Session,
     token: str | None,
     csrf: str | None,
-    password: str,
     settings: AuthSettings,
     *,
     client: str | None = None,
-) -> LoginOutcome:
-    """Rotate a valid login challenge after Argon2id verification.
-
-    ``client`` is the peer address of the connection, never a header value; only
-    its digest keys the per-client failure window (five failures per 15 minutes).
-    Twenty failures in 24 hours from any clients lock the login globally. Every
-    outcome must be committed before returning an HTTP response. No password, raw
-    cookie, CSRF token, or client address is persisted. Lock order: singleton
-    login state, then the challenge session, then the client window.
-    """
+) -> LoginOutcome | tuple[UiLoginState, UiSession, UiLoginClient]:
+    """Revalidate under the singleton -> challenge -> client lock order."""
     state = _lock_login_state(session)
     row = get_ui_session(session, token, owner_required=False, for_update=True, settings=settings)
     if row is None:
@@ -316,6 +357,10 @@ def authenticate_owner(
     if now >= state.day_started_at + settings.daily_failure_window:
         state.daily_failures = 0
         state.day_started_at = now
+    if state.daily_failures >= settings.max_daily_failures:
+        state.locked_at = now
+        _audit(session, "auth.login_locked")
+        return LoginOutcome("login_locked")
     window = _lock_client_window(session, client_fingerprint(client))
     window_ends = window.window_started_at + settings.failure_window
     if now >= window_ends:
@@ -330,7 +375,36 @@ def authenticate_owner(
         return LoginOutcome(
             "login_throttled", retry_after=max(1, math.ceil((window_ends - now).total_seconds()))
         )
-    if not verify_owner_password(password, settings):
+    return state, row, window
+
+
+def authenticate_owner(
+    session: Session,
+    token: str | None,
+    csrf: str | None,
+    password: str,
+    settings: AuthSettings,
+    *,
+    client: str | None = None,
+) -> LoginOutcome:
+    """Verify without a database transaction, then recheck all protection state.
+
+    This operation commits its short preflight transaction before Argon2; callers
+    must use a dedicated request Session (not an enclosing ``Session.begin``).
+    They commit the final outcome, including failures, before returning a response.
+    Only digests of connection peers and credentials are persisted.
+    """
+    checked = _check_login(session, token, csrf, settings, client=client)
+    if isinstance(checked, LoginOutcome):
+        return checked
+    session.commit()
+    verified = verify_owner_password(password, settings)
+    checked = _check_login(session, token, csrf, settings, client=client)
+    if isinstance(checked, LoginOutcome):
+        return checked
+    state, row, window = checked
+    now = _database_now(session)
+    if not verified:
         window.failures += 1
         state.daily_failures += 1
         _audit(session, "auth.login_failed")
@@ -390,21 +464,10 @@ def revoke_all_ui_sessions(
     return True
 
 
-def release_owner_login_lock_on_startup(session: Session) -> bool:
-    """A process restart ends the global lock (stage 15, D3); client windows stay.
-
-    Returns whether a lock was released; the unlock is audited only in that case.
-    """
-    state = _lock_login_state(session)
-    if state.locked_at is None:
-        return False
-    now = _database_now(session)
-    state.daily_failures = 0
-    state.day_started_at = now
-    state.locked_at = None
-    _audit(session, "auth.login_unlocked")
-    session.flush()
-    return True
+def observe_owner_login_state_on_startup(session: Session) -> None:
+    """Only observe startup state: restarts never renew budgets or release locks."""
+    locked = owner_login_locked(session)
+    logging.getLogger(__name__).info("Owner login startup: locked=%s", locked)
 
 
 def unlock_owner_login(session: Session) -> None:

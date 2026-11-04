@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import cast
+from typing import Annotated, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
@@ -36,6 +36,7 @@ from app.db.ui_auth import (
     check_csrf,
     create_anonymous_session,
     get_ui_session,
+    limit_login_page,
     owner_login_locked,
     revoke_all_ui_sessions,
     revoke_ui_session,
@@ -113,6 +114,17 @@ async def form(request: Request) -> FormData:
         raise UiError("invalid_form") from None
 
 
+async def parsed_form(request: Request) -> AsyncIterator[FormData]:
+    data = await form(request)
+    try:
+        yield data
+    finally:
+        await data.close()
+
+
+ParsedForm = Annotated[FormData, Depends(parsed_form)]
+
+
 def _value(data: FormData, key: str, default: str = "") -> str:
     value = data.get(key, default)
     if not isinstance(value, str):
@@ -156,17 +168,27 @@ def login_page(request: Request, session: DbSession) -> Response:
         return RedirectResponse("/ui/tasks", status_code=303)
     if owner_login_locked(session):
         return page(request, "login.html", owner=False, login_locked=True, status=423)
+    retry_after = limit_login_page(session, settings, client=client_address(request))
+    if retry_after is not None:
+        response = page(request, "login.html", owner=False, error="login_throttled", status=429)
+        response.headers["Retry-After"] = str(retry_after)
+        return response
     if existing is not None:
         return page(request, "login.html", owner=False)
-    credentials = create_anonymous_session(session, settings)
+    try:
+        credentials = create_anonymous_session(session, settings, client=client_address(request))
+    except SessionCapacityError as error:
+        # A normal return commits the GET counter even when no new session can be issued.
+        response = page(request, "error.html", owner=False, error="login_throttled", status=429)
+        response.headers["Retry-After"] = str(error.retry_after)
+        return response
     response = page(request, "login.html", owner=False, csrf=credentials.csrf_token)
     set_session_cookies(response, credentials, settings)
     return response
 
 
 @router.post("/login")
-async def login(request: Request, session: DbSession) -> Response:
-    data = await form(request)
+def login(request: Request, session: DbSession, data: ParsedForm) -> Response:
     csrf(request, session, data, anonymous=True)
     settings = get_auth_settings()
     # Throttling is keyed by the connection peer; forwarding headers are never consulted.
@@ -193,9 +215,8 @@ async def login(request: Request, session: DbSession) -> Response:
 
 
 @router.post("/logout")
-async def logout(request: Request, session: DbSession) -> Response:
+def logout(request: Request, session: DbSession, data: ParsedForm) -> Response:
     owner(request, session)
-    data = await form(request)
     csrf(request, session, data)
     revoke_ui_session(session, request.cookies.get(SESSION_COOKIE))
     response = RedirectResponse("/ui/login", status_code=303)
@@ -204,8 +225,7 @@ async def logout(request: Request, session: DbSession) -> Response:
 
 
 @router.post("/logout-all")
-async def logout_all(request: Request, session: DbSession) -> Response:
-    data = await form(request)
+def logout_all(request: Request, session: DbSession, data: ParsedForm) -> Response:
     csrf_origin(request)
     settings = get_auth_settings()
     # Do not call owner()/csrf() first: activity updates would take a session lock
@@ -289,9 +309,8 @@ def failed(request: Request, session: DbSession) -> Response:
 
 
 @router.post("/tasks/draft")
-async def draft_form(request: Request, session: DbSession) -> Response:
+def draft_form(request: Request, session: DbSession, data: ParsedForm) -> Response:
     owner(request, session)
-    data = await form(request)
     csrf(request, session, data)
     try:
         draft = validate_draft(_value(data, "draft"))
@@ -301,15 +320,14 @@ async def draft_form(request: Request, session: DbSession) -> Response:
 
 
 @router.post("/tasks/new")
-async def create_task(request: Request, session: DbSession) -> Response:
+def create_task(request: Request, session: DbSession, data: ParsedForm) -> Response:
     owner(request, session)
-    data = await form(request)
     csrf(request, session, data)
     uploads = []
     try:
         for item in data.getlist("files"):
             if isinstance(item, UploadFile) and item.filename:
-                uploads.append(Upload(item.filename, await item.read(MAX_FILE_BYTES + 1)))
+                uploads.append(Upload(item.filename, item.file.read(MAX_FILE_BYTES + 1)))
         values = {key: value for key, value in data.items() if isinstance(value, str)}
         preview = task_from_form(values, uploads)
         inbox = get_privacy_settings().inbox
@@ -337,8 +355,6 @@ async def create_task(request: Request, session: DbSession) -> Response:
         # fixed server-side code is shown so the owner learns what to correct.
         code = exc.code if isinstance(exc, (FormError, UiFileError)) else "submission_rejected"
         return page(request, "task_form.html", values={}, error=code, status=422)
-    finally:
-        await data.close()
 
 
 @router.get("/tasks/{task_id}")
@@ -377,9 +393,10 @@ def timeline(request: Request, task_id: UUID, session: DbSession) -> Response:
 
 
 @router.post("/tasks/{task_id}/{action}")
-async def action(request: Request, task_id: UUID, action: str, session: DbSession) -> Response:
+def action(
+    request: Request, task_id: UUID, action: str, session: DbSession, data: ParsedForm
+) -> Response:
     owner(request, session)
-    data = await form(request)
     csrf(request, session, data)
     action = {"approve-start": "approve", "approve-result": "accept"}.get(action, action)
     if action not in {"approve", "accept", "reject", "cancel", "unblock"}:
@@ -473,9 +490,8 @@ def controls_status(request: Request, session: DbSession) -> Response:
 
 
 @router.post("/control")
-async def control(request: Request, session: DbSession) -> Response:
+def control(request: Request, session: DbSession, data: ParsedForm) -> Response:
     owner(request, session)
-    data = await form(request)
     csrf(request, session, data)
     key, value = _value(data, "key"), _value(data, "value")
     if key == "stop_requested" and value == "true" and _value(data, "confirmation") != "STOP":
@@ -499,9 +515,8 @@ def chat_page(request: Request, session: DbSession) -> Response:
 
 
 @router.post("/chat")
-async def chat(request: Request, session: DbSession) -> Response:
+def chat(request: Request, session: DbSession, data: ParsedForm) -> Response:
     owner(request, session)
-    data = await form(request)
     csrf(request, session, data)
     selected = data.getlist("context_task")
     if len(selected) > 4:
@@ -519,7 +534,7 @@ async def chat(request: Request, session: DbSession) -> Response:
         # Never keep authentication or task read transactions open during a subprocess.
         session.commit()
         adapter = getattr(request.app.state, "local_chat", UnavailableChat())
-        reply = await run_in_threadpool(ask_local, adapter, chat_request)
+        reply = ask_local(adapter, chat_request)
     except (ChatError, ValueError):
         return page(request, "chat.html", choices=[], error="local_chat_unavailable", status=503)
     return preview_redirect(
@@ -535,5 +550,9 @@ async def ui_error_handler(request: Request, error: Exception) -> Response:
         if error.code == "login_required" and request.method == "GET":
             return RedirectResponse("/ui/login", status_code=303)
         return page(request, "error.html", owner=False, error=error.code, status=error.status)
-    status = 503 if isinstance(error, (AuthConfigurationError, SessionCapacityError)) else 404
+    if isinstance(error, SessionCapacityError):
+        response = page(request, "error.html", owner=False, error="login_throttled", status=429)
+        response.headers["Retry-After"] = str(error.retry_after)
+        return response
+    status = 503 if isinstance(error, AuthConfigurationError) else 404
     return page(request, "error.html", owner=False, error="temporarily_unavailable", status=status)

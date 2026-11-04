@@ -12,5 +12,5 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=@REPOSITORY@/backups
+ReadWritePaths=@BACKUP_DIRECTORY@
 TimeoutStartSec=600

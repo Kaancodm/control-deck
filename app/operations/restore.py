@@ -26,6 +26,7 @@ from app.operations.backup import (
     read_manifest,
     table_counts,
 )
+from app.operations.environment import operation_path
 from app.operations.errors import OperationError
 from app.operations.files import READ_FLAGS, child_directory, digest_file, private_root
 from app.operations.process import run_command
@@ -221,7 +222,7 @@ def restore_backup(
                 ):
                     raise OperationError("restore_evidence_mismatch")
             environment = {
-                "PATH": os.defpath,
+                "PATH": operation_path(),
                 "DECK_KB_TEST_DATABASE_URL"
                 if key == "knowledge"
                 else "DECK_TEST_DATABASE_URL": urls[key],

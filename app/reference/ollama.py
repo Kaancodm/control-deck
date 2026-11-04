@@ -26,9 +26,7 @@ class OllamaReferenceExecutor(FakeExecutor):
     def __post_init__(self) -> None:
         self._executor = OllamaExecutor(
             profile="simulation",
-            simulation=OllamaSimulation(
-                models=(self.model,), output_text="reference-ok: Simulation completed."
-            ),
+            simulation=OllamaSimulation(models=(self.model,), behavior="reference"),
         )
 
     def execute(self, task: TaskV1) -> ExecutionResult:

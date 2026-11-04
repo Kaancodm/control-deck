@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from uuid import uuid4
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.operations.audit import record_operation
 from app.operations.backup import verified_sets
+from app.operations.environment import operation_path
 from app.operations.errors import OperationError
 from app.operations.files import READ_FLAGS, private_root, validate_private
 from app.operations.process import run_command
@@ -47,6 +49,7 @@ def copy_with_restic(
             private_root(backup_root) as backups,
             private_root(runs_root),
             private_root(credential.parent) as parent,
+            tempfile.TemporaryDirectory(prefix="deck-restic-") as cache,
         ):
             if not verified_sets(backups):
                 raise OperationError("complete_backup_required")
@@ -57,7 +60,8 @@ def copy_with_restic(
                 if not 1 <= metadata.st_size <= 4096:
                     raise OperationError("unsafe_credential_file")
                 environment = {
-                    "PATH": os.defpath,
+                    "PATH": operation_path(configuration),
+                    "RESTIC_CACHE_DIR": cache,
                     "RESTIC_REPOSITORY": repository,
                     "RESTIC_PASSWORD_FILE": f"/proc/self/fd/{descriptor}",
                 }

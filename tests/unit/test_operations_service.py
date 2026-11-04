@@ -15,7 +15,170 @@ from app.operations import service
 from app.operations.errors import OperationError
 
 
+def _update_scenario(monkeypatch, *, failing_step=None, recovery_failures=()):
+    previous = "a" * 40
+    state = {"revision": previous, "failed": False, "recovering": False}
+    active = ("deck-api.service", "deck-runner@ollama.service")
+    commands = []
+    events = []
+
+    def read(command, environment):
+        if "status" in command:
+            return b""
+        if "branch" in command:
+            return b"main"
+        if "rev-parse" in command:
+            commands.append(("saved_revision", state["revision"]))
+            return state["revision"].encode()
+        raise AssertionError("Unexpected command")
+
+    def run(command, **kwargs):
+        commands.append(command)
+        if command[0] == "git":
+            step = next(part for part in ("fetch", "merge", "checkout") if part in command)
+        elif command[0] == "uv":
+            step = "sync"
+        elif command[0] == "systemctl":
+            step = command[2]
+        else:
+            step = "migration"
+        if state["recovering"] and step in recovery_failures:
+            raise OperationError("simulated_recovery_failure")
+        if step == "merge":
+            state["revision"] = "b" * 40
+        if step == "checkout":
+            state["revision"] = command[-1]
+        if step == failing_step and not state["failed"]:
+            state["failed"] = True
+            state["recovering"] = True
+            raise OperationError("simulated_update_failure")
+
+    monkeypatch.setattr(service, "_read_command", read)
+    monkeypatch.setattr(service, "run_command", run)
+    monkeypatch.setattr(
+        service, "create_backup", lambda *args, **kwargs: commands.append(("backup",))
+    )
+    monkeypatch.setattr(
+        service,
+        "service_status",
+        lambda: {
+            unit: "active" if unit in active else "inactive"
+            for unit in (*service._SERVICES, *service._TIMERS)
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_record_update",
+        lambda database_url, operation_id, phase, **details: events.append(
+            {"operation_id": operation_id, "phase": phase, **details}
+        ),
+        raising=False,
+    )
+    return previous, active, state, commands, events
+
+
+@pytest.mark.parametrize("step", ["stop", "fetch", "merge", "sync", "migration", "start"])
+def test_update_failure_restores_revision_and_previously_active_units(tmp_path, monkeypatch, step):
+    previous, active, state, commands, events = _update_scenario(monkeypatch, failing_step=step)
+    with pytest.raises(OperationError):
+        service.update_checkout(tmp_path, database_url="synthetic", backup_root=tmp_path / "backup")
+    assert state["revision"] == previous
+    checkout = ("git", "-C", str(tmp_path), "checkout", "--detach", previous)
+    assert checkout in commands
+    assert commands.index(("saved_revision", previous)) < commands.index(checkout)
+    recovered = commands[commands.index(checkout) + 1 :]
+    assert [
+        command[-1] for command in recovered if command[:3] == ("systemctl", "--user", "start")
+    ] == list(active)
+    assert events[-1]["phase"] == "failed"
+    assert events[-1]["reason"] == "update_failed"
+    assert len({event["operation_id"] for event in events}) == 1
+
+
+def test_successful_update_preserves_inactive_units(tmp_path, monkeypatch):
+    previous, active, state, commands, events = _update_scenario(monkeypatch)
+    service.update_checkout(tmp_path, database_url="synthetic", backup_root=tmp_path / "backup")
+    assert state["revision"] != previous
+    assert ("systemctl", "--user", "start", *active) in commands
+    assert all("restart" not in command for command in commands)
+    assert events[-1]["phase"] == "completed"
+
+
+def test_update_cli_failure_exits_78_with_safe_output(tmp_path, monkeypatch, capsys):
+    _update_scenario(monkeypatch, failing_step="migration")
+    monkeypatch.setenv("DECK_DATABASE_URL", "synthetic")
+    monkeypatch.setattr(service, "configured_knowledge_url", lambda **kwargs: "synthetic-kb")
+    monkeypatch.setattr(
+        sys, "argv", ["service", "update", "--apply", "--repository", str(tmp_path)]
+    )
+    assert service.main() == 78
+    assert json.loads(capsys.readouterr().out) == {"status": "failed", "reason": "update_failed"}
+
+
+@pytest.mark.parametrize("recovery_step", ["stop", "checkout", "sync", "start"])
+def test_update_recovery_failure_still_attempts_each_previously_active_unit(
+    tmp_path, monkeypatch, capsys, recovery_step
+):
+    previous, active, _state, commands, events = _update_scenario(
+        monkeypatch, failing_step="migration", recovery_failures=(recovery_step,)
+    )
+    monkeypatch.setenv("DECK_DATABASE_URL", "synthetic")
+    monkeypatch.setattr(service, "configured_knowledge_url", lambda **kwargs: "synthetic-kb")
+    monkeypatch.setattr(
+        sys, "argv", ["service", "update", "--apply", "--repository", str(tmp_path)]
+    )
+    assert service.main() == 78
+    checkout = ("git", "-C", str(tmp_path), "checkout", "--detach", previous)
+    recovered = commands[commands.index(checkout) + 1 :]
+    assert recovered == [
+        ("uv", "sync", "--frozen", "--project", str(tmp_path)),
+        *(("systemctl", "--user", "start", unit) for unit in active),
+    ]
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "failed",
+        "reason": "update_rollback_failed",
+    }
+    assert events[-1]["phase"] == "failed"
+    assert events[-1]["reason"] == "update_rollback_failed"
+
+
+def test_update_backup_failure_is_audited_without_mutation(tmp_path, monkeypatch):
+    _previous, _active, _state, commands, events = _update_scenario(monkeypatch)
+
+    def backup_failure(*args, **kwargs):
+        raise OperationError("simulated_backup_failure")
+
+    monkeypatch.setattr(service, "create_backup", backup_failure)
+    with pytest.raises(OperationError):
+        service.update_checkout(tmp_path, database_url="synthetic", backup_root=tmp_path / "backup")
+    assert commands == []
+    assert [event["phase"] for event in events] == ["started", "failed"]
+    assert events[-1]["reason"] == "update_failed"
+
+
+@pytest.mark.parametrize("revision", ["--force", "main", "", "a" * 39])
+def test_update_rejects_invalid_saved_revision_before_mutation(tmp_path, monkeypatch, revision):
+    _previous, _active, state, commands, events = _update_scenario(monkeypatch)
+    state["revision"] = revision
+    with pytest.raises(OperationError) as error:
+        service.update_checkout(tmp_path, database_url="synthetic", backup_root=tmp_path / "backup")
+    assert error.value.code == "invalid_update_revision"
+    assert commands == [("backup",), ("saved_revision", revision)]
+    assert events[-1]["phase"] == "failed"
+
+
+def test_update_with_inactive_services_does_not_start_them(tmp_path, monkeypatch):
+    _previous, _active, _state, commands, events = _update_scenario(monkeypatch)
+    monkeypatch.setattr(
+        service, "service_status", lambda: dict.fromkeys(service._SERVICES, "inactive")
+    )
+    service.update_checkout(tmp_path, database_url="synthetic", backup_root=tmp_path / "backup")
+    assert all(command[0] != "systemctl" for command in commands)
+    assert events[-1]["phase"] == "completed"
+
+
 def _configuration(tmp_path: Path) -> Path:
+    (tmp_path / "repository").mkdir(mode=0o700)
     parent = tmp_path / "configuration"
     parent.mkdir(mode=0o700)
     path = parent / "env"
@@ -108,6 +271,7 @@ def test_service_defaults_are_plans(
 def test_update_checks_before_backup_or_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dirty: bytes, branch: bytes, expected: str
 ) -> None:
+    _update_scenario(monkeypatch)
     monkeypatch.setattr(
         service, "_read_command", lambda command, env: dirty if "status" in command else branch
     )
@@ -121,21 +285,12 @@ def test_update_checks_before_backup_or_mutation(
 def test_update_backup_precedes_mutation_and_failure_prevents_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls = []
-    monkeypatch.setattr(
-        service, "_read_command", lambda command, env: b"" if "status" in command else b"main"
+    _previous, _active, _state, calls, _events = _update_scenario(
+        monkeypatch, failing_step="migration"
     )
-    monkeypatch.setattr(service, "create_backup", lambda *args, **kwargs: calls.append("backup"))
-
-    def command(args, **kwargs):
-        calls.append(args)
-        if "upgrade" in args:
-            raise OperationError("migration_failed")
-
-    monkeypatch.setattr(service, "run_command", command)
     with pytest.raises(OperationError):
         service.update_checkout(tmp_path, database_url="unused", backup_root=tmp_path / "backup")
-    assert calls[0] == "backup"
+    assert calls[0] == ("backup",)
     assert any("--ff-only" in call for call in calls[1:])
     assert not any("restart" in call for call in calls[1:])
 
@@ -149,9 +304,9 @@ def test_status_exposes_only_allowlisted_states(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_update_requires_complete_backup_before_service_mutation(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        service, "_read_command", lambda command, env: b"" if "status" in command else b"main"
-    )
+    create_backup = service.create_backup
+    _update_scenario(monkeypatch)
+    monkeypatch.setattr(service, "create_backup", create_backup)
     monkeypatch.setattr(service, "run_command", lambda *a, **k: pytest.fail("No mutation"))
     with pytest.raises(OperationError) as error:
         service.update_checkout(
@@ -163,9 +318,7 @@ def test_update_requires_complete_backup_before_service_mutation(tmp_path, monke
 
 
 def test_update_threads_knowledge_database_to_backup(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        service, "_read_command", lambda command, env: b"" if "status" in command else b"main"
-    )
+    _update_scenario(monkeypatch)
     seen = []
     monkeypatch.setattr(service, "create_backup", lambda *a, **k: seen.append(k))
     monkeypatch.setattr(service, "run_command", lambda *a, **k: None)

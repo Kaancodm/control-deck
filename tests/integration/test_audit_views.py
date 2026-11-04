@@ -19,6 +19,7 @@ from app.db.ui_auth import UiSession
 from app.operations.models import OperationEvent
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.workers.lane_status import LaneHealthState, update_lane_status
+from tests.integration.helpers import migration_head
 from tests.integration.test_api import api_client as api_client
 from tests.integration.test_api import owner_token as owner_token
 from tests.integration.test_api import worker_token as worker_token
@@ -168,7 +169,9 @@ def test_outdated_schema_prevents_lane_projection(health_client, db_session, mon
             "db": {"connected": True, "schema": "outdated"},
         }
     finally:
-        db_session.execute(text("UPDATE alembic_version SET version_num='20251103_0016'"))
+        db_session.execute(
+            text("UPDATE alembic_version SET version_num=:head"), {"head": migration_head()}
+        )
         db_session.commit()
 
 

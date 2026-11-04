@@ -45,7 +45,7 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
     ),
     "login_locked": (
         "Die Anmeldung ist gesperrt.",
-        "Lokal mit make unlock-login entsperren oder den Dienst neu starten.",
+        "Lokal mit make unlock-login entsperren. Ein Neustart hebt die Sperre nicht auf.",
     ),
     "invalid_csrf": (
         "Das Formular ist abgelaufen oder stammt nicht von dieser Sitzung.",

@@ -28,7 +28,17 @@ import sys
 from pathlib import Path
 
 settings = json.loads(Path(${SETTINGS@Q}).read_text(encoding="utf-8"))
+guard_matchers = {
+    tool
+    for hook_group in settings["hooks"]["PreToolUse"]
+    if any("guard.sh" in hook.get("command", "") for hook in hook_group["hooks"])
+    for tool in hook_group["matcher"].split("|")
+}
+assert {"Edit", "Write", "Bash"} <= guard_matchers, "Guard must cover Bash as well as file writes"
 deny = settings["permissions"]["deny"]
+for operation in ("Read", "Edit", "Write"):
+    for suffix in ("env", "runner"):
+        assert f"{operation}(**/*.{suffix})" in deny, f"Missing {operation} protection for {suffix}"
 bash_denies = [
     entry.removeprefix("Bash(").removesuffix(")")
     for entry in deny

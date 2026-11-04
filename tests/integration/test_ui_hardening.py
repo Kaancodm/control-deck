@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from html.parser import HTMLParser
@@ -20,7 +21,7 @@ from app.db.ui_auth import (
     UiLoginClient,
     UiLoginState,
     UiSession,
-    release_owner_login_lock_on_startup,
+    observe_owner_login_state_on_startup,
     unlock_owner_login,
 )
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE, token_digest
@@ -203,7 +204,7 @@ def test_locked_login_shows_423_until_local_unlock(ui_factory):
         assert types.count("auth.login_unlocked") == 1
 
 
-def test_restart_clears_global_lock(ui_factory):
+def test_restart_preserves_global_lock(ui_factory):
     make_client, factory = ui_factory
     with make_client() as client:
         csrf = Inputs(client.get("/ui/login").text).values["csrf"]
@@ -213,17 +214,16 @@ def test_restart_clears_global_lock(ui_factory):
         assert client.get("/ui/login").status_code == 423
     # The launcher runs this startup path before it opens the listener.
     with factory.begin() as session:
-        assert release_owner_login_lock_on_startup(session)
+        observe_owner_login_state_on_startup(session)
     with make_client() as restarted:
         response = restarted.get("/ui/login")
-        assert response.status_code == 200
-        assert '<input id="password"' in response.text
-        login(restarted)
-        assert restarted.get("/ui/tasks").status_code == 200
+        assert response.status_code == 423
+        assert '<input id="password"' not in response.text
     with factory() as session:
         types = session.scalars(select(AuthEvent.event_type)).all()
         assert types.count("auth.login_locked") == 1
-        assert types.count("auth.login_unlocked") == 1
+        assert types.count("auth.login_unlocked") == 0
+        assert session.scalar(select(UiLoginState.daily_failures)) == 20
 
 
 def test_throttle_is_per_client(ui_factory):
@@ -246,6 +246,104 @@ def test_throttle_is_per_client(ui_factory):
         types = session.scalars(select(AuthEvent.event_type)).all()
         assert types.count("auth.login_throttled") == 1
         assert types.count("auth.login_succeeded") == 1
+
+
+def test_anonymous_session_flood_does_not_lock_out_owner(ui_factory):
+    make_client, factory = ui_factory
+    with make_client("synthetic-attacker") as attacker:
+        codes = []
+        for _ in range(12):
+            attacker.cookies.clear()
+            response = attacker.get("/ui/login")
+            codes.append(response.status_code)
+        assert codes.count(200) == 5
+        assert codes[5:] == [429] * 7
+        assert int(response.headers["Retry-After"]) > 0
+    with make_client("synthetic-owner") as owner:
+        login(owner)
+        assert owner.get("/ui/tasks").status_code == 200
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(UiSession)) == 7
+        assert session.scalar(select(UiLoginState.daily_failures)) == 0
+        assert session.scalar(select(UiLoginState.locked_at)) is None
+
+
+def test_login_get_rate_limit_also_applies_with_existing_cookie(ui_factory):
+    make_client, _ = ui_factory
+    with make_client("synthetic-attacker") as client:
+        for _ in range(20):
+            assert client.get("/ui/login").status_code == 200
+        response = client.get("/ui/login")
+        assert response.status_code == 429
+        assert int(response.headers["Retry-After"]) > 0
+
+
+def test_ui_database_access_and_password_verification_run_outside_event_loop(
+    ui_factory, monkeypatch
+):
+    from app.db import ui_auth
+
+    make_client, factory = ui_factory
+    engine = factory.kw["bind"]
+    verify = ui_auth.verify_owner_password
+    checked = []
+
+    def outside_event_loop():
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+
+    def verify_in_worker(password, settings):
+        outside_event_loop()
+        checked.append(True)
+        return verify(password, settings)
+
+    def before_query(*args):
+        outside_event_loop()
+
+    monkeypatch.setattr(ui_auth, "verify_owner_password", verify_in_worker)
+    event.listen(engine, "before_cursor_execute", before_query)
+    try:
+        with make_client() as client:
+            csrf = login(client)
+            assert client.get("/ui/tasks").status_code == 200
+            assert (
+                client.post(
+                    "/ui/control",
+                    data={"csrf": csrf, "key": "paused", "value": "true"},
+                    follow_redirects=False,
+                ).status_code
+                == 303
+            )
+            assert (
+                client.post(
+                    "/ui/logout-all", data={"csrf": csrf}, follow_redirects=False
+                ).status_code
+                == 303
+            )
+        assert checked == [True]
+    finally:
+        event.remove(engine, "before_cursor_execute", before_query)
+
+
+def test_login_page_window_expires_without_clearing_password_budget(ui_factory):
+    make_client, factory = ui_factory
+    with make_client() as client:
+        csrf = Inputs(client.get("/ui/login").text).values["csrf"]
+        assert fail_login(client, csrf).status_code == 401
+        for _ in range(19):
+            assert client.get("/ui/login").status_code == 200
+        assert client.get("/ui/login").status_code == 429
+        with factory.begin() as session:
+            session.execute(
+                update(UiLoginClient).values(
+                    page_window_started_at=func.clock_timestamp() - timedelta(minutes=2)
+                )
+            )
+        assert client.get("/ui/login").status_code == 200
+    with factory() as session:
+        assert session.scalar(select(UiLoginClient.failures)) == 1
+        assert session.scalar(select(UiLoginClient.page_requests)) == 1
+        assert session.scalar(select(UiLoginState.daily_failures)) == 1
 
 
 def test_forwarded_header_does_not_change_client_identity(ui_factory):

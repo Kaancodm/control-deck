@@ -47,13 +47,19 @@
       "Bash(sudo *)",
       "Bash(ssh *)",
       "Bash(scp *)",
-      "Bash(tailscale funnel *)"
+      "Bash(tailscale funnel *)",
+      "Read(**/*.env)",
+      "Read(**/*.runner)",
+      "Edit(**/*.env)",
+      "Edit(**/*.runner)",
+      "Write(**/*.env)",
+      "Write(**/*.runner)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|Bash",
         "hooks": [
           {
             "type": "command",

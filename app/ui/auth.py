@@ -42,6 +42,9 @@ class AuthSettings:
     failure_window: timedelta = timedelta(minutes=15)
     max_failures: int = 5
     max_anonymous_sessions: int = 1000
+    max_anonymous_sessions_per_client: int = 5
+    login_page_window: timedelta = timedelta(minutes=1)
+    max_login_page_requests: int = 20
     daily_failure_window: timedelta = timedelta(hours=24)
     max_daily_failures: int = 20
 
@@ -57,6 +60,11 @@ class AuthSettings:
             or not 1 <= self.max_failures <= 20
             or type(self.max_anonymous_sessions) is not int
             or not 1 <= self.max_anonymous_sessions <= 10000
+            or type(self.max_anonymous_sessions_per_client) is not int
+            or not 1 <= self.max_anonymous_sessions_per_client <= 100
+            or not timedelta(0) < self.login_page_window <= timedelta(hours=1)
+            or type(self.max_login_page_requests) is not int
+            or not 1 <= self.max_login_page_requests <= 100
             or not timedelta(0) < self.daily_failure_window <= timedelta(hours=24)
             or type(self.max_daily_failures) is not int
             or not 1 <= self.max_daily_failures <= 100

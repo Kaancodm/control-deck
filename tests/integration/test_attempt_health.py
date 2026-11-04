@@ -260,4 +260,6 @@ def test_counter_migration_preserves_observations_and_guards_evidence(db_session
     db_session.commit()
     with pytest.raises(RuntimeError, match="accepted attempt evidence"):
         command.downgrade(config, "20251103_0015")
-    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20251103_0016"
+    from tests.integration.helpers import migration_head
+
+    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == migration_head()

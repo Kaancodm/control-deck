@@ -8,8 +8,8 @@
   <div class="notice error" role="alert">
     <strong>Anmeldung gesperrt</strong>
     <p>Zu viele fehlgeschlagene Anmeldungen. Die Anmeldung ist für alle Clients gesperrt.</p>
-    <p>Ein Neustart des Dienstes oder die lokale Aktion <code>make unlock-login</code> hebt die
-      Sperre auf. Danach diese Seite neu laden.</p>
+    <p>Nur die lokale Aktion <code>make unlock-login</code> hebt die Sperre auf.
+      Ein Neustart erhält die Sperre und das Tagesbudget. Nach dem Entsperren diese Seite neu laden.</p>
   </div>
   {% else %}
   <form action="/ui/login" method="post">

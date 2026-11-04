@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,6 +20,7 @@ from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import Session
 
 from app.operations.audit import record_operation
+from app.operations.environment import operation_path
 from app.operations.errors import OperationError
 from app.operations.files import (
     READ_FLAGS,
@@ -99,7 +101,7 @@ def postgres_environment(url: str) -> dict[str, str]:
         ):
             raise ValueError
         env = {
-            "PATH": os.defpath,
+            "PATH": operation_path(),
             "PGDATABASE": parsed.database,
             "PGCONNECT_TIMEOUT": "10",
             "PGAPPNAME": "control-deck-maintenance",
@@ -360,37 +362,53 @@ def create_backup(
         knowledge.dispose()
 
 
-def verified_sets(parent: int) -> list[tuple[str, datetime]]:
-    """Verify both artifacts in every published set before copy or retention."""
+def verified_sets(
+    parent: int, *, on_invalid: Callable[[UUID], None] | None = None
+) -> list[tuple[str, datetime]]:
+    """Verify sets; strict copy callers fail, retention callers report and skip defects."""
     candidates = []
     for name in os.listdir(parent):
         if not _BACKUP_NAME.fullmatch(name):
             continue
-        with child_directory(parent, name) as directory:
-            manifest = read_manifest(directory)
-            if name != "backup-" + manifest.operation_id.hex:
-                raise OperationError("invalid_backup_manifest")
-            for scope_name, scope in SCOPES.items():
-                evidence = getattr(manifest, scope_name)
-                reader = os.open(scope.filename, READ_FLAGS, dir_fd=directory)
-                try:
-                    digest, size = digest_file(reader, maximum=MAXIMUM_DUMP_BYTES)
-                finally:
-                    os.close(reader)
-                if (digest, size) != (evidence.sha256, evidence.size_bytes):
-                    raise OperationError("backup_checksum_mismatch")
-            candidates.append((name, manifest.created_at))
+        try:
+            with child_directory(parent, name) as directory:
+                manifest = read_manifest(directory)
+                if name != "backup-" + manifest.operation_id.hex:
+                    raise OperationError("invalid_backup_manifest")
+                for scope_name, scope in SCOPES.items():
+                    evidence = getattr(manifest, scope_name)
+                    reader = os.open(scope.filename, READ_FLAGS, dir_fd=directory)
+                    try:
+                        digest, size = digest_file(reader, maximum=MAXIMUM_DUMP_BYTES)
+                    finally:
+                        os.close(reader)
+                    if (digest, size) != (evidence.sha256, evidence.size_bytes):
+                        raise OperationError("backup_checksum_mismatch")
+        except (OperationError, OSError):
+            if on_invalid is None:
+                raise
+            # The bounded directory name supplies identity even when the manifest is unsafe.
+            # A failed report aborts scanning before retention can remove any verified set.
+            on_invalid(UUID(hex=name.removeprefix("backup-")))
+            continue
+        candidates.append((name, manifest.created_at))
     return candidates
 
 
-def prune_backups(root: Path, *, apply: bool = False, now: datetime | None = None) -> int:
+def prune_backups(
+    root: Path,
+    *,
+    apply: bool = False,
+    now: datetime | None = None,
+    on_invalid: Callable[[UUID], None] | None = None,
+) -> int:
     """Prune complete sets older than 14 days only when a newer valid set exists."""
     instant = now or datetime.now(UTC)
     if instant.tzinfo is None:
         raise OperationError("invalid_clock")
     cutoff = instant - timedelta(days=14)
     with private_root(root) as parent:
-        candidates = verified_sets(parent)
+        candidates = verified_sets(parent, on_invalid=on_invalid or (lambda _operation_id: None))
         if not any(cutoff <= created <= instant for _, created in candidates):
             return 0
         expired = [name for name, created in candidates if created < cutoff]

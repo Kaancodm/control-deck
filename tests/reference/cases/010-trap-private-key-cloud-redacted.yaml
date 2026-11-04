@@ -26,7 +26,8 @@ task:
 expect:
   status: blocked
   must_contain: []
-  must_not_contain: []
+  must_not_contain:
+    - "-----BEGIN PRIVATE KEY-----"
   regex: null
   max_chars: null
   max_seconds: 30

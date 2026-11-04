@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
@@ -20,6 +20,7 @@ from app.reference.schemas import ReferenceExpect
 from app.reference.validate import LoadedReferenceCase
 from app.routing.config import RouterConfig
 from app.routing.router import route_task
+from app.workers.lanes._fake_ollama_cli import reference_output
 
 
 class CaseOutcome(StrEnum):
@@ -42,6 +43,7 @@ class ExecutionResult:
     output_text: str
     worker: Worker
     wall_seconds: float
+    transport_text: str | None = field(default=None, repr=False)
 
 
 class Executor(Protocol):
@@ -104,7 +106,7 @@ class FakeExecutor:
                 wall_seconds=self.fixed_wall_seconds,
             )
 
-        result = self._execute_prepared(task, payload, worker)
+        result = replace(self._execute_prepared(task, payload, worker), transport_text=payload.text)
         if result.status != ResultStatus.SUCCEEDED:
             return result
         text = result.output_text
@@ -112,13 +114,14 @@ class FakeExecutor:
             try:
                 text = rehydrate(text, task_id=task.task_id, mapping=mapping)
             except RedactionError:
-                return ExecutionResult(ResultStatus.FAILED, "", worker, result.wall_seconds)
+                return replace(result, status=ResultStatus.FAILED, output_text="")
 
         return ExecutionResult(
             status=ResultStatus.SUCCEEDED,
             output_text=text,
             worker=worker,
             wall_seconds=result.wall_seconds,
+            transport_text=payload.text,
         )
 
     def _execute_prepared(
@@ -134,9 +137,7 @@ class FakeExecutor:
 
     def _execute_payload(self, text: str, *, kind: TaskKind) -> str:
         """The fake worker receives only prepared text, never the original task or map."""
-        if kind == TaskKind.SUMMARIZE:
-            return "reference-ok: Kurzfassung des Eingabetexts."
-        return "reference-ok: Ausfuehrung abgeschlossen."
+        return reference_output(text)
 
 
 def _is_empty_input(task: TaskV1) -> bool:
@@ -181,7 +182,11 @@ def evaluate_expect(
             )
 
     for needle in expect.must_not_contain:
-        if needle in result.output_text:
+        # Privacy expectations cover the actual worker boundary even if the
+        # worker's response happens to omit a leaked input value.
+        if needle in result.output_text or (
+            result.transport_text is not None and needle in result.transport_text
+        ):
             failures.append(
                 ExpectCheckFailure(
                     rule="must_not_contain",

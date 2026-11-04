@@ -1,4 +1,4 @@
-.PHONY: lint test validate reference set-password unlock-login install start stop status update backup retention restore-probe
+.PHONY: lint test validate reference canary set-password unlock-login install start stop status update backup retention restore-probe
 
 set-password:
 	uv run python scripts/set_password.py
@@ -16,6 +16,9 @@ test:
 
 reference:
 	uv run python scripts/run_reference.py
+
+canary:
+	uv run python scripts/live_canary.py $(ARGS)
 
 validate:
 	uv run python scripts/validate.py task tests/unit/examples/task_valid_01.json

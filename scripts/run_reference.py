@@ -62,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
     summary = run_cases(cases, executor)
     print(format_summary(summary))
     failed = summary.failed + len(load_issues)
+    if args.executor == "ollama-live" and summary.live_passed == 0:
+        print("FAIL: no successful live model case", file=sys.stderr)
+        return 1
     return 0 if failed == 0 else 1
 
 

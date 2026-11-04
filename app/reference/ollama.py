@@ -36,7 +36,7 @@ class OllamaReferenceExecutor(FakeExecutor):
             if not lane.enabled or self.model not in lane.models.values():
                 raise ValueError("Reference model is not configured")
             self.privacy_settings = get_privacy_settings()
-            self._executor = OllamaExecutor(profile="live", url=endpoint.url)
+            self._executor = OllamaExecutor(profile="live", url=endpoint.url, num_ctx=lane.num_ctx)
             return
         if self.execution_profile != "simulation":
             raise ValueError("Invalid reference execution profile")
@@ -62,10 +62,7 @@ class OllamaReferenceExecutor(FakeExecutor):
 
         try:
             if self.execution_profile == "live":
-                configured = tuple(
-                    sorted(set(self.router_config.lanes[Worker.OLLAMA].models.values()))
-                )
-                if self._executor.availability(configured).status != "ok":
+                if self._executor.availability((self.model,)).status != "ok":
                     return ExecutionResult(
                         ResultStatus.FAILED, "", worker, 0.0, execution_profile="live"
                     )

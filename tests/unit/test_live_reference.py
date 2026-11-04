@@ -92,3 +92,63 @@ def test_live_provenance_preserves_transport_privacy_checks(monkeypatch, tmp_pat
         assert any(
             check.rule == "must_not_contain" for check in evaluate_expect(expectation, result)
         )
+
+
+@pytest.mark.parametrize(
+    ("case_prefix", "output", "expected"),
+    [
+        ("011", "reference-ok: done", 1),
+        ("008", "reference-ok: done", 1),
+        ("001", "reference-ok: done", 0),
+        ("001", "unmatched", 1),
+    ],
+)
+def test_live_reference_cli_requires_successful_model_case(
+    monkeypatch, tmp_path, case_prefix, output, expected
+):
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    source = next(Path("tests/reference/cases").glob(case_prefix + "-*.yaml"))
+    (cases_dir / source.name).write_bytes(source.read_bytes())
+    with OllamaStub(models=(MODEL,), output=output) as stub:
+        configure(monkeypatch, tmp_path, stub.url)
+        assert (
+            main(["--executor", "ollama-live", "--model", MODEL, "--cases-dir", str(cases_dir)])
+            == expected
+        )
+    if case_prefix != "001":
+        assert not any(r["path"] == "/api/chat" for r in stub.requests)
+
+
+def test_simulated_reference_cli_does_not_require_live_evidence(tmp_path):
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    source = next(Path("tests/reference/cases").glob("011-*.yaml"))
+    (cases_dir / source.name).write_bytes(source.read_bytes())
+    assert main(["--cases-dir", str(cases_dir)]) == 0
+
+
+def test_live_reference_uses_lane_context_with_missing_sibling(monkeypatch, tmp_path):
+    with OllamaStub(
+        models=(MODEL,),
+        show_extra={"model_info": {"fixture.context_length": 8192}},
+        output="reference-ok: done",
+    ) as stub:
+        configure(monkeypatch, tmp_path, stub.url)
+        (tmp_path / "router.yaml").write_text(
+            json.dumps(
+                {
+                    "lanes": {
+                        "ollama": {
+                            "num_ctx": 2048,
+                            "models": {"default": MODEL, "classify": "missing:tag"},
+                        }
+                    }
+                }
+            )
+        )
+        executor = OllamaReferenceExecutor(model=MODEL, execution_profile="live")
+        cases, _ = load_all_cases(Path("tests/reference/cases"))
+        assert run_cases([cases[0]], executor).live_passed == 1
+        chat = next(r["body"] for r in stub.requests if r["path"] == "/api/chat")
+        assert chat["options"]["num_ctx"] == 2048

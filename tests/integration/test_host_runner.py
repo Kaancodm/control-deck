@@ -171,7 +171,9 @@ def test_host_success_has_no_open_runner_transaction_during_execution(
     directory = tmp_path / "runs" / str(task_id) / "1"
     stored = db_session.scalar(select(Result.payload).where(Result.task_id == task_id))
     assert json.loads((directory / "result.json").read_bytes()) == stored
-    assert (directory / "ollama.log").read_text() == "attempt=1 status=review\n"
+    log = json.loads((directory / "ollama.log").read_text())
+    assert log["attempt"] == 1 and log["status"] == "review"
+    assert log["execution_profile"] == "simulation"
     assert (directory / "out").is_dir()
 
 

@@ -135,7 +135,7 @@ class Task(Base):
 
 
 class Result(Base):
-    """Append-only ``result.v1`` snapshots per attempt."""
+    """Append-only ``result.v1`` snapshots with separately trusted provenance."""
 
     __tablename__ = "results"
 
@@ -144,6 +144,9 @@ class Result(Base):
         UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
     )
     attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    execution_profile: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="simulation"
+    )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -154,6 +157,10 @@ class Result(Base):
     __table_args__ = (
         Index("ix_results_task_id_attempt", "task_id", "attempt", unique=True),
         CheckConstraint("attempt >= 1", name="ck_results_attempt_min"),
+        CheckConstraint(
+            "execution_profile IN ('simulation', 'live', 'remote', 'unknown')",
+            name="ck_results_execution_profile",
+        ),
         CheckConstraint(
             "payload->>'schema_version' = 'result.v1'",
             name="ck_results_payload_schema_version",
@@ -282,6 +289,7 @@ class LaneStatus(Base):
         DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
     )
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    simulated_attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     completed_attempts: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     consecutive_failures: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default="0"
@@ -300,6 +308,7 @@ class LaneStatus(Base):
             name="ck_lane_status_status",
         ),
         CheckConstraint("reason ~ '^[a-z][a-z0-9_]{0,63}$'", name="ck_lane_status_reason"),
+        CheckConstraint("simulated_attempts >= 0", name="ck_lane_status_simulated_attempts"),
         CheckConstraint(
             "completed_attempts >= 0 AND consecutive_failures >= 0 "
             "AND consecutive_failures <= completed_attempts",

@@ -204,8 +204,9 @@ die Zeile vor dem Lesen der DB-Uhr; parallele Beobachtungen koennen den Zeitstem
 nicht rueckwaerts setzen. Ein Fehler erhaelt den letzten positiven Zeitpunkt.
 
 Ein `ok` mit Grund `simulation_ready` ist ausschliesslich eine erfolgreiche Fake-Pruefung,
-keine Live-Bereitschaft. Das echte Ollama-Profil bleibt `unavailable` mit Grund
-`live_profile_unavailable`. `last_success_at` ist eine Gesundheitsbeobachtung, kein Beleg
+keine Live-Bereitschaft. Eine erfolgreiche Live-Vorpruefung verwendet `live_ready`; ohne
+verfuegbares Live-Profil bleibt der Zustand `unavailable`. `last_success_at` ist eine
+Gesundheitsbeobachtung, kein Beleg
 fuer einen abgeschlossenen Modelllauf. Der Downgrade verweigert eine nichtleere Tabelle.
 Details: [LANES.md](LANES.md).
 
@@ -245,3 +246,21 @@ Der vorgeschlagene Vertrag `deck_kb.v1` verwendet eine eigene Alembic-Kette und 
 `_test`-Datenbank mit pgvector. Er aendert keine bestehenden Wissens-Tabellen und bestaetigt
 keine Kompatibilitaet einer produktiven Wissens-DB. Alle Datenklassen sind Pflichtfelder ohne
 DB-Default. Einzelheiten: [WISSENS_DB.md](WISSENS_DB.md).
+
+## Ergebnisherkunft (Revision 0018)
+
+`results.execution_profile` hat einen CHECK auf `simulation`, `live`, `remote`, `unknown`.
+Neue Zeilen ohne ausdrueckliche Herkunft erhalten `simulation`. Altzeilen erhalten
+`unknown`, da ihr Profil nicht attestiert wurde. Das eingefrorene JSON-Schema bleibt gleich.
+
+`lane_status.simulated_attempts` zaehlt alle angenommenen Versuche ohne Live-Nachweis,
+also auch `remote` und `unknown`. Nur `live` veraendert `completed_attempts`, Fehlerserie,
+Fehlerzeitpunkte und `last_attempt_success_at`. Die Ergebnisannahme und der Zaehler bleiben
+in derselben gefencten Transaktion; ein abgelehntes oder zurueckgerolltes Ergebnis zaehlt nie.
+
+Bisherige Zaehler aus Revision 0016 belegen keine Live-Herkunft. Die Migration uebertraegt
+`completed_attempts` nach `simulated_attempts` und setzt die bisherigen Live-Zaehler und
+Versuchszeitpunkte zurueck. Gesundheitsbeobachtungen, Ergebnisse und Events bleiben erhalten.
+Health bezeichnet den neuen Zaehlerzeitraum mit `live_since_migration_0018`.
+Ein Downgrade mit neuen Herkunftsbelegen oder nichtleerem Nicht-Live-Zaehler wird verweigert.
+Nur eine leere Entwicklungs-/Testdatenbank ist fuer den vollstaendigen Roundtrip vorgesehen.

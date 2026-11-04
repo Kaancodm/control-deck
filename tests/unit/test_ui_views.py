@@ -178,3 +178,12 @@ def test_all_rendered_post_forms_include_csrf(template, state):
     for form in posts:
         assert form["fields"]["csrf"]["type"] == "hidden"
         assert form["fields"]["csrf"]["value"] == "synthetic-csrf"
+
+
+@pytest.mark.parametrize("profile", ["simulation", "live", "remote", "unknown"])
+def test_result_badge_keeps_execution_evidence_distinct(profile):
+    result = SimpleNamespace(attempt=1, payload={"status": "succeeded"}, execution_profile=profile)
+    markup = views.TEMPLATES.get_template("partials/result_status.html").render(result=result)
+    assert ("Simulation, kein Nachweis" in markup) == (profile == "simulation")
+    assert ("kein Live-Nachweis" in markup) == (profile in {"remote", "unknown"})
+    assert "result-succeeded" in markup

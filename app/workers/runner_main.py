@@ -32,6 +32,8 @@ from app.workers.runner import HostRunner
 class SimulationExecutor:
     """A deterministic local adapter for checking orchestration without provider calls."""
 
+    profile = "simulation"
+
     def __init__(self, lane: Worker) -> None:
         if not isinstance(lane, Worker):
             raise ValueError("Executor lane must be a Worker")

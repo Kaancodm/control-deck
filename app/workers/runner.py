@@ -37,8 +37,15 @@ from app.db.worker_ops import (
     submit_worker_result,
 )
 from app.workers.artifacts import initialize_attempt_output, write_worker_artifact
-from app.workers.contracts import AttemptContext, ControlAction, LaneExecutor, PreparedAttempt
+from app.workers.contracts import (
+    AttemptContext,
+    ControlAction,
+    ExecutionProfile,
+    LaneExecutor,
+    PreparedAttempt,
+)
 from app.workers.preparation import claim_prepared_attempt
+from app.workers.provenance import safe_execution_metadata
 
 
 @dataclass(frozen=True)
@@ -59,6 +66,14 @@ def _executor_matches_lane(executor: LaneExecutor, worker: Worker) -> bool:
     except Exception:
         return False
     return isinstance(lane, Worker) and lane == worker
+
+
+def executor_profile(executor: LaneExecutor) -> ExecutionProfile:
+    """Only an explicit executor declaration can attest a live attempt."""
+    profile = getattr(executor, "profile", "simulation")
+    if profile in {"live", "remote", "unknown"}:
+        return "live" if profile == "live" else "remote" if profile == "remote" else "unknown"
+    return "simulation"
 
 
 def _host_result(
@@ -278,7 +293,9 @@ class HostRunner:
             redaction_applied=prepared.redaction_applied,
             redaction_placeholders=prepared.redaction_placeholders,
             cancel_requested=cancellation_requested,
+            json_format=prepared.json_format,
         )
+        execution_profile = executor_profile(executor)
         thread = threading.Thread(target=monitor, name="deck-heartbeat", daemon=True)
         thread.start()
         try:
@@ -333,6 +350,10 @@ class HostRunner:
                         session,
                         lease_id=prepared.lease_id,
                         result_payload=result_payload_for_storage(result),
+                        execution_profile=execution_profile,
+                        execution_metadata=safe_execution_metadata(
+                            getattr(executor, "last_metadata", None)
+                        ),
                     )
                 except TaskDeadlineElapsed:
                     session.commit()
@@ -359,7 +380,25 @@ class HostRunner:
                     task_id=prepared.task_id,
                     attempt=prepared.attempt,
                     name=f"{prepared.lane.value}.log",
-                    data=f"attempt={prepared.attempt} status={status}\n".encode("ascii"),
+                    data=(
+                        json.dumps(
+                            {
+                                **safe_execution_metadata(getattr(executor, "last_metadata", None)),
+                                "time": result.timing.finished_at.isoformat(),
+                                "phase": "completed",
+                                "attempt": prepared.attempt,
+                                "status": status,
+                                "execution_profile": execution_profile,
+                                "payload_sha256": prepared.payload_sha256,
+                                "log_ref": (
+                                    f"{prepared.task_id}/{prepared.attempt}/"
+                                    f"{prepared.lane.value}.log"
+                                ),
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    ).encode("utf-8"),
                 )
                 session.commit()
             return RunOutcome("completed", prepared.task_id, prepared.attempt, status)

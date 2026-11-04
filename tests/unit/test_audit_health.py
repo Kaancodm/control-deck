@@ -121,6 +121,7 @@ def test_three_failed_attempts_then_success_reset_only_the_series():
             state,
             status=ResultStatus.FAILED,
             error_code=ErrorCode.TIMEOUT,
+            execution_profile="live",
             recorded_at=NOW + timedelta(seconds=index),
         )
     assert state.completed_attempts == state.consecutive_failures == 3
@@ -129,6 +130,7 @@ def test_three_failed_attempts_then_success_reset_only_the_series():
         state,
         status=ResultStatus.SUCCEEDED,
         error_code=None,
+        execution_profile="live",
         recorded_at=NOW + timedelta(seconds=3),
     )
     assert recovered.completed_attempts == 4 and recovered.consecutive_failures == 0
@@ -148,6 +150,7 @@ def test_cancellation_is_neither_failure_nor_success():
         previous,
         status=ResultStatus.CANCELLED,
         error_code=None,
+        execution_profile="live",
         recorded_at=NOW + timedelta(seconds=1),
     )
     assert result.completed_attempts == 3 and result.consecutive_failures == 2
@@ -160,6 +163,7 @@ def test_safe_final_error_code_is_retained(code):
         AttemptHealth(),
         status=ResultStatus.FAILED,
         error_code=code,
+        execution_profile="live",
         recorded_at=NOW,
     )
     assert result.last_error_code == code and result.last_error_at == NOW
@@ -170,6 +174,7 @@ def test_unclassified_blocked_result_does_not_invent_success():
         AttemptHealth(),
         status=ResultStatus.BLOCKED,
         error_code=None,
+        execution_profile="live",
         recorded_at=NOW,
     )
     assert result.last_error_code is None
@@ -182,5 +187,69 @@ def test_naive_attempt_timestamp_is_rejected():
             AttemptHealth(),
             status=ResultStatus.SUCCEEDED,
             error_code=None,
+            execution_profile="live",
             recorded_at=datetime(2026, 1, 1),
         )
+
+
+@pytest.mark.parametrize("profile", ["simulation", "remote", "unknown"])
+@pytest.mark.parametrize("status", list(ResultStatus))
+def test_nonlive_attempt_never_changes_live_evidence(profile, status):
+    from dataclasses import replace
+
+    previous = AttemptHealth(
+        completed_attempts=5,
+        consecutive_failures=2,
+        simulated_attempts=3,
+        last_error_code=ErrorCode.TIMEOUT,
+        last_error_at=NOW,
+        last_attempt_at=NOW,
+        last_attempt_success_at=NOW - timedelta(days=1),
+    )
+    actual = completed_attempt(
+        previous,
+        status=status,
+        error_code=None,
+        recorded_at=NOW + timedelta(seconds=1),
+        execution_profile=profile,
+    )
+    assert actual == replace(previous, simulated_attempts=4)
+
+
+def test_default_profile_cannot_attest_live_success():
+    actual = completed_attempt(
+        AttemptHealth(), status=ResultStatus.SUCCEEDED, error_code=None, recorded_at=NOW
+    )
+    assert actual.simulated_attempts == 1
+    assert actual.completed_attempts == 0 and actual.last_attempt_success_at is None
+
+
+@pytest.mark.parametrize(
+    "enabled,paused,available", [(True, False, True), (False, False, False), (True, True, False)]
+)
+def test_only_live_ready_can_advertise_live_availability(enabled, paused, available):
+    actual = view(
+        observation=LaneObservation("ok", "live_ready", NOW, NOW), enabled=enabled, paused=paused
+    )
+    assert actual.execution_mode == "live"
+    assert actual.live_available == available
+
+
+def test_health_revision_matches_alembic_head():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    from app.api.routes.health import schema_head
+
+    assert ScriptDirectory.from_config(Config("alembic.ini")).get_current_head() == schema_head()
+
+
+def test_provenance_follows_login_capacity_with_one_head():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    migrations = ScriptDirectory.from_config(Config("alembic.ini"))
+    assert migrations.get_heads() == ["20261104_0018"]
+    provenance = migrations.get_revision("20261104_0018")
+    assert provenance is not None
+    assert provenance.down_revision == "20261104_0017"

@@ -58,7 +58,7 @@ def test_owner_bearer_health_keeps_simulation_and_quota_explicit(health_client, 
     assert response.status_code == 200
     data = response.json()
     assert data["db"] == {"connected": True, "schema": "current"}
-    assert data["counter_scope"] == "since_migration_0016"
+    assert data["counter_scope"] == "live_since_migration_0018"
     assert data["ollama"]["execution_mode"] == "simulation"
     assert data["ollama"]["last_attempt_success_at"] is None
     assert all(
@@ -208,8 +208,9 @@ def test_auth_required_result_appears_on_next_ui_response(api_client, ui_client,
     assert 'data-lane-warning="auth_required"' in response.text
     assert "Anmeldung erforderlich" in response.text and "ollama" in response.text
     row = db_session.get(LaneStatus, "ollama")
-    assert row.completed_attempts == row.consecutive_failures == 1
-    assert row.last_error_code == "auth_required"
+    assert row.completed_attempts == row.consecutive_failures == 0
+    assert row.simulated_attempts == 1
+    assert row.last_error_code is None
     assert 'data-lane-warning="auth_required"' in ui_client.get("/ui/fragments/status").text
 
 

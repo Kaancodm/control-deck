@@ -2,15 +2,16 @@
 {% block title %}Lanes und Steuerung · Control Deck{% endblock %}
 {% block content %}
 <h1>Lanes und Steuerung</h1><p>Parallelität: {{ controls.max_parallel }} · Anbieter-Kontingente: unbekannt</p>
-<p>Versuchszähler seit Migration 0016. Vorprüfungen sind keine erfolgreichen Ausführungen.</p>
+<p>Live-Versuchszähler seit Migration 0018. Vorprüfungen sind keine erfolgreichen Ausführungen.</p>
 <section class="task-grid">{% for lane in health %}
 <article class="panel"><h2>{{ lane.lane.value }}</h2>
 <p class="{{ 'error' if lane.status == 'auth_required' else 'notice' if lane.status in ['unavailable', 'paused'] else '' }}">Zustand: {{ lane.status }} · {{ lane.reason }}</p>
 <p>{{ 'Aktiviert' if lane.enabled else 'Deaktiviert' }} · {{ 'Pausiert' if lane.paused else 'Nicht pausiert' }}</p>
-<p>Ausführungsmodus: {{ lane.execution_mode }}. Live-Inbetriebnahme offen.</p>
+<p>Profil der letzten Vorprüfung: {{ lane.execution_mode }} · Live verfügbar: {{ 'ja' if lane.live_available else 'nein' }}.</p>
 <p>Beobachtet: {{ lane.observed_at.isoformat() if lane.observed_at else 'unbekannt' }}</p>
 <p>Positive Vorprüfung: {{ lane.last_observation_success_at.isoformat() if lane.last_observation_success_at else 'keine' }}</p>
-<p>Angenommene Versuche: {{ lane.completed_attempts }} · Fehlerserie: {{ lane.consecutive_failures }}</p>
+<p>Angenommene Live-Versuche: {{ lane.completed_attempts }} · Fehlerserie: {{ lane.consecutive_failures }}</p>
+<p>Versuche ohne Live-Nachweis: {{ lane.simulated_attempts }} (Simulation, remote und unbekannt)</p>
 <p>Letzter erfolgreicher Versuch: {{ lane.last_attempt_success_at.isoformat() if lane.last_attempt_success_at else 'keiner' }}</p>
 <p>Letzter Fehler: {{ lane.last_error_code.value if lane.last_error_code else 'unbekannt' if lane.last_error_at else 'keiner' }} · {{ lane.last_error_at.isoformat() if lane.last_error_at else '—' }}</p>
 <p>Heutige Claims: {{ lane.claims_today }} · Lokales Tageslimit: {{ lane.daily_attempt_limit if lane.daily_attempt_limit is not none else 'unbegrenzt' }} · Verbleibend: {{ lane.configured_attempts_remaining if lane.configured_attempts_remaining is not none else 'unbegrenzt' }}</p>

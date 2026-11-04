@@ -71,7 +71,7 @@ def owner_health(request: Request) -> JSONResponse:
                     "db": {"connected": True, "schema": "current"},
                     "paused": controls.paused,
                     "stop_requested": controls.stop_requested,
-                    "counter_scope": "since_migration_0016",
+                    "counter_scope": "live_since_migration_0018",
                     "ollama": next(
                         view.model_dump(mode="json") for view in lanes if view.lane == "ollama"
                     ),

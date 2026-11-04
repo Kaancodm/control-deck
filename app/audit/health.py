@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from app.core.schemas import ErrorCode, ResultStatus, Worker
+from app.workers.contracts import ExecutionProfile
 
 _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "simulation_ready",
@@ -16,6 +17,13 @@ _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "simulation_policy_blocked",
     "simulation_worker_unavailable",
     "live_profile_unavailable",
+    "live_ready",
+    "live_disabled",
+    "live_url_invalid",
+    "live_lane_not_supported",
+    "model_capability_unsupported",
+    "model_unsupported",
+    "version_unsupported",
     "runner_paused",
     "lane_disabled",
     "model_not_configured",
@@ -39,6 +47,7 @@ class LaneObservation:
 
 @dataclass(frozen=True)
 class AttemptHealth:
+    simulated_attempts: int = 0
     completed_attempts: int = 0
     consecutive_failures: int = 0
     last_error_code: ErrorCode | None = None
@@ -53,13 +62,19 @@ def completed_attempt(
     status: ResultStatus,
     error_code: ErrorCode | None,
     recorded_at: datetime,
+    execution_profile: ExecutionProfile = "simulation",
 ) -> AttemptHealth:
     """Apply one finally accepted result; callers enforce uniqueness and fencing."""
     if recorded_at.tzinfo is None or not isinstance(status, ResultStatus):
         raise ValueError("Invalid completed attempt metadata")
+    if execution_profile not in {"simulation", "live", "remote", "unknown"}:
+        raise ValueError("Invalid execution profile")
+    if execution_profile != "live":
+        return replace(previous, simulated_attempts=previous.simulated_attempts + 1)
     failed = status in (ResultStatus.FAILED, ResultStatus.BLOCKED)
     succeeded = status == ResultStatus.SUCCEEDED
     return AttemptHealth(
+        simulated_attempts=previous.simulated_attempts,
         completed_attempts=previous.completed_attempts + 1,
         consecutive_failures=(
             previous.consecutive_failures + 1
@@ -82,14 +97,15 @@ class LaneHealthView(BaseModel):
     paused: bool
     status: Literal["unknown", "ok", "unavailable", "auth_required", "paused"]
     reason: str
-    execution_mode: Literal["unknown", "simulation", "unavailable"]
-    live_available: Literal[False] = False
+    execution_mode: Literal["unknown", "simulation", "live", "unavailable"]
+    live_available: bool = False
     provider_quota: Literal["unknown"] = "unknown"
     daily_attempt_limit: int | None
     claims_today: int
     configured_attempts_remaining: int | None
     observed_at: datetime | None
     last_observation_success_at: datetime | None
+    simulated_attempts: int
     completed_attempts: int
     consecutive_failures: int
     last_error_code: ErrorCode | None
@@ -123,10 +139,18 @@ def lane_health_view(
         else "unknown"
     )
     mode = (
-        "simulation"
+        "live"
+        if reason == "live_ready" and status == "ok"
+        else "simulation"
         if reason.startswith("simulation_")
         else "unavailable"
-        if reason == "live_profile_unavailable"
+        if reason
+        in {
+            "live_profile_unavailable",
+            "live_disabled",
+            "live_url_invalid",
+            "live_lane_not_supported",
+        }
         else "unknown"
     )
     warnings: list[Literal["auth_required", "no_recent_success"]] = []
@@ -143,6 +167,7 @@ def lane_health_view(
             "status": status,
             "reason": reason,
             "execution_mode": mode,
+            "live_available": mode == "live" and enabled and not paused,
             "daily_attempt_limit": daily_attempt_limit,
             "claims_today": claims_today,
             "configured_attempts_remaining": (
@@ -154,6 +179,7 @@ def lane_health_view(
             "last_observation_success_at": observation.last_observation_success_at
             if observation
             else None,
+            "simulated_attempts": attempts.simulated_attempts,
             "completed_attempts": attempts.completed_attempts,
             "consecutive_failures": attempts.consecutive_failures,
             "last_error_code": attempts.last_error_code,

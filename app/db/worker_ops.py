@@ -32,8 +32,9 @@ from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import LeaseOwnershipError, fenced_transition_task
 from app.redaction.engine import RedactionError
 from app.redaction.repository import rehydrate_for_task
-from app.workers.contracts import ControlAction, ControlDecision
+from app.workers.contracts import ControlAction, ControlDecision, ExecutionProfile
 from app.workers.lane_status import LaneHealthState, record_completed_attempt, update_lane_status
+from app.workers.provenance import safe_execution_metadata
 
 _RESULT_STATUS_TO_TRIGGER: dict[ResultStatus, TaskTransition] = {
     ResultStatus.SUCCEEDED: TaskTransition.SUCCEED,
@@ -308,8 +309,12 @@ def submit_worker_result(
     *,
     lease_id: uuid.UUID,
     result_payload: dict[str, Any],
+    execution_profile: ExecutionProfile = "simulation",
+    execution_metadata: dict[str, object] | None = None,
 ) -> Task:
     """Rehydrate and validate a prepared attempt, then ingest it with fresh fencing."""
+    if execution_profile not in {"simulation", "live", "remote", "unknown"}:
+        raise WorkerOperationError("Invalid execution profile.")
     if validate_result(result_payload):
         raise WorkerOperationError("Invalid result.v1 payload.")
     try:
@@ -329,7 +334,13 @@ def submit_worker_result(
     _validate_result_identity(session, task=task, lease_id=lease_id, result=result_v1)
     trigger = _RESULT_STATUS_TO_TRIGGER[result_v1.status]
     stored_payload = result_payload_for_storage(result_v1)
-    event_detail: dict[str, Any] = {"worker": result_v1.worker.value}
+    event_detail: dict[str, Any] = {
+        **safe_execution_metadata(execution_metadata),
+        "worker": result_v1.worker.value,
+        "execution_profile": execution_profile,
+        "payload_sha256": result_v1.payload_hash,
+        "log_ref": f"{result_v1.task_id}/{result_v1.attempt}/{result_v1.worker.value}.log",
+    }
     redaction_failed = False
     if task.data_class == DataClass.CLOUD_REDACTED:
         try:
@@ -358,6 +369,16 @@ def submit_worker_result(
                 "message": "Core acceptance checks failed.",
             }
             event_detail["reason"] = "acceptance_failed"
+    # Provenance describes execution, not acceptance. Never trust a worker-supplied check.
+    stored_payload["checks"] = [
+        check for check in stored_payload["checks"] if check["type"] != "execution_profile"
+    ] + [
+        {
+            "type": "execution_profile",
+            "passed": execution_profile == "live",
+            "detail": execution_profile,
+        }
+    ]
     event_detail["result_status"] = stored_payload["status"]
     normalized = ResultV1.model_validate(stored_payload)
     failure_code: ErrorCode | None = None
@@ -440,7 +461,9 @@ def submit_worker_result(
         if expire_task_if_due(session, task=task):
             raise TaskDeadlineElapsed("Owner deadline elapsed.")
         raise LeaseOwnershipError("Result rejected: stale lease, control request or task state.")
-    persist_result_v1(session, task=updated, result_payload=stored_payload)
+    persist_result_v1(
+        session, task=updated, result_payload=stored_payload, execution_profile=execution_profile
+    )
     if decision is not None:
         updated.retry_state = decision.state.model_dump(mode="json")
         updated.next_attempt_at = next_attempt_at
@@ -460,7 +483,11 @@ def submit_worker_result(
     else:
         updated.next_attempt_at = None
     record_completed_attempt(
-        session, lane=normalized.worker, status=normalized.status, error_code=failure_code
+        session,
+        lane=normalized.worker,
+        status=normalized.status,
+        error_code=failure_code,
+        execution_profile=execution_profile,
     )
     session.flush()
     session.refresh(updated)

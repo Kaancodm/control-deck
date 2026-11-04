@@ -152,3 +152,16 @@ Der Ergebnisstatus beschreibt den Versuch, nicht den Task-Lebenszyklus: Ein akze
 - CLI: `uv run python scripts/validate.py task|result <datei.json>`
 
 Beide Pruefpfade (JSON Schema und Pydantic) muessen uebereinstimmen; siehe Unit-Tests.
+
+## Ausfuehrungsherkunft ohne v1-Erweiterung
+
+`result.v1` bleibt eingefroren. Der Host haengt nach der Acceptance einen Check
+`execution_profile` an: `detail` enthaelt `simulation`, `live`, `remote` oder `unknown`;
+`passed` ist nur bei `live` wahr. Dieser Herkunftscheck aendert die zuvor bewertete
+Acceptance nicht. Ein vom HTTP-Worker mitgelieferter Herkunftscheck wird ersetzt.
+
+Die verbindliche Herkunft steht separat in `results.execution_profile` und im Detail des
+Ergebnisereignisses. Der Host uebernimmt das Profil vom Executor. Der HTTP-Endpunkt setzt
+immer `remote`; weder Flag noch Ergebnisinhalt koennen einen Live-Nachweis herstellen.
+Nur Live-Ergebnisse veraendern die Erfolgs-/Fehlerzaehler und Erfolgszeitpunkte einer Lane.
+Die Review-Ansicht kennzeichnet Simulationen mit «Simulation, kein Nachweis».

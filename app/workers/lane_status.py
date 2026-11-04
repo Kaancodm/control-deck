@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.audit.health import AttemptHealth, completed_attempt
 from app.core.schemas import ErrorCode, ResultStatus, Worker
 from app.db.models import LaneStatus
+from app.workers.contracts import ExecutionProfile
 
 _REASON_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
@@ -82,7 +83,12 @@ def get_lane_status(session: Session, *, lane: Worker) -> LaneStatus | None:
 
 
 def record_completed_attempt(
-    session: Session, *, lane: Worker, status: ResultStatus, error_code: ErrorCode | None
+    session: Session,
+    *,
+    lane: Worker,
+    status: ResultStatus,
+    error_code: ErrorCode | None,
+    execution_profile: ExecutionProfile = "simulation",
 ) -> None:
     """Count once after final result fencing, in the same transaction as its result.
 
@@ -108,6 +114,7 @@ def record_completed_attempt(
     assert isinstance(now, datetime)
     state = completed_attempt(
         AttemptHealth(
+            simulated_attempts=row.simulated_attempts,
             completed_attempts=row.completed_attempts,
             consecutive_failures=row.consecutive_failures,
             last_error_code=ErrorCode(row.last_error_code) if row.last_error_code else None,
@@ -118,7 +125,9 @@ def record_completed_attempt(
         status=status,
         error_code=error_code,
         recorded_at=now,
+        execution_profile=execution_profile,
     )
+    row.simulated_attempts = state.simulated_attempts
     row.completed_attempts = state.completed_attempts
     row.consecutive_failures = state.consecutive_failures
     row.last_error_code = state.last_error_code.value if state.last_error_code else None

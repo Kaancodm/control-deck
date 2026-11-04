@@ -14,6 +14,18 @@ import pytest
 from scripts import loadtest
 
 
+@pytest.fixture(autouse=True)
+def isolated_database_environment(monkeypatch):
+    # Every unit case supplies its own URLs, independent of CI integration settings.
+    for key in (
+        "DECK_TEST_DATABASE_URL",
+        "DECK_KB_TEST_DATABASE_URL",
+        "DECK_RESTORE_TEST_DATABASE_URL",
+        "DECK_KB_RESTORE_TEST_DATABASE_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
 def _url(*, database="loadtest_test", host=None, query=""):
     host = host if host is not None else str(ipaddress.IPv4Address(0x7F000001))
     return f"postgresql+psycopg:///{database}?host={host}{query}"

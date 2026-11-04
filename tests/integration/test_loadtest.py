@@ -8,11 +8,27 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.engine import make_url
 
 from app.db.config import get_test_database_url
 from app.db.models import Event, LaneStatus, Lease, Result, Setting, Task
 from app.db.state_machine import TaskState
 from scripts import loadtest
+
+
+@pytest.fixture(autouse=True)
+def local_harness_database_url(db_session, monkeypatch):
+    # Reuse the actual client destination; CI may configure a local DNS name.
+    url = get_test_database_url()
+    connection = db_session.connection().connection.driver_connection
+    assert connection is not None
+    if connection.info.hostaddr:
+        url = (
+            make_url(url)
+            .set(host=connection.info.hostaddr, port=connection.info.port)
+            .render_as_string(hide_password=False)
+        )
+    monkeypatch.setenv("DECK_TEST_DATABASE_URL", loadtest.validated_test_url(url))
 
 
 def test_loadtest_refuses_existing_work_without_spawning_or_modifying_it(db_session, monkeypatch):

@@ -1,24 +1,29 @@
-# Folge-Issue-Entwurf: Ergebnisdateien und DB-Commit konsistent wiederaufnehmen
+# Folge-Issue-Entwurf: Unvollständig veröffentlichte Ergebnisdateien wiederaufnehmen
 
 Status: **Entwurf, nicht umgesetzt**. Priorität: P2.
 Quelle: Prüfung von `app/workers/runner.py` am Stack-Endstand `f7f67233` und
-`main` bei `a33cc3f`. Das Verhalten besteht bereits auf main.
+`main` bei `a33cc3f`.
 
-## Problem
+## Stand
 
-Der Host-Runner veröffentlicht `result.json` und das Lane-Log vor dem Commit
-der Ergebnis-Transaktion. Schlägt der zweite Schreibvorgang oder der Commit fehl,
-rollt die Datenbank zurück, bereits veröffentlichte Dateien bleiben jedoch liegen.
-Die Rückgabe `result_persistence_failed` beschreibt den Fehler, stellt die
-Konsistenz zwischen autoritativer Datenbank und Dateinachweis aber nicht wieder her.
+Die Ursache ist auf `main` behoben: Der Host-Runner committet zuerst die
+Ergebnis-Transaktion und veröffentlicht `result.json` und das Lane-Log erst danach.
+Ein zurückgerolltes Ergebnis hinterlässt keine Dateien mehr. Schlägt das Schreiben
+nach dem Commit fehl, bleibt die Datenbank massgebend und der Versuch endet als
+`completed` mit `artifact_publication_failed`. Details: [RUNNER.md](RUNNER.md).
+
+## Verbleibendes Problem
+
+Nach `artifact_publication_failed` fehlen die lokalen Dateien ganz oder teilweise,
+zum Beispiel `result.json` ohne Lane-Log. Es gibt kein Nachholen und kein Aufräumen.
+Artefakte, die vor der Korrektur inkonsistent entstanden sind, bleiben ebenfalls liegen.
 
 ## Spätere Akzeptanzkriterien
 
 - Fehler nach Veröffentlichung von `result.json`, vor dem Lane-Log reproduzieren.
-- Commit-Fehler nach Veröffentlichung beider Dateien reproduzieren.
 - Wiederaufnahme ordnet Dateien eindeutig Task, Attempt und Lease zu.
+- Nachholen schreibt ausschliesslich aus dem gespeicherten Datenbankergebnis.
 - Kein zusätzlich gezähltes Ergebnis und kein Überschreiben unveränderlicher Evidenz.
 - Behandlung unvollständig veröffentlichter Artefakte dokumentieren und testen.
 
-Der aktuelle Fixauftrag ändert `runner.py` nicht. Dieser Entwurf ist keine
-Freigabe für Umsetzung, Servereingriffe oder Merge.
+Dieser Entwurf ist keine Freigabe für Umsetzung, Servereingriffe oder Merge.

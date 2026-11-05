@@ -126,8 +126,8 @@ kann derselbe Runner mit `--executor ollama-live --model <konfiguriertes-modell>
 Er verlangt die Runner-Umgebung mit `DECK_LIVE_ENABLED=1` oder `true` und einer gültigen
 `DECK_OLLAMA_URL`. Das Modell muss mit explizitem Tag in `lanes.ollama.models` stehen.
 Routing und Datenschranke verwenden dann die echte lokale Konfiguration einschliesslich
-der externen Blockliste. Vor der Ausführung muss die Vorprüfung alle konfigurierten
-Modelle bestätigen. Die Transportgrenzen sind dieselben wie beim Host-Runner.
+der externen Blockliste. Vor der Ausführung bestätigt die Vorprüfung nur das gewählte
+Modell; fehlende weitere Modelle derselben Lane verhindern den Lauf nicht. Die Transportgrenzen sind dieselben wie beim Host-Runner.
 
 Die Zusammenfassung nennt unter `Live evidence` ausschliesslich bestandene Fälle mit
 erfolgreicher Live-Modellausführung. Simulationen und schon vor dem Modell blockierte

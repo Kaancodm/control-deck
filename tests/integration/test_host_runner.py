@@ -349,6 +349,96 @@ def test_claim_commit_failure_never_exposes_prepared_text(
     )
 
 
+def test_result_commit_failure_leaves_no_artifacts_behind(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.workers import runner as runner_module
+
+    task_id = _queued(db_session)
+    armed = False
+
+    class FailingResultCommit(Session):
+        def commit(self):
+            if armed:
+                raise RuntimeError("simulated commit failure after result submission")
+            return super().commit()
+
+    original = runner_module.submit_worker_result
+
+    def arm_after_submit(*args, **kwargs):
+        nonlocal armed
+        task = original(*args, **kwargs)
+        armed = True
+        return task
+
+    monkeypatch.setattr(runner_module, "submit_worker_result", arm_after_submit)
+    factory = sessionmaker(bind=db_session.get_bind(), class_=FailingResultCommit, autoflush=False)
+    runner, _ = _runner(db_session, tmp_path, factory=factory)
+    outcome = runner.run_once(Worker.OLLAMA, SimulationExecutor(Worker.OLLAMA))
+
+    assert outcome.action == "error"
+    assert outcome.error_code == "result_persistence_failed"
+    directory = tmp_path / "runs" / str(task_id) / "1"
+    assert (directory / "payload.sent.md").is_file()
+    assert not (directory / "result.json").exists()
+    assert not (directory / "ollama.log").exists()
+    db_session.expire_all()
+    assert db_session.get(Task, task_id).status == TaskState.RUNNING
+    assert db_session.scalar(select(func.count()).select_from(Result)) == 0
+
+
+def test_artifacts_are_written_only_after_the_result_committed(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.workers import runner as runner_module
+
+    task_id = _queued(db_session)
+    runner, factory = _runner(db_session, tmp_path)
+    original = runner_module.write_worker_artifact
+    seen_committed: list[bool] = []
+
+    def observe_then_write(*args, **kwargs):
+        with factory() as fresh:
+            stored = fresh.scalar(select(func.count()).select_from(Result))
+            status = fresh.get(Task, task_id).status
+        seen_committed.append(stored == 1 and status == TaskState.REVIEW)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(runner_module, "write_worker_artifact", observe_then_write)
+    outcome = runner.run_once(Worker.OLLAMA, SimulationExecutor(Worker.OLLAMA))
+
+    assert outcome.action == "completed"
+    assert outcome.error_code is None
+    assert seen_committed == [True, True]
+    directory = tmp_path / "runs" / str(task_id) / "1"
+    assert (directory / "result.json").is_file()
+    record = json.loads((directory / "ollama.log").read_text())
+    assert (record["attempt"], record["status"], record["phase"]) == (1, "review", "completed")
+
+
+def test_artifact_failure_after_commit_keeps_the_authoritative_result(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_id = _queued(db_session)
+    runner, _ = _runner(db_session, tmp_path)
+
+    def fail(*args, **kwargs):
+        raise WorkerArtifactError("artifact_unavailable")
+
+    monkeypatch.setattr("app.workers.runner.write_worker_artifact", fail)
+    outcome = runner.run_once(Worker.OLLAMA, SimulationExecutor(Worker.OLLAMA))
+
+    assert outcome.action == "completed"
+    assert outcome.status == "review"
+    assert outcome.error_code == "artifact_publication_failed"
+    db_session.expire_all()
+    assert db_session.get(Task, task_id).status == TaskState.REVIEW
+    assert db_session.scalar(select(func.count()).select_from(Result)) == 1
+    directory = tmp_path / "runs" / str(task_id) / "1"
+    assert not (directory / "result.json").exists()
+    assert not (directory / "ollama.log").exists()
+
+
 def test_database_failure_stops_cooperative_executor_without_accepting_result(
     db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

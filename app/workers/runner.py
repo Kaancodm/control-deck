@@ -369,42 +369,54 @@ class HostRunner:
                 if stored is None:
                     raise ValueError("No authoritative result was stored")
                 status = task.status.value
-                encoded = json.dumps(stored, ensure_ascii=False, sort_keys=True).encode("utf-8")
-                write_worker_artifact(
-                    self.runs_root,
-                    task_id=prepared.task_id,
-                    attempt=prepared.attempt,
-                    name="result.json",
-                    data=encoded,
-                )
-                write_worker_artifact(
-                    self.runs_root,
-                    task_id=prepared.task_id,
-                    attempt=prepared.attempt,
-                    name=f"{prepared.lane.value}.log",
-                    data=(
-                        json.dumps(
-                            {
-                                **execution_metadata,
-                                "time": result.timing.finished_at.isoformat(),
-                                "phase": "completed",
-                                "attempt": prepared.attempt,
-                                "status": status,
-                                "execution_profile": execution_profile,
-                                "payload_sha256": prepared.payload_sha256,
-                                "log_ref": (
-                                    f"{prepared.task_id}/{prepared.attempt}/"
-                                    f"{prepared.lane.value}.log"
-                                ),
-                            },
-                            sort_keys=True,
-                        )
-                        + "\n"
-                    ).encode("utf-8"),
-                )
                 session.commit()
-            return RunOutcome("completed", prepared.task_id, prepared.attempt, status)
         except Exception:
             return RunOutcome(
                 "error", prepared.task_id, prepared.attempt, error_code="result_persistence_failed"
             )
+        # The database row is the authoritative result. Artifacts are published only
+        # after it committed, so a rolled-back result never leaves a result.json or
+        # lane log behind that claims an outcome the database does not know.
+        try:
+            encoded = json.dumps(stored, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            write_worker_artifact(
+                self.runs_root,
+                task_id=prepared.task_id,
+                attempt=prepared.attempt,
+                name="result.json",
+                data=encoded,
+            )
+            write_worker_artifact(
+                self.runs_root,
+                task_id=prepared.task_id,
+                attempt=prepared.attempt,
+                name=f"{prepared.lane.value}.log",
+                data=(
+                    json.dumps(
+                        {
+                            **execution_metadata,
+                            "time": result.timing.finished_at.isoformat(),
+                            "phase": "completed",
+                            "attempt": prepared.attempt,
+                            "status": status,
+                            "execution_profile": execution_profile,
+                            "payload_sha256": prepared.payload_sha256,
+                            "log_ref": (
+                                f"{prepared.task_id}/{prepared.attempt}/{prepared.lane.value}.log"
+                            ),
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n"
+                ).encode("utf-8"),
+            )
+        except Exception:
+            # The attempt is finished in the database; only the local copy is missing.
+            return RunOutcome(
+                "completed",
+                prepared.task_id,
+                prepared.attempt,
+                status,
+                error_code="artifact_publication_failed",
+            )
+        return RunOutcome("completed", prepared.task_id, prepared.attempt, status)

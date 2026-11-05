@@ -44,6 +44,7 @@ class ExecutionResult:
     worker: Worker
     wall_seconds: float
     transport_text: str | None = field(default=None, repr=False)
+    execution_profile: str = field(default="simulation", kw_only=True)
 
 
 class Executor(Protocol):
@@ -122,6 +123,7 @@ class FakeExecutor:
             worker=worker,
             wall_seconds=result.wall_seconds,
             transport_text=payload.text,
+            execution_profile=result.execution_profile,
         )
 
     def _execute_prepared(
@@ -251,11 +253,21 @@ class CaseRunResult:
     duration_seconds: float
     failures: list[ExpectCheckFailure] = field(default_factory=list)
     skip_reason: str | None = None
+    execution_profile: str = "simulation"
+    model_succeeded: bool = False
 
 
 @dataclass
 class RunSummary:
     results: list[CaseRunResult]
+
+    @property
+    def live_passed(self) -> int:
+        """Count successful live model executions, excluding gate-only checks."""
+        return sum(
+            r.outcome == CaseOutcome.PASS and r.execution_profile == "live" and r.model_succeeded
+            for r in self.results
+        )
 
     @property
     def passed(self) -> int:
@@ -283,14 +295,18 @@ def run_cases(
         started = time.perf_counter()
         failures: list[ExpectCheckFailure] = []
         skip_reason: str | None = None
+        execution_profile = "simulation"
+        model_succeeded = False
         try:
             task = TaskV1.model_validate(loaded.task_payload)
             execution = executor.execute(task)
+            execution_profile = execution.execution_profile
+            model_succeeded = execution.status == ResultStatus.SUCCEEDED
             failures = evaluate_expect(loaded.case.expect, execution)
         except CaseNotApplicable as exc:
             skip_reason = str(exc) or "not applicable to this executor"
-        except Exception as exc:  # noqa: BLE001 — per-case isolation for reference runs
-            failures = [ExpectCheckFailure(rule="execution", detail=f"{type(exc).__name__}: {exc}")]
+        except Exception:  # noqa: BLE001 — isolate cases without exposing provider diagnostics
+            failures = [ExpectCheckFailure(rule="execution", detail="execution did not complete")]
         duration = time.perf_counter() - started
         if skip_reason is not None:
             outcome = CaseOutcome.SKIP
@@ -304,6 +320,8 @@ def run_cases(
                 duration_seconds=duration,
                 failures=failures,
                 skip_reason=skip_reason,
+                execution_profile=execution_profile,
+                model_succeeded=model_succeeded,
             )
         )
     return RunSummary(results=results)
@@ -320,6 +338,7 @@ def format_summary(summary: RunSummary) -> str:
             lines.append(f"  - skipped: {result.skip_reason}")
         for failure in result.failures:
             lines.append(f"  - {failure.rule}: {failure.detail}")
+    lines.append(f"Live evidence: {summary.live_passed} passed model executions")
     lines.append(
         f"Summary: {summary.passed}/{summary.total} passed, "
         f"{summary.failed} failed, {summary.skipped} skipped"

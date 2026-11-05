@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from app.core.schemas import Worker
 from app.operations.errors import OperationError
 from app.operations.process import run_command
+from app.workers.live_config import LiveConfigurationError, load_live_config
 
 _ENVIRONMENT = {
     "DECK_DATABASE_URL",
@@ -21,6 +22,8 @@ _ENVIRONMENT = {
     "DECK_INBOX_DIR",
     "DECK_BLOCKLIST_PATH",
     "DECK_ROUTER_FILE",
+    "DECK_LIVE_ENABLED",
+    "DECK_OLLAMA_URL",
 }
 
 
@@ -92,6 +95,11 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=0)
     arguments = parser.parse_args()
     if not arguments.simulate:
+        try:
+            load_live_config(Worker(arguments.worker))
+        except LiveConfigurationError as error:
+            print(json.dumps({"status": "unavailable", "reason": error.code}))
+            return 78
         print(json.dumps({"status": "unavailable", "reason": "live_profile_unavailable"}))
         return 78
     stop = threading.Event()

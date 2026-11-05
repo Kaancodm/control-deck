@@ -244,3 +244,17 @@ def test_missing_live_model_does_not_block_available_task_and_context_is_configu
     chats = [r["body"] for r in stub.requests if r["path"] == "/api/chat"]
     assert len(chats) == 1
     assert chats[0]["options"]["num_ctx"] == 2048
+
+
+def test_nul_output_fails_the_attempt_instead_of_stranding_the_lease(db_session, tmp_path):
+    # PostgreSQL JSONB cannot store U+0000, so this output must not reach persistence.
+    task_id = _task(db_session)
+    with OllamaStub(models=(MODEL,), output="before\u0000after") as stub:
+        outcome = _runner(db_session, tmp_path, _executor(stub)).run_once()
+    assert outcome.action == "completed"
+    db_session.expire_all()
+    assert db_session.get(Task, task_id).status != TaskState.RUNNING
+    stored = _stored(db_session, task_id)
+    assert stored["status"] == "failed"
+    assert stored["output"]["text"] == ""
+    assert stored["error"]["code"] == "internal"

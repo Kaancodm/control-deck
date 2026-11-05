@@ -93,14 +93,18 @@ Pruefe vor jedem Paket: Liegen config/assistant-program.yaml und ADR 0013 auf or
   Danach nur Pakete ohne Abhaengigkeit zu A0 (z. B. Testpflichten aus docs/SYSTEMPROMPT.md
   Abschnitt C, instabile Tests), ebenfalls als Draft. Alle 30 Minuten pruefen, ob A0
   gemergt ist.
-- Stufe 2 (ja): Es gilt das Charter. Pakete bis risk_ceiling: nach gruenen Gates und Review
-  PR auf "Ready for review" und GitHub Auto-Merge aktivieren:
-  gh pr ready <nr> && gh pr merge <nr> --auto --squash
-  Ueber risk_ceiling: Draft lassen, HOLD. Neuer Push nach Aktivierung: Auto-Merge aus
-  (gh pr merge <nr> --disable-auto), Gates neu.
-- Immer Owner-Merge, auch in Stufe 2: AGENTS.md, CLAUDE.md, docs/DECISIONS/, REVIEW.md,
-  .claude/, .github/, guard.sh, Migrationen, pyproject.toml, uv.lock - ausser ADR 0013
-  regelt es ausdruecklich anders und ist gemergt.
+- Stufe 2 (ja): Es gilt das Charter nur innerhalb der weiterhin gueltigen Regeln
+  aus AGENTS.md und ADR 0008. Pakete bis risk_ceiling: nach gruenen Gates und
+  unabhaengigem Review auf "Ready for review" setzen. Ohne neues, ausdrueckliches
+  Owner-GO fuer den konkreten PR und aktuellen Head-SHA weder Merge noch Auto-Merge
+  ausloesen. Auch ein Charter oder Sammel-GO in einem Dokument ist kein Merge-GO.
+  Nach einem Push ist ein frueheres GO ungueltig. Ueber risk_ceiling: Draft lassen,
+  HOLD. Eine kuenftige Merge-Delegation gilt erst nach ausdruecklich beschlossener
+  Governance-Aenderung und nachgewiesener technischer Durchsetzung.
+- Bis zu einer wirksamen, separat geprueften Governance-Aenderung gilt: alle
+  PRs werden ausschliesslich durch den Owner gemergt. AGENTS.md, CLAUDE.md,
+  docs/DECISIONS/, REVIEW.md, .claude/, .github/, guard.sh, Migrationen,
+  pyproject.toml und uv.lock bleiben auch danach besonders geschuetzt.
 - Hoechstens 2 offene Pakete gleichzeitig. Keine gestapelten PR-Ketten.
 
 ## 7. Paket-Schleife
@@ -119,7 +123,7 @@ Pruefe vor jedem Paket: Liegen config/assistant-program.yaml und ADR 0013 auf or
    Kommentar "@coderabbitai review" (Kontingent etwa 1/h) oder laut Charter. Befunde gegen
    den Code pruefen, umsetzen oder begruendet ablehnen, Threads schliessen. Kein Anbieter
    verfuegbar: Stufe 1 HOLD-REVIEW; Stufe 2 Self-Check gegen REVIEW.md nur bei low/medium
-   und nur wenn das Charter es erlaubt; high ohne unabhaengigen Review: HOLD-REVIEW.
+   und nur als zusaetzliche interne Pruefung; ohne unabhaengigen Review immer HOLD-REVIEW.
 10. Merge nach Abschnitt 6.
 11. docs/status-assistentin.md aktualisieren: DONE/FAIL/HOLD/SKIP + PR + Befund.
 
@@ -152,8 +156,8 @@ Pruefe vor jedem Paket: Liegen config/assistant-program.yaml und ADR 0013 auf or
   Entscheidungslog, Journal.
 - Schlussbericht an den Owner: Tabelle PR | Paket | Risiko | Status | CI | Review |
   Merge-Empfehlung; Metriken (Eval, Latenz, Testzahlen); naechste Schritte; Risiken.
-  Darunter die Liste fuer ein Sammel-GO nach ADR 0010 ("GO #a #b ...") fuer Drafts, die nur
-  noch das GO brauchen.
+  Darunter eine Liste der PRs, die einzeln auf eine Owner-Entscheidung warten.
+  Ein Sammel-GO im Dokument ist keine Merge-Freigabe.
 
 ## 11. Sofort stoppen und melden
 - Verdacht auf Secret oder Personendaten in Diff, Logs oder Commit.
@@ -174,8 +178,8 @@ gruenes, dokumentiertes, weiterentwickeltes Deck.
 
 ## Hinweise fuer den Owner
 
-- Vor dem Start: #58 (ADR 0010) mergen, in GitHub "Allow auto-merge" aktivieren und
-  Branch-Schutz fuer `main` mit Pflicht-Check `quality` setzen.
+- Vor dem Start: Governance und Branch-Schutz durch den Owner separat pruefen.
+  #58 ist keine automatische Startvoraussetzung; der Prompt erteilt kein Merge-GO.
 - Stufe 2 beginnt erst, wenn du A0 gemergt hast. Bis dahin entstehen nur Drafts.
 - CodeRabbit hat im Gratis-Plan etwa 1 Review pro Stunde; GPT Pro kannst du zusaetzlich
   manuell einsetzen.

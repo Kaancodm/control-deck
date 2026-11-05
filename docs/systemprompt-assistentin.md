@@ -75,7 +75,9 @@ Was du lieferst:
    - Ein Latenz-Budget als CI-Test, der auf geteilten Runnern flattern kann.
    - Wer baut: ADR 0008 nennt Cursor als Bauer, der Plan sagt nur «Assistenten», dieser Prompt
      richtet sich an Claude Code. Der Plan legt pro Paket Bauer und Prüfer fest; dieselbe
-     Anbieterin baut und prüft nie dasselbe Paket.
+     Anbieterin baut und prüft nie dasselbe Paket. Stand 2026-11-05 laut Owner: Codex hat kein
+     Kontingent, die Review-Rotation `codex` im Plan fällt damit aus. Verfügbar ist ChatGPT im
+     Pro-Abo; ob es ohne Owner als Bote an PR-Diffs kommt, ist ungeprüft.
    - Autopilot gegen `.claude/settings.json`: `defaultMode: plan`, `git push` und
      `uv run alembic` unter `ask`. Eine Sitzung ohne Owner am Gerät bleibt dort stehen.
    - `tasks/TEMPLATE.md` kennt weder Risikoklasse noch erlaubte Pfade, Schalter, Rollback und

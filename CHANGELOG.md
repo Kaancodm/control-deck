@@ -32,6 +32,12 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - Folgestack #41 ff., nicht Teil dieses Eintrags: Runner-Flags, Loopback-HTTP-Transport,
   Live-Executor, Daemon-Überwachung, Canary und Referenzmodus.
 
+### Ollama Live-Adapter – Executor (#44, Draft)
+
+- Das Kontextbudget folgt `num_ctx` aus `/api/show`, mit Fallback `4096` bei
+  unbrauchbaren Angaben. Die Token-Schätzung verwendet aufgerundete UTF-8-Bytes
+  geteilt durch drei; die Reserve bleibt bei 1024 Tokens.
+
 ### Etappe 17 – Audit und lokale Lane-Gesundheit (#32)
 
 - Geschuetzte Audit-Ansicht fuer sichere Auftrags-, Betriebs- und Auth-Metadaten;

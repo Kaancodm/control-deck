@@ -46,6 +46,7 @@ class _FrozenModel(BaseModel):
 class LaneConfig(_FrozenModel):
     enabled: StrictBool = True
     daily_attempt_limit: StrictInt | None = Field(default=None, ge=0)
+    num_ctx: StrictInt | None = Field(default=None, gt=0, le=2**31 - 1)
     models: dict[str, StrictStr] = Field(default_factory=dict)
 
     @field_validator("models")

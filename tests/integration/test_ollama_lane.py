@@ -281,11 +281,6 @@ def test_availability_and_execution_close_main_thread_database_transactions(
     [
         ({}, ("fixture-model",), "model_not_configured"),
         ({"default": "fixture-model"}, (), "model_not_available"),
-        (
-            {"default": "fixture-model", "summarize": "fixture-second"},
-            ("fixture-model",),
-            "model_not_available",
-        ),
     ],
 )
 def test_unavailable_inventory_does_not_claim_or_consume_attempts(
@@ -875,3 +870,14 @@ def test_simulation_after_live_failure_preserves_live_evidence(db_session, tmp_p
         select(Event).where(Event.task_id == task_id, Event.event_type == "task.succeed")
     )
     assert event.detail["execution_profile"] == "simulation"
+
+
+def test_missing_simulation_model_does_not_block_available_task(db_session, tmp_path, router_file):
+    _write_config(router_file, models={"default": "fixture-model", "summarize": "fixture-second"})
+    missing_id = _task(db_session, kind="summarize")
+    available_id = _task(db_session)
+    outcome = _runner(db_session, tmp_path, _executor()).run_once()
+    assert outcome.task_id == available_id and outcome.status == "review"
+    db_session.expire_all()
+    missing = db_session.get(Task, missing_id)
+    assert missing.status == TaskState.QUEUED and missing.attempt == 0

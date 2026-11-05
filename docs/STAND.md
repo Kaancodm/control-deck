@@ -1,5 +1,12 @@
 # Stand des Repositorys
 
+## Nachtrag 2026-11-05: Live-Stack gemergt
+
+Der Live-Stack (#39 bis #42, #44 bis #48) sowie #52 und #53 sind auf `main` gemergt; der nächste
+Abschnitt beschreibt den früheren Draft-Stand. Es gibt keinen Tag, die Version bleibt `0.1.0`.
+Tickets A bis D, Inbetriebnahme, Canary und Abnahme sind offen. Nächste Schritte:
+[TAGESPLAN.md](TAGESPLAN.md).
+
 ## Nachtrag: Ollama Live-Adapter als Draft
 
 Der auf `main` nach #37 neu aufgebaute Stack ergänzt gemäss [ADR 0009](DECISIONS/0009-ollama-loopback-http.md)

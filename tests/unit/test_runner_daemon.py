@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -14,9 +15,30 @@ from app.workers import daemon
 
 
 def test_live_service_profile_stays_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DECK_LIVE_ENABLED", raising=False)
     monkeypatch.setattr(sys, "argv", ["daemon", "--worker", "ollama"])
     monkeypatch.setattr(daemon, "run_loop", lambda *args, **kwargs: pytest.fail("No runner"))
     assert daemon.main() == 78
+
+
+@pytest.mark.parametrize(
+    "flag,worker,url,reason",
+    [
+        ("0", "ollama", "", "live_disabled"),
+        ("TRUE", "ollama", "", "live_disabled"),
+        ("1", "claude", "", "live_lane_not_supported"),
+        ("1", "codex", "", "live_lane_not_supported"),
+        ("1", "ollama", "", "live_url_invalid"),
+        ("true", "ollama", "http://localhost:11434", "live_url_invalid"),
+    ],
+)
+def test_configuration_refusal_never_spawns(monkeypatch, capsys, flag, worker, url, reason):
+    monkeypatch.setenv("DECK_LIVE_ENABLED", flag)
+    monkeypatch.setenv("DECK_OLLAMA_URL", url)
+    monkeypatch.setattr(sys, "argv", ["daemon", "--worker", worker])
+    monkeypatch.setattr(daemon, "run_loop", lambda *args, **kwargs: pytest.fail("No runner"))
+    assert daemon.main() == 78
+    assert json.loads(capsys.readouterr().out) == {"status": "unavailable", "reason": reason}
 
 
 def test_bounded_supervisor_uses_one_explicit_lane_per_attempt(
@@ -29,6 +51,53 @@ def test_bounded_supervisor_uses_one_explicit_lane_per_attempt(
     )
     assert count == 2 and len(commands) == 2
     assert all(command[-1] == "ollama-fake-cli" and "--simulate" in command for command in commands)
+
+
+def test_live_supervisor_uses_live_executor_exclusively(monkeypatch):
+    commands = []
+    monkeypatch.setattr(daemon, "run_command", lambda command, **kwargs: commands.append(command))
+    environment = {"DECK_LIVE_ENABLED": "1", "DECK_OLLAMA_URL": "http://127.0.0.1:11434"}
+    assert (
+        daemon.run_loop(
+            Worker.OLLAMA, environment=environment, stop=threading.Event(), iterations=1, live=True
+        )
+        == 1
+    )
+    assert commands[0][-1] == "ollama-live"
+    assert "--live" in commands[0] and "--simulate" not in commands[0]
+
+
+@pytest.mark.parametrize("simulate", [False, True])
+def test_main_selects_profile_and_simulation_ignores_live_configuration(
+    monkeypatch, capsys, simulate
+):
+    monkeypatch.setenv("DECK_LIVE_ENABLED", "1")
+    monkeypatch.setenv("DECK_OLLAMA_URL", "invalid" if simulate else "http://127.0.0.1:11434")
+    monkeypatch.setattr(
+        sys, "argv", ["daemon", "--worker", "ollama"] + (["--simulate"] if simulate else [])
+    )
+    seen = []
+    monkeypatch.setattr(daemon, "run_loop", lambda *args, **kwargs: seen.append(kwargs) or 0)
+    assert daemon.main() == 0
+    assert seen[0]["live"] is not simulate
+    assert json.loads(capsys.readouterr().out)["status"] == "stopped"
+
+
+@pytest.mark.parametrize("reason", ["process_failed", "process_timeout", "process_output_limit"])
+def test_live_host_process_failure_exits_one_for_supervisor_restart(monkeypatch, capsys, reason):
+    calls = []
+    monkeypatch.setenv("DECK_LIVE_ENABLED", "true")
+    monkeypatch.setenv("DECK_OLLAMA_URL", "http://127.0.0.1:11434")
+    monkeypatch.setattr(sys, "argv", ["daemon", "--worker", "ollama"])
+
+    def child(command, **kwargs):
+        calls.append(command)
+        raise OperationError(reason)
+
+    monkeypatch.setattr(daemon, "run_command", child)
+    assert daemon.main() == 1
+    assert len(calls) == 1
+    assert json.loads(capsys.readouterr().out) == {"status": "failed", "reason": reason}
 
 
 def test_stop_cancels_child_without_a_database_mutation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -48,6 +117,10 @@ def test_supervisor_passes_only_host_configuration() -> None:
         {
             "DECK_DATABASE_URL": "test-database",
             "DECK_ROUTER_FILE": "fixture-config",
+            "DECK_LIVE_ENABLED": "1",
+            "DECK_OLLAMA_URL": "http://127.0.0.1:11434",
+            "OLLAMA_HOST": "untrusted",
+            "HTTP_PROXY": "untrusted",
             "DECK_OWNER_TOKEN": "fake-owner-value",
             "DECK_WORKER_TOKEN_CLAUDE": "fake-lane-value",
             "ANTHROPIC_API_KEY": "fake-key-value",
@@ -58,6 +131,8 @@ def test_supervisor_passes_only_host_configuration() -> None:
         "PATH": os.defpath,
         "DECK_DATABASE_URL": "test-database",
         "DECK_ROUTER_FILE": "fixture-config",
+        "DECK_LIVE_ENABLED": "1",
+        "DECK_OLLAMA_URL": "http://127.0.0.1:11434",
     }
 
 

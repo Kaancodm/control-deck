@@ -24,6 +24,7 @@ from app.kb.snapshots import (
 )
 from app.privacy.gate import PrivacyInputUnavailable, validate_submission
 from app.routing.config import get_router_config
+from app.workers.contracts import ExecutionProfile
 
 _GATE_ERROR_COOLDOWN = timedelta(seconds=60)
 
@@ -228,7 +229,13 @@ def result_payload_for_storage(result_v1: ResultV1) -> dict[str, Any]:
     return data
 
 
-def persist_result_v1(session: Session, *, task: Task, result_payload: dict[str, Any]) -> Result:
+def persist_result_v1(
+    session: Session,
+    *,
+    task: Task,
+    result_payload: dict[str, Any],
+    execution_profile: ExecutionProfile = "simulation",
+) -> Result:
     """Append a validated ``result.v1`` row for ``task``."""
     issues = validate_result(result_payload)
     if issues:
@@ -238,6 +245,7 @@ def persist_result_v1(session: Session, *, task: Task, result_payload: dict[str,
         task_id=task.id,
         attempt=attempt,
         payload=result_payload,
+        execution_profile=execution_profile,
     )
     session.add(row)
     session.flush()

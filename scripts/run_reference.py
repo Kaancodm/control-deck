@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI to run reference test cases against explicitly simulated executors."""
+"""CLI to run reference cases and distinguish live model evidence from simulation."""
 
 from __future__ import annotations
 
@@ -18,11 +18,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run Control Deck reference cases")
     parser.add_argument(
         "--executor",
-        choices=("fake", "ollama-fake-cli"),
+        choices=("fake", "ollama-fake-cli", "ollama-live"),
         default="fake",
-        help="Use the deterministic fake or the bundled Ollama CLI simulation",
+        help="Select simulation or flag-gated live Ollama",
     )
-    parser.add_argument("--model", help="Explicit fixture model for ollama-fake-cli")
+    parser.add_argument("--model", help="Explicit fixture or configured live model")
     parser.add_argument(
         "--cases-dir",
         type=Path,
@@ -31,16 +31,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     executor: Executor
-    if args.executor == "ollama-fake-cli":
+    if args.executor in {"ollama-fake-cli", "ollama-live"}:
         if not args.model:
-            parser.error("--executor ollama-fake-cli requires --model")
+            parser.error("The Ollama executor requires --model")
         try:
-            executor = OllamaReferenceExecutor(model=args.model)
-        except ValueError:
-            parser.error("Invalid Ollama simulation configuration")
+            executor = OllamaReferenceExecutor(
+                model=args.model,
+                execution_profile="live" if args.executor == "ollama-live" else "simulation",
+            )
+        except (ValueError, RuntimeError):
+            parser.error("Invalid Ollama reference configuration")
     else:
         if args.model is not None:
-            parser.error("--model requires --executor ollama-fake-cli")
+            parser.error("--model requires an Ollama executor")
         executor = FakeExecutor()
 
     cases_dir: Path = args.cases_dir
@@ -59,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
     summary = run_cases(cases, executor)
     print(format_summary(summary))
     failed = summary.failed + len(load_issues)
+    if args.executor == "ollama-live" and summary.live_passed == 0:
+        print("FAIL: no successful live model case", file=sys.stderr)
+        return 1
     return 0 if failed == 0 else 1
 
 

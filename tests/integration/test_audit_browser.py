@@ -82,7 +82,7 @@ def test_audit_and_health_browser_flow(browser_app, monkeypatch, width, javascri
         page.get_by_text("Menü", exact=True).click()
         page.get_by_role("link", name="Lanes", exact=True).click()
         page.wait_for_load_state("load")
-        assert "Versuchszähler seit Migration 0016" in page.content()
+        assert "Live-Versuchszähler seit Migration 0018" in page.content()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         # Browser's HTTP context uses actual cookie scope even without JavaScript.
         response = context.request.get(base + "/api/v1/health")

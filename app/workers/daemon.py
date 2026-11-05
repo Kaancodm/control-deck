@@ -1,4 +1,4 @@
-"""Explicit simulation supervisor; service shutdown never impersonates owner cancellation."""
+"""Explicit lane supervisor; service shutdown never impersonates owner cancellation."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from app.core.schemas import Worker
 from app.operations.errors import OperationError
 from app.operations.process import run_command
+from app.workers.live_config import LiveConfigurationError, load_live_config
 
 _ENVIRONMENT = {
     "DECK_DATABASE_URL",
@@ -21,6 +22,8 @@ _ENVIRONMENT = {
     "DECK_INBOX_DIR",
     "DECK_BLOCKLIST_PATH",
     "DECK_ROUTER_FILE",
+    "DECK_LIVE_ENABLED",
+    "DECK_OLLAMA_URL",
 }
 
 
@@ -37,6 +40,7 @@ def run_loop(
     iterations: int = 0,
     poll_seconds: float = 1,
     attempt_timeout_s: float = 3600,
+    live: bool = False,
     command: tuple[str, ...] | None = None,
 ) -> int:
     """Run separate host attempts, preserving durable queue retries after a forced stop."""
@@ -50,16 +54,18 @@ def run_loop(
         or not 0.1 <= attempt_timeout_s <= 7200
     ):
         raise OperationError("invalid_runner_limits")
+    if live:
+        load_live_config(worker, environment)
     selected = command or (
         sys.executable,
         "-m",
         "app.workers.runner_main",
         "--worker",
         worker.value,
-        "--simulate",
+        "--live" if live else "--simulate",
         "--once",
         "--executor",
-        worker.value + "-fake-cli",
+        "ollama-live" if live else worker.value + "-fake-cli",
     )
     completed = 0
     while not stop.is_set() and (iterations == 0 or completed < iterations):
@@ -75,6 +81,10 @@ def run_loop(
         except OperationError as error:
             if error.code == "service_stopping":
                 break
+            if live:
+                # Unavailable providers are normal runner outcomes. A failed host
+                # process must reach systemd's supervisor restart policy instead.
+                raise
             delay = max(5, poll_seconds)
         completed += 1
         if iterations and completed >= iterations:
@@ -85,15 +95,18 @@ def run_loop(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run a bounded, explicitly simulated lane supervisor"
+        description="Run a bounded, explicitly enabled lane supervisor"
     )
     parser.add_argument("--worker", required=True, choices=[lane.value for lane in Worker])
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--iterations", type=int, default=0)
     arguments = parser.parse_args()
     if not arguments.simulate:
-        print(json.dumps({"status": "unavailable", "reason": "live_profile_unavailable"}))
-        return 78
+        try:
+            load_live_config(Worker(arguments.worker))
+        except LiveConfigurationError as error:
+            print(json.dumps({"status": "unavailable", "reason": error.code}))
+            return 78
     stop = threading.Event()
 
     def terminate(_number: int, _frame: object) -> None:
@@ -108,6 +121,7 @@ def main() -> int:
             environment=runner_environment(os.environ),
             stop=stop,
             iterations=arguments.iterations,
+            live=not arguments.simulate,
         )
         print(json.dumps({"status": "stopped", "iterations": completed}))
         return 0

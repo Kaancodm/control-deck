@@ -1,9 +1,42 @@
-# Aenderungen
+# Änderungen
 
-## Unveroeffentlicht
+## Unveröffentlicht
 
-Die Eintraege beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
-Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unveraendert.
+Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
+Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
+
+### Ollama Live-Adapter – Entscheid (#39, Draft)
+
+- ADR 0009 ersetzt für die lokale Live-Lane den CLI-Transport durch begrenztes
+  Loopback-HTTP: nur `http`, die Literale `127.0.0.1` oder `::1` und ein expliziter
+  Port. Ollama ist exakt auf `v0.40.14` gepinnt; der Tag wurde gegen den Upstream-Commit
+  `9a3e8177767245acc62b735eba7d5d8a553606d0` aufgelöst.
+- LANES.md beschreibt den HTTP-Vertrag, die geprüften Quellstellen und die offenen
+  Server-Nachweise. Code, Schemas und Migrationen ändern sich in #39 nicht.
+- Folgestack #40 ff., nicht Teil dieses Eintrags: Migration 0018 mit Provenienz- und
+  Live-Zählern, Runner-Flags, Text-Streaming, Canary und Referenzmodus.
+
+### Ollama Live-Adapter – Provenienz (#40, Draft)
+
+- Migration 0018 trennt Executor-Provenienz und Live-Erfolgszähler von Simulation
+  und nicht attestierten Remote-Ergebnissen. Die v1-Schemas bleiben unverändert.
+- Angenommene Fehler jeder Herkunft zählen in der Fehlerserie; nur ein Live-Erfolg
+  setzt sie zurück. Die Migration erhält alte Fehlerdaten, die Health-Ansicht alle
+  vorgesehenen Fehlergründe. Der neue Live-Zählerzeitraum steht in der Abnahme-Checkliste.
+- `safe_execution_metadata` übernimmt aus Adapter-Metadaten nur geprüfte Schlüssel
+  (Transport, Modell, Versionen, Zähler, HTTP-Status, Ausgabe-Digest) in Ergebnisereignis
+  und Lane-Log. Der Runner leert die Metadaten vor jedem Versuch; Rohtext wird nie gespiegelt.
+- `probe_generation` zäunt externe Lane-Proben ein: ein Probenergebnis ändert nur seine
+  eigene Generation, jede neuere Beobachtung verwirft ältere Proben, und ein Probenabschluss
+  ohne gestartete Zeile wird abgewiesen, statt eine neue Beobachtung anzulegen.
+- Folgestack #41 ff., nicht Teil dieses Eintrags: Runner-Flags, Loopback-HTTP-Transport,
+  Live-Executor, Daemon-Überwachung, Canary und Referenzmodus.
+
+### Ollama Live-Adapter – Executor (#44, Draft)
+
+- Das Kontextbudget folgt `num_ctx` aus `/api/show`, mit Fallback `4096` bei
+  unbrauchbaren Angaben. Die Token-Schätzung verwendet aufgerundete UTF-8-Bytes
+  geteilt durch drei; die Reserve bleibt bei 1024 Tokens.
 
 ### Etappe 17 – Audit und lokale Lane-Gesundheit (#32)
 

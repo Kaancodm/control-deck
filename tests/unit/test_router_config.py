@@ -123,3 +123,20 @@ def test_shipped_config_has_no_actual_models(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.delenv("DECK_ROUTER_FILE", raising=False)
     config = get_router_config()
     assert all(lane.models == {} for lane in config.lanes.values())
+
+
+@pytest.mark.parametrize("num_ctx", [0, -1, True, "4096", 2**31])
+def test_lane_context_rejects_invalid_explicit_values(num_ctx):
+    from pydantic import ValidationError
+
+    from app.routing.config import LaneConfig
+
+    with pytest.raises(ValidationError):
+        LaneConfig.model_validate({"num_ctx": num_ctx})
+
+
+@pytest.mark.parametrize("num_ctx", [None, 1, 2048, 8192])
+def test_lane_context_accepts_explicit_positive_integer_or_absence(num_ctx):
+    from app.routing.config import LaneConfig
+
+    assert LaneConfig.model_validate({"num_ctx": num_ctx}).num_ctx == num_ctx

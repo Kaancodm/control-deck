@@ -174,6 +174,7 @@ def prepare_claimed_task(session: Session, task: Task, *, runs_root: Path) -> Pr
             redaction_applied=payload.applied,
             redaction_placeholders=payload.placeholders,
             artifact_path=artifact.relative_path,
+            json_format=any(rule.type == "json_schema" for rule in model.acceptance),
         )
 
 

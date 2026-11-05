@@ -10,8 +10,9 @@ Jeder Eintrag und jeder Export braucht eine ausdrueckliche Datenklasse ohne Defa
 
 ## Testvertrag und Suche
 
-Die eigene Alembic-Kette `alembic_kb.ini` legt nur in einer ausdruecklichen `_test`-Datenbank
-das Schema `deck_kb` an. Dokumente und Chunks sind unveraenderlich; ein Dokument besitzt eine
+Die eigene Alembic-Kette `alembic_kb.ini` legt das Schema `deck_kb` nur in der ausdruecklich
+gewaehlten Datenbank an (siehe [Migrationsziel](#migrationsziel)). Entwickelt und geprueft wird
+gegen `_test`-Datenbanken. Dokumente und Chunks sind unveraenderlich; ein Dokument besitzt eine
 ausdrueckliche Datenklasse, die fuer alle seine Chunks gilt. SHA-256 bindet die exakten
 UTF-8-Bytes. Vor jedem Zugriff werden Vertragsversion, Embedding-Modell, Dimension,
 Pflichtklasse ohne DB-Default sowie erforderliche Tabellenrechte geprueft.
@@ -66,6 +67,32 @@ Dateien durchlaufen dieselben sicheren Inbox-Lesepruefungen und den Scanner.
 Pruefungen: `uv run alembic -c alembic_kb.ini upgrade head`, danach
 `uv run alembic -c alembic_kb.ini check`. CI verwendet pgvector und eine separate KB-Test-DB.
 Der Python-Adapter benoetigt keine neue Dependency; pgvector ist eine Test-DB-Erweiterung.
+
+## Migrationsziel
+
+Die KB-Kette waehlt ihre Datenbank vor jedem Verbindungsaufbau:
+
+| Aufruf | Gelesene Variable | Befehle |
+|---|---|---|
+| `-x target=test` oder ohne Ziel | `DECK_KB_TEST_DATABASE_URL`, Name endet auf `_test` | alle |
+| `-x target=runtime` | `DECK_KB_DATABASE_URL` | nur `upgrade`, `check`, `current` |
+
+Ist `DECK_KB_DATABASE_URL` gesetzt, muss das Ziel ausdruecklich genannt werden. Abgewiesen werden
+unbekannte oder mehrfache Ziele, ungueltige URLs und die zentrale DB als KB-Ziel.
+`DECK_ALEMBIC_TARGET` gilt fuer diese Kette nicht. Fehler nennen nur einen Grundcode, nie die URL.
+
+Die URL gehoert in die private Konfiguration, nie ins Repo:
+
+```bash
+uv run alembic -c alembic_kb.ini -x target=runtime current
+uv run alembic -c alembic_kb.ini -x target=runtime upgrade head
+uv run alembic -c alembic_kb.ini -x target=runtime check
+```
+
+Die Revision `kb_0001` bleibt unveraendert. Ihr Schutz akzeptiert die Runtime-URL nur innerhalb
+dieser Zielwahl. Die Zielwahl aktiviert keinen Live-Wissensadapter und kein Live-Profil.
+Eine bestehende fremde Wissens-DB wird nicht automatisch angepasst. Anwendung auf dem Server,
+Rollenrechte und Backup-Nachweis bleiben Teil der Inbetriebnahme.
 
 ## Inbetriebnahme
 

@@ -73,21 +73,44 @@ Der Supervisor startet je Iteration genau einen Host-Runner-Versuch. Dessen geme
 Queue-Logik bestimmt Freigabe, Lane, Versuchsbudget, Backoff, Deadline und Fallback.
 Der Supervisor führt keine versteckten Modell-Wiederholungen aus.
 
-Die derzeitige Dienstvorlage bleibt mit Exit-Code `78` gesperrt, solange kein technisch
-nachgewiesenes Live-Profil vorhanden ist. Sie verarbeitet keine produktiven Aufträge mit
-Fake-Ergebnissen. Nur `--simulate` aktiviert ausdrücklich die Fake-CLI eines Workers.
-`--iterations` begrenzt lokale technische Proben.
+Ohne `--simulate` verlangt der Supervisor ausdrücklich `DECK_LIVE_ENABLED=1` oder
+`DECK_LIVE_ENABLED=true` in der privaten Runner-Umgebungsdatei. Grossschreibung,
+Leerraum und alle anderen Werte schalten Live aus. Nur Ollama hat einen Live-Transport.
+`--simulate` startet weiterhin die Fake-CLI des Workers, unabhängig vom Live-Flag;
+`--iterations` begrenzt lokale technische Proben. Die Unit-Vorlage benötigt keine neuen
+Argumente. `make install` rendert ihren Pfad zur separaten Runner-Umgebungsdatei.
 
-Für die spätere Live-Anbindung werden nur in der privaten Runner-Umgebungsdatei
-`DECK_LIVE_ENABLED` und `DECK_OLLAMA_URL` vorgesehen. Ausschliesslich `1` oder `true`
-(klein, ohne Leerraum) aktivieren die Konfigurationsprüfung. Flag aus ergibt Exit `78`
-mit `live_disabled`; andere Lanes bei Flag an ergeben `live_lane_not_supported`.
-Nur HTTP mit dem Literal `127.0.0.1` oder `[::1]` und ausdrücklichem Port 1 bis 65535
-ist gültig; Pfad, Userinfo, Query, Fragment, Hostname und HTTPS sind ausgeschlossen.
-Eine fehlende oder ungültige URL ergibt `live_url_invalid`. Auch eine gültige
-Konfiguration endet in diesem Schritt mit `78` / `live_profile_unavailable` ohne Spawn.
-Der Live-Transport wird separat angeschlossen. `--simulate` ignoriert die Live-Variablen.
-Die Unit-Vorlage und der Restore-Timer bleiben unverändert.
+`DECK_OLLAMA_URL` ist bei aktiviertem Live-Profil Pflicht. Erlaubt sind ausschliesslich
+HTTP, das IP-Literal `127.0.0.1` oder `[::1]` und ein ausdrücklicher Port von 1 bis 65535.
+Ein Pfad (auch `/`), Benutzerangaben, Query, Fragment, Hostname oder HTTPS wird abgewiesen.
+Das Flag und die URL gehören nie in die API-Umgebungsdatei. Proxy-Variablen und
+`OLLAMA_HOST` werden nicht an Runner weitergereicht.
+
+| Ausgang | Exit-Code | Bedeutung |
+|---|---|---|
+| Flag aus | `78`, `live_disabled` | Konfigurationsverweigerung; Unit startet nicht erneut |
+| Andere Lane bei Flag an | `78`, `live_lane_not_supported` | Live nur für Ollama |
+| Fehlende oder ungültige URL | `78`, `live_url_invalid` | Korrektur der Runner-Konfiguration nötig |
+| Supervisor-Laufzeitfehler | `1` | systemd versucht den Neustart nach fünf Sekunden |
+| Kontrolliertes Dienstende | `0` | Keine neuen Versuche |
+
+Ein unerreichbarer Ollama-Dienst beendet die Poll-Schleife nicht mit `78`.
+Der Runner meldet die Lane als `unavailable`; weitere Polls können die Erholung erkennen.
+Die Loopback-API zieht keine fehlenden Modelle nach. Ein Modellfehler nach dem Claim
+bleibt ein fehlgeschlagener Versuch nach den bestehenden Retry-Regeln.
+
+### Owner-Prüfung vor dem Ollama-Live-Lauf
+
+Der Owner setzt **im Ollama-Dienst** `OLLAMA_NO_CLOUD=1` und eine Loopback-Bindung.
+Eine Variable nur in der Deck-Runner-Datei ändert den laufenden Ollama-Dienst nicht.
+Der Owner lädt die erlaubten Modelle vorher und vergleicht das Inventar vor und nach
+dem Lauf. Die Allowlist stammt aus `lanes.ollama.models`; Modellnamen brauchen ein
+ausdrückliches Tag. Zunächst wird nur eine Runner-Instanz mit `max_parallel=1` betrieben.
+
+Version, Modellfähigkeiten, Cloud-Sperre, Abbruch und vollständiger Abschluss brauchen
+einen dokumentierten Servernachweis in `ABNAHME_CHECKLISTE_ENTWURF.md`. Repo-Tests verwenden
+nur einen lokalen HTTP-Stub. Sie konfigurieren weder einen echten Ollama-Dienst noch
+laden sie ein Modell. Die Restore-Erinnerung bleibt ein Probelauf ohne `--apply`.
 
 SIGTERM oder SIGINT beendet den aktiven Host-Prozess samt Unterprozessen und stoppt neue
 Claims. Das schreibt **keinen** Owner-Abbruch. Die bestehende Lease läuft aus; der Reaper

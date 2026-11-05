@@ -1,4 +1,4 @@
-"""Explicit simulation supervisor; service shutdown never impersonates owner cancellation."""
+"""Explicit lane supervisor; service shutdown never impersonates owner cancellation."""
 
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ def run_loop(
     iterations: int = 0,
     poll_seconds: float = 1,
     attempt_timeout_s: float = 3600,
+    live: bool = False,
     command: tuple[str, ...] | None = None,
 ) -> int:
     """Run separate host attempts, preserving durable queue retries after a forced stop."""
@@ -53,16 +54,18 @@ def run_loop(
         or not 0.1 <= attempt_timeout_s <= 7200
     ):
         raise OperationError("invalid_runner_limits")
+    if live:
+        load_live_config(worker, environment)
     selected = command or (
         sys.executable,
         "-m",
         "app.workers.runner_main",
         "--worker",
         worker.value,
-        "--simulate",
+        "--live" if live else "--simulate",
         "--once",
         "--executor",
-        worker.value + "-fake-cli",
+        "ollama-live" if live else worker.value + "-fake-cli",
     )
     completed = 0
     while not stop.is_set() and (iterations == 0 or completed < iterations):
@@ -78,6 +81,10 @@ def run_loop(
         except OperationError as error:
             if error.code == "service_stopping":
                 break
+            if live:
+                # Unavailable providers are normal runner outcomes. A failed host
+                # process must reach systemd's supervisor restart policy instead.
+                raise
             delay = max(5, poll_seconds)
         completed += 1
         if iterations and completed >= iterations:
@@ -88,7 +95,7 @@ def run_loop(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run a bounded, explicitly simulated lane supervisor"
+        description="Run a bounded, explicitly enabled lane supervisor"
     )
     parser.add_argument("--worker", required=True, choices=[lane.value for lane in Worker])
     parser.add_argument("--simulate", action="store_true")
@@ -100,8 +107,6 @@ def main() -> int:
         except LiveConfigurationError as error:
             print(json.dumps({"status": "unavailable", "reason": error.code}))
             return 78
-        print(json.dumps({"status": "unavailable", "reason": "live_profile_unavailable"}))
-        return 78
     stop = threading.Event()
 
     def terminate(_number: int, _frame: object) -> None:
@@ -116,6 +121,7 @@ def main() -> int:
             environment=runner_environment(os.environ),
             stop=stop,
             iterations=arguments.iterations,
+            live=not arguments.simulate,
         )
         print(json.dumps({"status": "stopped", "iterations": completed}))
         return 0

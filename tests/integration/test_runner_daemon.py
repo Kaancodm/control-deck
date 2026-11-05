@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -14,11 +15,12 @@ from sqlalchemy import func, select
 
 from app.core.schemas import Worker
 from app.db.config import get_test_database_url
-from app.db.models import Event, Lease, Result, Task
+from app.db.models import Event, LaneStatus, Lease, Result, Task
 from app.db.state_machine import TaskState
 from app.workers.daemon import run_loop
 from app.workers.runner_main import SimulationExecutor
 from tests.integration.test_host_runner import _queued, _runner
+from tests.support.ollama_stub import OllamaStub
 
 
 def test_real_service_stop_terminates_process_group_and_recovers_lease(db_session, tmp_path):
@@ -89,3 +91,59 @@ HostRunner(get_session_factory(for_tests=True), runs_root=Path(sys.argv[2])).run
     assert not task.cancel_requested
     assert db_session.scalar(select(func.count()).select_from(Result)) == 1
     assert not any("cancel" in kind for kind in db_session.scalars(select(Event.event_type)))
+
+
+def test_live_daemon_with_unreachable_stub_keeps_polling_and_stops_cleanly(db_session, tmp_path):
+    task_id = _queued(db_session)
+    router = tmp_path / "router.yaml"
+    router.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "lanes": {"ollama": {"enabled": True, "models": {"default": "fixture:latest"}}},
+            }
+        )
+    )
+    blocklist = tmp_path / "blocklist.txt"
+    blocklist.write_text("")
+    with OllamaStub() as stub:
+        url = stub.url
+    process = subprocess.Popen(
+        [sys.executable, "-m", "app.workers.daemon", "--worker", "ollama"],
+        env={
+            "PATH": os.defpath,
+            "DECK_DATABASE_URL": get_test_database_url(),
+            "DECK_RUNS_DIR": str(tmp_path / "runs"),
+            "DECK_ROUTER_FILE": str(router),
+            "DECK_BLOCKLIST_PATH": str(blocklist),
+            "DECK_LIVE_ENABLED": "1",
+            "DECK_OLLAMA_URL": url,
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            db_session.expire_all()
+            health = db_session.get(LaneStatus, Worker.OLLAMA.value)
+            if health is not None and health.status == "unavailable":
+                break
+            assert process.poll() is None, "Connection failure must not stop the daemon"
+            time.sleep(0.02)
+        else:
+            raise AssertionError("The live runner did not persist unavailable health")
+        assert process.poll() is None
+        process.terminate()
+        stdout, stderr = process.communicate(timeout=5)
+        assert process.returncode == 0
+        assert json.loads(stdout)["status"] == "stopped"
+        assert not stderr
+        db_session.expire_all()
+        task = db_session.get(Task, task_id)
+        assert task.status == TaskState.QUEUED and task.attempt == 0
+        assert db_session.scalar(select(func.count()).select_from(Lease)) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=5)

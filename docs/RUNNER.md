@@ -101,6 +101,9 @@ eine noch aktive Lease wird durch Polling nicht vorzeitig freigegeben.
 Laufverzeichnisse und `out/` sind privat (`0700`), Artefakte `0600`. Symlinks, Hardlinks,
 abweichende vorhandene Inhalte und Pfadflucht werden abgewiesen. `result.json` bleibt lokal;
 das Lane-Log enthaelt nur sichere Laufmetadaten, keine Auftragstexte oder Provider-Ausgaben.
+Beide werden erst geschrieben, nachdem das Ergebnis in der Datenbank committed ist; ein
+zurueckgerolltes Ergebnis hinterlaesst keine Artefakte. Scheitert das Schreiben danach, bleibt
+die Datenbank massgebend und der Lauf meldet `completed` mit `artifact_publication_failed`.
 Nichtleere `output.files` werden im Rahmen bis zu einer verifizierten Adapter-Dateianbindung
 abgewiesen. Es wird kein erzeugter Code ausgefuehrt.
 

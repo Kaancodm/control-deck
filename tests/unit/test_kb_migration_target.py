@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from alembic.config import CommandLine
+from sqlalchemy.exc import OperationalError
 
 from app.kb.config import (
     KbMigrationSelection,
@@ -16,6 +20,7 @@ from app.kb.contracts import KnowledgeError
 SECRET = "s3cret-value"
 TEST_URL = f"postgresql+psycopg://user:{SECRET}@secret-host:5433/knowledge_test"
 RUNTIME_URL = f"postgresql+psycopg://user:{SECRET}@secret-host:5433/knowledge"
+KB_CONFIG = str(Path(__file__).parents[2] / "alembic_kb.ini")
 
 
 @pytest.fixture(autouse=True)
@@ -206,3 +211,113 @@ def test_revision_guard_scope_closes_after_an_error():
 def test_test_selection_does_not_open_the_revision_guard():
     with migration_scope(KbMigrationSelection("test", TEST_URL)), pytest.raises(KnowledgeError):
         get_kb_test_database_url()
+
+
+def _run_cli(*arguments: str) -> None:
+    CommandLine(prog="alembic").main(argv=["-c", KB_CONFIG, *arguments])
+
+
+@pytest.fixture
+def no_connection(monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("connection attempted")
+
+    monkeypatch.setattr("sqlalchemy.create_engine", refuse)
+
+
+def _failure(capsys, *arguments: str) -> str:
+    with pytest.raises(SystemExit) as stopped:
+        _run_cli(*arguments)
+    assert stopped.value.code not in (0, None)
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert SECRET not in output
+    assert "secret-host" not in output
+    return output
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("-x", "target=runtime", "downgrade", "base"),
+        ("-x", "target=runtime", "downgrade", "head:base", "--sql"),
+        ("-x", "target=runtime", "stamp", "head"),
+    ],
+)
+def test_cli_blocks_runtime_commands_before_any_connection(
+    monkeypatch, capsys, no_connection, arguments
+):
+    monkeypatch.setenv("DECK_KB_DATABASE_URL", RUNTIME_URL)
+    assert "knowledge_runtime_command_unavailable" in _failure(capsys, *arguments)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "code"),
+    [
+        (("upgrade", "head"), "knowledge_migration_target_required"),
+        (("check",), "knowledge_migration_target_required"),
+        (("-x", "target=live", "upgrade", "head"), "knowledge_migration_target_invalid"),
+        (
+            ("-x", "target=test", "-x", "target=runtime", "upgrade", "head"),
+            "knowledge_migration_target_invalid",
+        ),
+    ],
+)
+def test_cli_rejects_ambiguous_targets_before_any_connection(
+    monkeypatch, capsys, no_connection, arguments, code
+):
+    monkeypatch.setenv("DECK_KB_TEST_DATABASE_URL", TEST_URL)
+    monkeypatch.setenv("DECK_KB_DATABASE_URL", RUNTIME_URL)
+    assert code in _failure(capsys, *arguments)
+
+
+def test_cli_rejects_central_database_before_any_connection(monkeypatch, capsys, no_connection):
+    monkeypatch.setenv("DECK_KB_DATABASE_URL", RUNTIME_URL)
+    monkeypatch.setenv("DECK_DATABASE_URL", RUNTIME_URL)
+    output = _failure(capsys, "-x", "target=runtime", "upgrade", "head")
+    assert "knowledge_database_must_be_separate" in output
+
+
+@pytest.mark.parametrize("command", ["upgrade head", "current", "check"])
+def test_cli_lets_allowed_runtime_commands_reach_the_connection(
+    monkeypatch, no_connection, command
+):
+    monkeypatch.setenv("DECK_KB_DATABASE_URL", RUNTIME_URL)
+    with pytest.raises(AssertionError, match="connection attempted"):
+        _run_cli("-x", "target=runtime", *command.split())
+
+
+def test_cli_hides_connection_details(monkeypatch, capsys):
+    class FailingEngine:
+        def connect(self):
+            raise OperationalError("SELECT 1", {}, Exception(f"secret-host {SECRET}"))
+
+    monkeypatch.setenv("DECK_KB_DATABASE_URL", RUNTIME_URL)
+    monkeypatch.setattr("sqlalchemy.create_engine", lambda *args, **kwargs: FailingEngine())
+    output = _failure(capsys, "-x", "target=runtime", "current")
+    assert "knowledge_database_connection_failed" in output
+
+
+@pytest.mark.parametrize(
+    ("variable", "url", "target"),
+    [
+        ("DECK_KB_DATABASE_URL", RUNTIME_URL, "runtime"),
+        ("DECK_KB_TEST_DATABASE_URL", TEST_URL, "test"),
+    ],
+)
+def test_offline_upgrade_renders_without_connection_or_url(
+    monkeypatch, capsys, no_connection, variable, url, target
+):
+    monkeypatch.setenv(variable, url)
+    _run_cli("-x", f"target={target}", "upgrade", "head", "--sql")
+    output = capsys.readouterr().out
+    assert "CREATE SCHEMA deck_kb" in output
+    assert "alembic_kb_version" in output
+    assert SECRET not in output
+    assert "secret-host" not in output
+
+
+def test_offline_test_downgrade_stays_available(monkeypatch, capsys, no_connection):
+    monkeypatch.setenv("DECK_KB_TEST_DATABASE_URL", TEST_URL)
+    _run_cli("-x", "target=test", "downgrade", "head:base", "--sql")
+    assert "DROP SCHEMA deck_kb" in capsys.readouterr().out

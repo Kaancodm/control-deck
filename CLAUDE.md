@@ -93,11 +93,13 @@ type errors fail lint even when ruff is clean.
 
 ## Human gates (hard rules)
 
-- **Merge only after an explicit GO from the repository owner.** Agents never merge directly.
-  After the owner's GO for a named PR in the session, an agent may enable GitHub auto-merge
-  only under ADR 0010 (review done, CI green, no open threads; excluded: AGENTS.md, CLAUDE.md,
-  ADRs, REVIEW.md, `.claude/`, `.github/`, guard.sh, migrations, dependencies). A new push
-  revokes the GO.
+- **Merge only after an explicit GO from the repository owner.** Without that GO agents never
+  merge. After the owner's GO for a named PR in the session, an agent may run
+  `gh pr merge <nr> --auto --merge`, or `gh pr merge <nr> --merge` when the required check is
+  already green, only under ADR 0010 (review done, no open threads, no conflict, no bypass;
+  excluded: AGENTS.md, CLAUDE.md, ADRs, REVIEW.md, `.claude/`, `.github/`, guard.sh,
+  migrations, dependencies, acceptance PRs). A new push revokes the GO; the
+  `auto-merge-guard` workflow disables auto-merge on every push.
 - **No server changes**, no deployments, no database roles, no network connections to
   production or user machines.
 - No new runtime or dev dependencies without a justification in the PR description.

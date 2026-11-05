@@ -1,0 +1,30 @@
+name: Auto-merge guard
+
+# ADR 0010: every new push revokes the owner's GO. Disable GitHub auto-merge on any
+# push to an open pull request, regardless of who pushed. No checkout, no PR code runs.
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  disable-auto-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Disable auto-merge after new push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          enabled="$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+          if [ "$enabled" = "true" ]; then
+            gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --disable-auto
+            echo "Auto-merge disabled for PR $PR; a new owner GO is required (ADR 0010)."
+          else
+            echo "Auto-merge not enabled for PR $PR."
+          fi

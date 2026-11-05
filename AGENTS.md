@@ -20,9 +20,10 @@ These rules apply to all automated contributors (Cursor Cloud Agent, Claude Code
 
 - Run `make lint` and `make test` before marking work complete.
 - Add or update tests when changing validation, schemas, or core behavior.
-- Agents must **not** merge pull requests; a human owner gives final GO. After the owner's
-  explicit GO for a specific PR, an agent may only enable GitHub auto-merge under the
-  conditions and exclusions of ADR 0010.
+- Agents must **not** merge pull requests on their own; a human owner gives final GO. After
+  the owner's explicit GO for a specific PR, an agent may bring that PR to merge only as
+  defined in ADR 0010 (auto-merge, or a plain merge when the required check is already green),
+  never for the paths ADR 0010 excludes.
 
 ## Review workflow
 

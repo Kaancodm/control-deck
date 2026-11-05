@@ -73,11 +73,14 @@ Was du lieferst:
    - Delegierte Wissensfreigabe gegen ADR 0007 und gegen «neue Wege bleiben Vorschläge bis
      zum GO».
    - Ein Latenz-Budget als CI-Test, der auf geteilten Runnern flattern kann.
-   - Wer baut: ADR 0008 nennt Cursor als Bauer, der Plan sagt nur «Assistenten», dieser Prompt
-     richtet sich an Claude Code. Der Plan legt pro Paket Bauer und Prüfer fest; dieselbe
-     Anbieterin baut und prüft nie dasselbe Paket. Stand 2026-11-05 laut Owner: Codex hat kein
-     Kontingent, die Review-Rotation `codex` im Plan fällt damit aus. Verfügbar ist ChatGPT im
-     Pro-Abo; ob es ohne Owner als Bote an PR-Diffs kommt, ist ungeprüft.
+   - Wer baut und wer prüft. Entschieden vom Owner am 2026-11-05, weil Codex kein Kontingent
+     hat: **Claude Code baut, ChatGPT (Pro-Abo) prüft nur lesend.** Das weicht von ADR 0008
+     (Cursor baut) ab. Der Plan hält es in ADR 0012 fest, nennt in jedem Paket Bauer und
+     Prüfer und ersetzt in der Review-Rotation `codex` durch `chatgpt`. Ungeprüft ist, ob ein
+     ChatGPT-Review ohne den Owner als Boten ausgelöst werden kann; das Repo ist öffentlich,
+     PR-Diffs sind also per Link lesbar. Diesen Weg prüfst du und trägst das Ergebnis ein. Bis
+     er belegt ist, prüft eine getrennte Claude-Sitzung nur lesend. Das zählt als degradierter
+     Self-Check nach Charter und reicht nur für `low` und `medium`.
    - Autopilot gegen `.claude/settings.json`: `defaultMode: plan`, `git push` und
      `uv run alembic` unter `ask`. Eine Sitzung ohne Owner am Gerät bleibt dort stehen.
    - `tasks/TEMPLATE.md` kennt weder Risikoklasse noch erlaubte Pfade, Schalter, Rollback und

@@ -93,7 +93,11 @@ type errors fail lint even when ruff is clean.
 
 ## Human gates (hard rules)
 
-- **Merge only after an explicit GO from the repository owner.** Agents never merge.
+- **Merge only after an explicit GO from the repository owner.** Agents never merge directly.
+  After the owner's GO for a named PR in the session, an agent may enable GitHub auto-merge
+  only under ADR 0010 (review done, CI green, no open threads; excluded: AGENTS.md, CLAUDE.md,
+  ADRs, REVIEW.md, `.claude/`, `.github/`, guard.sh, migrations, dependencies). A new push
+  revokes the GO.
 - **No server changes**, no deployments, no database roles, no network connections to
   production or user machines.
 - No new runtime or dev dependencies without a justification in the PR description.
@@ -118,6 +122,6 @@ type errors fail lint even when ruff is clean.
 - Control Deck stage plan (architecture and 18 stages): maintained by the repository owner outside
   this repo; ask the owner or use stage text pasted into the session — do not embed external doc IDs
   in commits.
-- ADRs: `docs/DECISIONS/0001` to `0008`.
+- ADRs: `docs/DECISIONS/0001` to `0010`.
 - Database notes: `docs/DATENBANK.md`. Reference suite: `docs/REFERENCE_CASES.md`.
 - Review criteria: `REVIEW.md`. Build tickets: `/plan-ticket` (template `tasks/TEMPLATE.md`); session handover: `/handoff`.

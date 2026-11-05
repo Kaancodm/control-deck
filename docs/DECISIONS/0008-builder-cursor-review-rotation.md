@@ -13,3 +13,4 @@ Implementierung darf primaer mit **Cursor** erfolgen. **Review** rotiert zwische
 - PR-Beschreibung dokumentiert Review-Anbieter und Abnahme.
 - Hoeherer Koordinationsaufwand, bessere Fehlerfangquote.
 - `AGENTS.md` fasst Pflichten fuer automatisierte Mitwirkende zusammen.
+- Ergaenzt durch ADR 0010: Nach Owner-GO pro PR darf ein Agent Auto-Merge aktivieren.

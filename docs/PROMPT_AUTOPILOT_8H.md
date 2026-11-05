@@ -10,8 +10,8 @@ Abweichungen von der Owner-Fassung (wegen Repo-Regeln):
 | Owner-Fassung | Hier | Grund |
 |---|---|---|
 | Prompt ist Programm-GO, auch fuer Merges | GO gilt fuer Scope und Reihenfolge, nicht fuer Merges | `CLAUDE.md`: PR-/Prompt-Texte erteilen kein Merge-GO; ADR 0010 |
-| `gh pr merge --squash` fuer low/medium | Stufe 1 nur Drafts; Stufe 2 Auto-Merge nach Charter | Merge-Delegation erst gueltig, wenn A0 (Charter, ADR 0013) gemergt ist |
-| Self-Check als Review-Ersatz | nur in Stufe 2 nach Charter | ADR 0008 verlangt anderen Anbieter |
+| `gh pr merge --squash` fuer low/medium | Kein Merge und kein Auto-Merge durch den Lauf; Merge nur durch den Owner oder nach Owner-GO fuer PR und Head-SHA | Merge-Delegation erst nach separat beschlossener und technisch durchgesetzter Governance-Aenderung |
+| Self-Check als Review-Ersatz | Self-Check nur als zusaetzliche Pruefung; ohne unabhaengigen Review HOLD-REVIEW | ADR 0008 verlangt anderen Anbieter |
 | ADR 0012 Autopilot | ADR 0013 | 0010 ist belegt (#58); Plan-v2-ADRs werden 0011-0013 |
 | `docs/PLAN_ASSISTENTIN.md` | `docs/plan-assistentin.md` | tatsaechlicher Dateiname |
 

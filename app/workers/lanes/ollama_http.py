@@ -320,6 +320,9 @@ class OllamaHTTPClient:
                     ):
                         raise OllamaHTTPError("internal")
                     content = message["content"]
+                    # PostgreSQL JSONB rejects U+0000; fail here, not at result persistence.
+                    if "\0" in content:
+                        raise OllamaHTTPError("internal")
                     output_size += len(content.encode("utf-8"))
                     if output_size > self.max_output_bytes:
                         raise OllamaHTTPError("internal")

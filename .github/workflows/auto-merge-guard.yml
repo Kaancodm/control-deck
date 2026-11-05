@@ -13,7 +13,7 @@ jobs:
   disable-auto-merge:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
     steps:
       - name: Disable auto-merge after new push

@@ -3,8 +3,25 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+def ipv6_loopback_available():
+    """Report whether a TCP socket can be bound to the IPv6 loopback address."""
+    if not socket.has_ipv6:
+        return False
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as probe:
+            probe.bind(("::1", 0))
+    except OSError:
+        return False
+    return True
+
+
+class _IPv6Server(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
 
 
 class OllamaStub:
@@ -22,6 +39,8 @@ class OllamaStub:
         status_by_path=None,
         raw_by_path=None,
         show_extra=None,
+        chunked=False,
+        ipv6=False,
     ):
         self.models = models
         self.output = output
@@ -34,6 +53,10 @@ class OllamaStub:
         self.status_by_path = status_by_path or {}
         self.raw_by_path = raw_by_path or {}
         self.show_extra = show_extra or {}
+        # chunked frames every body write as one HTTP/1.1 chunk instead of
+        # relying on connection close; chunk_delay_s still paces chat chunks.
+        self.chunked = chunked
+        self.ipv6 = ipv6
         self.requests = []
         self.chat_started = threading.Event()
         self.disconnected = threading.Event()
@@ -73,12 +96,14 @@ class OllamaStub:
                     self.send_response(status)
                     self.send_header("Content-Type", "application/x-ndjson")
                     self.send_header("Connection", "close")
+                    if fixture.chunked:
+                        self.send_header("Transfer-Encoding", "chunked")
                     self.end_headers()
                     self.close_connection = True
                     if status != 200:
-                        self.wfile.write(b'{"error":"synthetic provider error marker"}')
+                        self.write_body(b'{"error":"synthetic provider error marker"}')
                     elif self.path in fixture.raw_by_path:
-                        self.wfile.write(fixture.raw_by_path[self.path])
+                        self.write_body(fixture.raw_by_path[self.path])
                     elif self.path == "/api/version":
                         self.write_json({"version": fixture.version})
                     elif self.path == "/api/tags":
@@ -121,21 +146,35 @@ class OllamaStub:
                             if index and fixture._stop.wait(fixture.chunk_delay_s):
                                 return
                             if isinstance(chunk, bytes):
-                                self.wfile.write(chunk)
+                                self.write_body(chunk)
                             else:
                                 self.write_json(chunk)
                             self.wfile.flush()
                     else:
                         self.write_json({"error": "unexpected endpoint"})
+                    if fixture.chunked:
+                        # Only a fully served body gets the terminating chunk.
+                        self.wfile.write(b"0\r\n\r\n")
                 except (OSError, ValueError):
                     fixture.disconnected.set()
 
-            def write_json(self, value):
-                self.wfile.write(json.dumps(value, ensure_ascii=False).encode() + b"\n")
+            def write_body(self, data):
+                if not fixture.chunked:
+                    self.wfile.write(data)
+                elif data:
+                    # A zero-length chunk would end the body, so skip empty writes.
+                    self.wfile.write(b"%x\r\n%b\r\n" % (len(data), data))
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            def write_json(self, value):
+                self.write_body(json.dumps(value, ensure_ascii=False).encode() + b"\n")
+
+        if ipv6:
+            self.server = _IPv6Server(("::1", 0), Handler)
+            self.url = f"http://[::1]:{self.server.server_port}"
+        else:
+            self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            self.url = f"http://127.0.0.1:{self.server.server_port}"
         self.server.daemon_threads = True
-        self.url = f"http://127.0.0.1:{self.server.server_port}"
         self.thread = threading.Thread(
             target=lambda: self.server.serve_forever(poll_interval=0.025), daemon=True
         )

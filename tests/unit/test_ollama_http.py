@@ -10,7 +10,7 @@ import time
 import pytest
 
 from app.workers.lanes.ollama_http import OllamaHTTPClient, OllamaHTTPError
-from tests.support.ollama_stub import OllamaStub
+from tests.support.ollama_stub import OllamaStub, ipv6_loopback_available
 
 MODEL = "fixture:latest"
 
@@ -196,6 +196,58 @@ def test_first_chunk_and_following_idle_budgets(delay_setting):
         with pytest.raises(OllamaHTTPError) as caught:
             chat(OllamaHTTPClient(stub.url, first_chunk_timeout_s=0.1, idle_timeout_s=0.1))
         assert caught.value.reason == "timeout"
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_idle_timeout_does_not_fire_while_chunks_keep_arriving(chunked):
+    # 15 gaps of 0.1 s make the stream last about three idle budgets, while
+    # every single gap stays far below the 0.5 s idle budget.
+    chunks = [chunk(str(index % 10)) for index in range(15)] + [chunk(done=True)]
+    with OllamaStub(chat_chunks=chunks, chunk_delay_s=0.1, chunked=chunked) as stub:
+        client = OllamaHTTPClient(stub.url, idle_timeout_s=0.5)
+        started = time.monotonic()
+        response = chat(client, timeout_s=10)
+        elapsed = time.monotonic() - started
+    assert response.content == "012345678901234"
+    assert response.done_reason == "stop"
+    assert elapsed >= 1.2
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_idle_timeout_fires_when_pause_exceeds_idle_budget(chunked):
+    # The first chunk arrives at once, then the stream pauses for 3 s. Neither
+    # the total budget (10 s) nor the first-chunk budget (default) can fire.
+    chunks = [chunk("first"), chunk("late"), chunk(done=True)]
+    with OllamaStub(chat_chunks=chunks, chunk_delay_s=3, chunked=chunked) as stub:
+        client = OllamaHTTPClient(stub.url, idle_timeout_s=0.5)
+        started = time.monotonic()
+        with pytest.raises(OllamaHTTPError) as caught:
+            chat(client, timeout_s=10)
+        elapsed = time.monotonic() - started
+    assert caught.value.reason == "timeout"
+    assert 0.45 <= elapsed < 2.5
+
+
+def test_chunked_transfer_encoding_serves_metadata_and_chat():
+    with OllamaStub(chunked=True) as stub:
+        client = OllamaHTTPClient(stub.url)
+        assert client.version() == {"version": "0.40.14"}
+        assert client.tags() == {"models": [{"name": MODEL}]}
+        response = chat(client)
+        assert response.content == "CANARY-OK"
+        assert response.prompt_eval_count == 3 and response.eval_count == 4
+
+
+def test_client_reaches_ipv6_loopback():
+    if not ipv6_loopback_available():
+        pytest.skip("IPv6 loopback is not available on this host")
+    with OllamaStub(ipv6=True) as stub:
+        assert stub.url.startswith("http://[::1]:")
+        client = OllamaHTTPClient(stub.url)
+        assert client.version() == {"version": "0.40.14"}
+        response = chat(client)
+        assert response.content == "CANARY-OK"
+        assert [request["path"] for request in stub.requests] == ["/api/version", "/api/chat"]
 
 
 def test_cancelled_before_connect_has_no_request():

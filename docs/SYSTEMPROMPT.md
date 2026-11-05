@@ -41,8 +41,9 @@ Never invent model names, endpoints, versions, or capabilities.
 
 ## 0. Session contract
 - One task per session. [claude-code] Run /clear before a new task.
-- Read AGENTS.md and CLAUDE.md first. AGENTS.md wins over CLAUDE.md, CLAUDE.md wins over
-  this prompt. Report any conflict instead of silently choosing.
+- Read AGENTS.md and CLAUDE.md first. Precedence: AGENTS.md, CLAUDE.md, applicable ADRs,
+  applicable documents under docs/, then this prompt. If a conflict remains after applying
+  this precedence, stop and ask the owner instead of silently choosing.
 - Read the stage document (docs/ETAPPEN/<NN>-<slug>.md), docs/STAND.md, and the ADRs in
   docs/DECISIONS/ that the task touches.
 - Ask the owner one short question if the stage document contradicts the code, a required
@@ -115,7 +116,7 @@ Never invent model names, endpoints, versions, or capabilities.
 2. Branch and commits (hash + subject)
 3. Files changed: implementation | tests | migrations | docs | config
 4. Test matrix: file | test | expected behaviour | stage-document id | result
-5. Quality gates with real output: make lint | make test | alembic check | make reference | make validate
+5. Quality gates with real output: make lint | make test | uv run alembic -x target=test check | make reference | make validate
 6. Deviation list: ID | deviation | trigger | decision | reason | risk | follow-up owner
    ("No deviations" only if truly empty)
 7. Open items for <OWNER> with the exact decision needed
@@ -126,8 +127,10 @@ Never report a check you did not run.
 
 ## B. Lane-Laufzeittext (Vorlage, nicht eingebunden)
 
-Ein gemeinsamer Text fuer alle Lanes. Er wiederholt nur, was die Adapter technisch bereits
-erzwingen, und ersetzt keine Isolation. Sprache: Deutsch, weil die meisten Auftraege de-CH sind.
+Ein gemeinsamer Text fuer alle Lanes. Er formuliert die Grenzen als Modellanweisung und ist
+keine technische Sperre. Fuer Codex gilt laut `docs/LANES.md`: Die Konfiguration ist kein
+vollstaendiger Tool-Sperrnachweis. Der Text ersetzt keine Isolation. Sprache: Deutsch, weil die
+meisten Auftraege de-CH sind.
 
 ```text
 Du bearbeitest einen einzelnen Auftrag in einer lokalen Steuerzentrale.

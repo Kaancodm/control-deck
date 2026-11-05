@@ -8,6 +8,7 @@ Abnahme, Datenschranke und lokale Pseudonymisierung.
 Freigaben, Reviews, sicheren Dateien und lokalem Chat mit unverbindlichen Entwürfen.
 Host-Runner und Chat-Tests sind simuliert; echte Anbieteraufrufe bleiben aus.
 Bedienung: [docs/UI.md](docs/UI.md). Arbeitsstand: [docs/STAND.md](docs/STAND.md).
+Nächste Schritte: [docs/TAGESPLAN.md](docs/TAGESPLAN.md).
 
 ## Zweck
 

@@ -1,5 +1,8 @@
 # HANDOFF
 
+Ueberholt seit 2026-11-05: Die unten genannten PRs sind gemergt. Aktuell gelten `docs/STAND.md`
+und `docs/TAGESPLAN.md`.
+
 Stand: 2026-11-04. Uebergabe aus der Session "Live-Stack-Review". Langfassung mit
 Begruendungen und SHAs: `docs/SESSIONS/2026-11-04-live-stack-review.md`.
 

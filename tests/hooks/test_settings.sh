@@ -20,6 +20,10 @@ require_pattern '"Bash(git push * --force *)"'
 require_pattern '"Bash(git push * --force-with-lease *)"'
 require_pattern '"Bash(git push --force-with-lease)"'
 require_pattern '"Bash(git push --force-with-lease *)"'
+require_pattern '"Read(~/.ssh/**)"'
+require_pattern '"Bash(chmod 777 *)"'
+require_pattern '"Bash(chmod -R 777 *)"'
+require_pattern '"Bash(curl *)"'
 
 python3 <<PY
 import fnmatch

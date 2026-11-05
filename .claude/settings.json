@@ -9,7 +9,9 @@
       "Bash(git push *)",
       "Bash(docker *)",
       "Bash(psql *)",
-      "Bash(uv run alembic *)"
+      "Bash(uv run alembic *)",
+      "Bash(curl *)",
+      "Bash(wget *)"
     ],
     "deny": [
       "Read(**/.env)",
@@ -53,7 +55,14 @@
       "Edit(**/*.env)",
       "Edit(**/*.runner)",
       "Write(**/*.env)",
-      "Write(**/*.runner)"
+      "Write(**/*.runner)",
+      "Read(~/.ssh/**)",
+      "Edit(~/.ssh/**)",
+      "Write(~/.ssh/**)",
+      "Bash(chmod 777 *)",
+      "Bash(chmod -R 777 *)",
+      "Bash(* > /dev/sd*)",
+      "Bash(dd * of=/dev/*)"
     ]
   },
   "hooks": {

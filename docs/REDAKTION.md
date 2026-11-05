@@ -61,7 +61,8 @@ Platzhalter interpretiert.
 2. Datenschranke ausfuehren und jede Textdatei genau einmal sicher lesen. Derselbe gelesene
    Inhalt wird fuer den Versandtext verwendet.
 3. Titel, Anweisung, Input-Metadaten und -Inhalte, Abnahmeregeln sowie Labels als Markdown
-   rendern. Nicht aufgeloeste `context_refs` bleiben bis Etappe 14 unzulaessig.
+   rendern. Freigegebene Kontext-Snapshots aus `context_refs` werden mit ihrem
+   Freigabe-Digest eingebunden; nicht aufgeloeste oder veraenderte Kontexte sperren den Payload.
 4. Bei `cloud_redacted` den vollstaendigen Text scannen, die sechs unterstuetzten Arten
    ersetzen und die Zuordnungen atomar speichern.
 5. Den gesamten redigierten Text erneut scannen. Jeder Resttreffer sperrt den Payload;

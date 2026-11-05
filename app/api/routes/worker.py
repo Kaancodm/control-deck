@@ -192,7 +192,9 @@ def worker_result(
     """Validate lane/attempt/preparation identity and accept a started result."""
     _require_worker_identity(_worker, body.result.get("worker"))
     try:
-        task = submit_worker_result(session, lease_id=body.lease_id, result_payload=body.result)
+        task = submit_worker_result(
+            session, lease_id=body.lease_id, result_payload=body.result, execution_profile="remote"
+        )
         response = WorkerResultResponse(task=task_summary(task))
         session.commit()
         return response

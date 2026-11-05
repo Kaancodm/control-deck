@@ -9,6 +9,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.core.schemas import ErrorCode, ResultStatus, Worker
+from app.workers.contracts import ExecutionProfile
+
+LIVE_OBSERVATION_TTL = timedelta(seconds=30)
 
 _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "simulation_ready",
@@ -16,15 +19,28 @@ _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "simulation_policy_blocked",
     "simulation_worker_unavailable",
     "live_profile_unavailable",
+    "live_ready",
+    "live_disabled",
+    "live_url_invalid",
+    "live_lane_not_supported",
+    "model_capability_unsupported",
+    "model_unsupported",
+    "version_unsupported",
     "runner_paused",
     "lane_disabled",
     "model_not_configured",
     "model_not_available",
     "model_unavailable",
     "cli_unavailable",
+    "rootless_required",
+    "cli_version_unsupported",
     "context_limit_exceeded",
     "inventory_invalid",
     "inventory_unavailable",
+    "inventory_timeout",
+    "inventory_cancelled",
+    "inventory_internal",
+    "probe_pending",
     "attempt_recorded",
 }
 
@@ -39,6 +55,9 @@ class LaneObservation:
 
 @dataclass(frozen=True)
 class AttemptHealth:
+    simulated_attempts: int = 0
+    remote_attempts: int = 0
+    unknown_attempts: int = 0
     completed_attempts: int = 0
     consecutive_failures: int = 0
     last_error_code: ErrorCode | None = None
@@ -53,14 +72,21 @@ def completed_attempt(
     status: ResultStatus,
     error_code: ErrorCode | None,
     recorded_at: datetime,
+    execution_profile: ExecutionProfile = "simulation",
 ) -> AttemptHealth:
     """Apply one finally accepted result; callers enforce uniqueness and fencing."""
     if recorded_at.tzinfo is None or not isinstance(status, ResultStatus):
         raise ValueError("Invalid completed attempt metadata")
+    if execution_profile not in {"simulation", "live", "remote", "unknown"}:
+        raise ValueError("Invalid execution profile")
+    live = execution_profile == "live"
     failed = status in (ResultStatus.FAILED, ResultStatus.BLOCKED)
-    succeeded = status == ResultStatus.SUCCEEDED
+    succeeded = live and status == ResultStatus.SUCCEEDED
     return AttemptHealth(
-        completed_attempts=previous.completed_attempts + 1,
+        simulated_attempts=previous.simulated_attempts + (execution_profile == "simulation"),
+        remote_attempts=previous.remote_attempts + (execution_profile == "remote"),
+        unknown_attempts=previous.unknown_attempts + (execution_profile == "unknown"),
+        completed_attempts=previous.completed_attempts + live,
         consecutive_failures=(
             previous.consecutive_failures + 1
             if failed
@@ -70,7 +96,7 @@ def completed_attempt(
         ),
         last_error_code=error_code if failed else previous.last_error_code,
         last_error_at=recorded_at if failed else previous.last_error_at,
-        last_attempt_at=recorded_at,
+        last_attempt_at=recorded_at if live else previous.last_attempt_at,
         last_attempt_success_at=recorded_at if succeeded else previous.last_attempt_success_at,
     )
 
@@ -82,14 +108,17 @@ class LaneHealthView(BaseModel):
     paused: bool
     status: Literal["unknown", "ok", "unavailable", "auth_required", "paused"]
     reason: str
-    execution_mode: Literal["unknown", "simulation", "unavailable"]
-    live_available: Literal[False] = False
+    execution_mode: Literal["unknown", "simulation", "live", "unavailable"]
+    live_available: bool = False
     provider_quota: Literal["unknown"] = "unknown"
     daily_attempt_limit: int | None
     claims_today: int
     configured_attempts_remaining: int | None
     observed_at: datetime | None
     last_observation_success_at: datetime | None
+    simulated_attempts: int
+    remote_attempts: int
+    unknown_attempts: int
     completed_attempts: int
     consecutive_failures: int
     last_error_code: ErrorCode | None
@@ -123,10 +152,18 @@ def lane_health_view(
         else "unknown"
     )
     mode = (
-        "simulation"
+        "live"
+        if reason == "live_ready" and status == "ok"
+        else "simulation"
         if reason.startswith("simulation_")
         else "unavailable"
-        if reason == "live_profile_unavailable"
+        if reason
+        in {
+            "live_profile_unavailable",
+            "live_disabled",
+            "live_url_invalid",
+            "live_lane_not_supported",
+        }
         else "unknown"
     )
     warnings: list[Literal["auth_required", "no_recent_success"]] = []
@@ -143,6 +180,13 @@ def lane_health_view(
             "status": status,
             "reason": reason,
             "execution_mode": mode,
+            "live_available": (
+                mode == "live"
+                and enabled
+                and not paused
+                and observation is not None
+                and timedelta(0) <= now - observation.observed_at < LIVE_OBSERVATION_TTL
+            ),
             "daily_attempt_limit": daily_attempt_limit,
             "claims_today": claims_today,
             "configured_attempts_remaining": (
@@ -154,6 +198,9 @@ def lane_health_view(
             "last_observation_success_at": observation.last_observation_success_at
             if observation
             else None,
+            "simulated_attempts": attempts.simulated_attempts,
+            "remote_attempts": attempts.remote_attempts,
+            "unknown_attempts": attempts.unknown_attempts,
             "completed_attempts": attempts.completed_attempts,
             "consecutive_failures": attempts.consecutive_failures,
             "last_error_code": attempts.last_error_code,

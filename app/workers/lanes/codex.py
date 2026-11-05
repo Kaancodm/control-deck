@@ -91,6 +91,7 @@ class CodexExecutor:
         self.timeout_s = timeout_s
         self.max_stdout_bytes = max_stdout_bytes
         self.max_stderr_bytes = max_stderr_bytes
+        self.last_metadata: dict[str, object] = {}
 
     def availability(self, models: Sequence[str]) -> CodexAvailability:
         if self.profile != "simulation":

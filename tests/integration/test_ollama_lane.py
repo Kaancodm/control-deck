@@ -157,7 +157,8 @@ def test_simulated_cli_runs_only_after_owner_approval_and_reaches_review(
     assert stored["status"] == "succeeded"
     assert stored["worker"] == "ollama"
     assert stored["checks"] == [
-        {"type": "must_contain", "passed": True, "detail": "Acceptance rule passed."}
+        {"type": "must_contain", "passed": True, "detail": "Acceptance rule passed."},
+        {"type": "execution_profile", "passed": False, "detail": "simulation"},
     ]
     assert db_session.get(Task, task_id).status == TaskState.REVIEW
     events = list(
@@ -200,7 +201,9 @@ def test_echo_uses_exact_archived_payload_bytes_and_hash(
         select(Event.detail).where(Event.task_id == task_id, Event.event_type == "task.prepare")
     )
     assert prepare["payload_sha256"] == stored["payload_hash"]
-    assert (directory / "ollama.log").read_text() == "attempt=1 status=review\n"
+    log = json.loads((directory / "ollama.log").read_text())
+    assert log["attempt"] == 1 and log["status"] == "review"
+    assert log["execution_profile"] == "simulation"
 
 
 def test_cloud_redacted_ollama_echo_is_rehydrated_only_locally(
@@ -835,4 +838,40 @@ def test_two_independent_ollama_runners_complete_twenty_tasks_once(
     health = get_lane_status(db_session, lane=Worker.OLLAMA)
     assert health.status == "ok"
     assert health.reason == "simulation_ready"
-    assert health.updated_at == health.last_success_at
+    assert health.updated_at <= health.last_success_at
+    assert health.probe_generation > 0
+
+
+def test_simulation_after_live_failure_preserves_live_evidence(db_session, tmp_path, monkeypatch):
+    from app.core.schemas import ErrorCode, ResultStatus
+    from app.workers.lane_status import record_completed_attempt
+
+    monkeypatch.setenv("DECK_LIVE_ENABLED", "true")
+    record_completed_attempt(
+        db_session,
+        lane=Worker.OLLAMA,
+        status=ResultStatus.FAILED,
+        error_code=ErrorCode.TIMEOUT,
+        execution_profile="live",
+    )
+    db_session.commit()
+    task_id = _task(db_session)
+    before = db_session.get(LaneStatus, "ollama")
+    failed_at = before.last_error_at
+    db_session.commit()
+    assert _runner(db_session, tmp_path, _executor()).run_once().status == "review"
+    db_session.expire_all()
+    result = db_session.scalar(select(Result).where(Result.task_id == task_id))
+    assert result.execution_profile == "simulation"
+    assert result.payload["checks"][-1] == {
+        "type": "execution_profile",
+        "passed": False,
+        "detail": "simulation",
+    }
+    row = db_session.get(LaneStatus, "ollama")
+    assert row.completed_attempts == row.consecutive_failures == row.simulated_attempts == 1
+    assert row.last_error_at == failed_at and row.last_attempt_success_at is None
+    event = db_session.scalar(
+        select(Event).where(Event.task_id == task_id, Event.event_type == "task.succeed")
+    )
+    assert event.detail["execution_profile"] == "simulation"

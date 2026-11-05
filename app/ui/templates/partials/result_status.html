@@ -1,5 +1,7 @@
 {% if result %}
 {% set result_state = result.payload.status %}
+{% if result.execution_profile == "simulation" %}<span class="status execution-profile">Simulation, kein Nachweis</span>
+{% elif result.execution_profile != "live" %}<span class="status execution-profile">Herkunft {{ result.execution_profile }} · kein Live-Nachweis</span>{% endif %}
 <span class="status result-status result-{{ result_state }}">Ergebnis · Versuch {{ result.attempt }}:
   <span aria-hidden="true">{{ result_labels[result_state][0] }}</span> {{ result_labels[result_state][1] }}
 </span>

@@ -37,10 +37,20 @@ class OllamaLaneRunner:
             heartbeat_interval_s=heartbeat_interval_s,
         )
 
-    def _record(self, state: LaneHealthState, reason: str) -> None:
+    def _record(
+        self, state: LaneHealthState, reason: str, *, probe_generation: int | None = None
+    ) -> int:
         with self.session_factory() as session:
-            update_lane_status(session, lane=Worker.OLLAMA, status=state, reason=reason)
+            row = update_lane_status(
+                session,
+                lane=Worker.OLLAMA,
+                status=state,
+                reason=reason,
+                probe_generation=probe_generation,
+            )
+            generation = row.probe_generation
             session.commit()
+            return generation
 
     def run_once(self) -> RunOutcome:
         """Probe and run at most one attempt; no model or CLI is called in a DB transaction."""
@@ -56,11 +66,12 @@ class OllamaLaneRunner:
                 self._record(LaneHealthState.PAUSED, "lane_disabled")
                 return RunOutcome("idle", error_code="lane_disabled")
             models = tuple(sorted(set(lane.models.values())))
+            generation = self._record(LaneHealthState.UNAVAILABLE, "probe_pending")
             availability = self.executor.availability(models)
             state = (
                 LaneHealthState.OK if availability.status == "ok" else LaneHealthState.UNAVAILABLE
             )
-            self._record(state, availability.reason)
+            self._record(state, availability.reason, probe_generation=generation)
             if availability.status != "ok":
                 return RunOutcome("unavailable", error_code=availability.reason)
             return self.runner.run_once(

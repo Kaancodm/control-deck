@@ -21,7 +21,7 @@ from app.db.session import get_session_factory
 from app.routing.config import get_router_config
 from app.workers.claude_lane import ClaudeLaneRunner
 from app.workers.codex_lane import CodexLaneRunner
-from app.workers.contracts import AttemptContext
+from app.workers.contracts import AttemptContext, DeclaredProfile
 from app.workers.lanes.claude import ClaudeExecutor, ClaudeSimulation
 from app.workers.lanes.codex import CodexExecutor, CodexSimulation
 from app.workers.lanes.ollama import OllamaExecutor, OllamaSimulation
@@ -32,10 +32,13 @@ from app.workers.runner import HostRunner
 class SimulationExecutor:
     """A deterministic local adapter for checking orchestration without provider calls."""
 
+    profile: DeclaredProfile = "simulation"
+
     def __init__(self, lane: Worker) -> None:
         if not isinstance(lane, Worker):
             raise ValueError("Executor lane must be a Worker")
         self.lane = lane
+        self.last_metadata: dict[str, object] = {}
 
     def execute(self, context: AttemptContext) -> ResultV1:
         now = datetime.now(UTC)

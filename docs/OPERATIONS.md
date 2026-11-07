@@ -1,5 +1,9 @@
 # Betriebsvorlagen und lokale Proben
 
+Der laptop-unabhängige Betrieb, die Kontogrenze und der iPhone-Zugang stehen in
+[BETRIEB_OHNE_LAPTOP.md](BETRIEB_OHNE_LAPTOP.md). Diese Datei beschreibt den Code und
+die Voraussetzungen. Sie ist kein Nachweis, dass ein laufender Server so bleibt.
+
 Etappe 16 liefert Repo-Code und Tests. Es wurden keine Dienste installiert, gestartet,
 aktualisiert oder auf einem Zielserver geprüft. Die systemd-Dateien sind Vorlagen für
 Benutzerdienste; Inbetriebnahme bleibt ein eigener Owner-Schritt.

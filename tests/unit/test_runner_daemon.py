@@ -124,6 +124,11 @@ def test_supervisor_passes_only_host_configuration() -> None:
             "DECK_OWNER_TOKEN": "fake-owner-value",
             "DECK_WORKER_TOKEN_CLAUDE": "fake-lane-value",
             "ANTHROPIC_API_KEY": "fake-key-value",
+            "HOME": "/home/other-account",
+            "CLAUDE_CONFIG_DIR": "/home/other-account/.claude",
+            "CODEX_HOME": "/home/other-account/.codex",
+            "SUDO_USER": "other-account",
+            "SSH_AUTH_SOCK": "/tmp/ssh-agent",
             "PATH": "untrusted",
         }
     )

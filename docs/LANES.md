@@ -46,8 +46,13 @@ Signalziel und eine ausdrückliche Umgebungs-Allowlist. Geerbte Provider-Variabl
 `OLLAMA_HOST`, Proxy-Werte und das Benutzer-HOME werden nicht weitergegeben.
 stdout und stderr werden gleichzeitig gelesen und getrennt begrenzt; Standardgrenzen
 sind 4 MiB und 64 KiB. Timeout und Abbruch beenden und ernten die Prozessgruppe.
-Die Dauer ist das Minimum aus Task-Limit, Adapter-Limit (Standard 600 Sekunden) und
-verbleibender Owner-Deadline. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
+Die Dauer ist das Minimum aus `policy.timeout_s` (Standard 900 Sekunden, Grenze 30 bis
+7200) und der verbleibenden Owner-Deadline. Die Adapter-Obergrenze ist dieselbe
+Schema-Grenze 7200 und unterschreitet den Standard 900 nicht mehr. Ein explizit
+kleineres Adapter-Limit gilt nur, wenn der Aufruf es setzt, zum Beispiel in einem
+kurzen Test. Der Ollama-Transport bleibt davon getrennt: 120 Sekunden bis zum ersten
+Chunk, danach 60 Sekunden Leerlauf. Das ist keine Ergebnisfrist und keine
+Kanal-Quittung. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
 versteckten Retry. Inventarprüfungen verwenden ein eigenes begrenztes `list`.
 
 | Ergebnis | `result.v1` |

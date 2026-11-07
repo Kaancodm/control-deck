@@ -1,0 +1,9 @@
+<section class="panel progress-band" aria-label="Auftragsweg">
+  <h2>Auftragsweg</h2>
+  <ol>
+    <li><span>Eingang</span><strong>{{ progress.intake }}</strong></li>
+    <li><span>Quittung</span><strong>{{ progress.acknowledgement }}</strong></li>
+    <li><span>Ausgang</span><strong>{{ progress.outcome }}</strong></li>
+  </ol>
+  {% if progress.note %}<p class="hint">{{ progress.note }}</p>{% endif %}
+</section>

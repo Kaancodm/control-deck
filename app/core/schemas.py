@@ -109,11 +109,22 @@ class ContextRef(StrictModel):
     ref: str = Field(min_length=1)
 
 
+# The task policy is the attempt deadline. Adapters may cap at the schema maximum
+# and at a caller-supplied test limit; they do not impose a second hidden default.
+ATTEMPT_TIMEOUT_MIN_S = 30
+ATTEMPT_TIMEOUT_DEFAULT_S = 900
+ATTEMPT_TIMEOUT_MAX_S = 7200
+
+
 class Policy(StrictModel):
     allowed_workers: list[Worker] | None = None
     forbidden_workers: list[Worker] = Field(default_factory=list)
     max_attempts: int = Field(default=3, ge=1, le=5)
-    timeout_s: int = Field(default=900, ge=30, le=7200)
+    timeout_s: int = Field(
+        default=ATTEMPT_TIMEOUT_DEFAULT_S,
+        ge=ATTEMPT_TIMEOUT_MIN_S,
+        le=ATTEMPT_TIMEOUT_MAX_S,
+    )
     require_review: bool = True
 
     @field_validator("allowed_workers")

@@ -1,8 +1,7 @@
 """Store one channel acceptance receipt per task.
 
-Revision identifiers are unique to this branch. Draft work that also descends
-from 20261104_0018 uses different revision ids and must be rebased before both
-can share one Alembic head.
+The assistant chain also descends from 20261104_0018. Revision 20261108_0062
+joins the two branches. This file stays the receipt branch and is not rebased.
 
 """
 

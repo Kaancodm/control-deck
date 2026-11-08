@@ -1,5 +1,24 @@
 # Stand des Repositorys
 
+## Nachtrag 2026-11-08: Assistent offline
+
+Migration `20261108_0019` folgt auf `20261104_0018` und speichert Profilversionen,
+Kartenstände, optionale Dialogsätze und Idempotenzschlüssel. `20261108_0020`
+erlaubt die Dialogherkunft `ollama_loopback`. Das ist keine zweite
+Auftragswarteschlange. Der Assistent bleibt standardmässig beim Mock. Ein
+Loopback-Dialog, MediaWiki-Enzyklopädie und SearXNG-Vertrag sind opt-in.
+Fixtureresultate sind keine API-Treffer. Ein einzelner Cloud-Lauf der
+Enzyklopädie mit dem Wort octet lieferte einen API-Treffer. Die Loopback-Probe
+startet mit Python 3.12 und der Standardbibliothek, ohne das Projekt-Lockfile.
+Ein Serverlauf um 05:42 endete am bisherigen 8-Sekunden-Limit. Am selben Tag
+von 05:53:46 bis 05:53:55 lieferte Head `eb5e908` in einem Aufruf den
+Loopback-Präfix und `LOOPBACK_PROBE_7`, mit `python-stdlib`, ohne Drittmodule
+und ohne Uncensored-Nachweis. Das ist keine End-zu-End-Prüfung des Decks.
+Einzelheiten stehen in
+[ASSISTENT.md](ASSISTENT.md). Ein lebendes unzensiertes Modell, eine allgemeine
+Websuche, ein Kaan-Transport, eine Kanal-Quittung nach 60 Sekunden und ein
+Zeitlimit-Resultat nach externem Abbruch sind darin nicht enthalten.
+
 ## Nachtrag: Ollama Live-Adapter als Draft
 
 Der auf `main` nach #37 neu aufgebaute Stack ergänzt gemäss [ADR 0009](DECISIONS/0009-ollama-loopback-http.md)

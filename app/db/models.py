@@ -24,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.assistant import records as _assistant_records  # noqa: F401 — register assistant metadata
 from app.core.schemas import DataClass
 from app.db.base import Base
 from app.db.state_machine import TaskState

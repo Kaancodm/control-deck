@@ -1,0 +1,177 @@
+{% extends 'base.html' %}
+{% block title %}Assistent · Control Deck{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="/ui/static/assistant.css">{% endblock %}
+{% block content %}
+<div class="assistant-page">
+  <h1>Persönlicher Assistent</h1>
+  <p class="notice">Standard ist der Mock, kein Live-Modell. Ein normaler Satz bleibt Dialog. Ein Auftrag entsteht erst, wenn du eine Karte, ein Preset oder die Suche als Auftrag absendest. Die sechs Bestätigungsfelder schreibt die Anwendung; sie sind keine Chat-Pflicht.</p>
+  <ul>{% for line in activation %}<li>{{ line }}</li>{% endfor %}</ul>
+  <section class="panel" aria-label="Kanal">
+    <h2>Kanal {{ channel.name }}</h2>
+    <p><strong>{{ channel.state }}</strong> {{ channel.detail }}</p>
+    <ul>{% for gap in gaps %}<li>{{ gap }}</li>{% endfor %}</ul>
+  </section>
+
+  {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+
+  <section class="panel" aria-label="Dialog">
+    <h2>Dialog</h2>
+    {% if reply %}
+    <p><strong>{% if reply.persisted %}Gespeichert, vom Owner gewählt{% else %}Nicht gespeichert{% endif %}</strong> · {{ reply.evidence_status }} · {{ reply.data_class }}</p>
+    <pre>{{ reply.answer }}</pre>
+    {% endif %}
+    {% if turns %}
+    <h3>Gespeicherte Sätze</h3>
+    {% for turn in turns %}
+    <article>
+      <p>{{ turn.owner_text }}</p>
+      <p>{{ turn.reply_text }}</p>
+      <p class="hint">Gespeichert, vom Owner gewählt · {{ turn.data_class }} · {{ turn.reply_origin }}</p>
+    </article>
+    {% endfor %}
+    {% endif %}
+    <form action="/ui/assistant/talk" method="post" class="form-stack">
+      {% include 'partials/csrf.html' %}
+      <label for="message">Nachricht</label>
+      <textarea id="message" name="message" required maxlength="4000" rows="4"></textarea>
+      <label for="talk-class">Datenklasse</label>
+      <select id="talk-class" name="data_class" required>
+        <option value="local_only" selected>local_only, Vorschlag</option>
+        <option value="cloud_redacted">cloud_redacted</option>
+        <option value="cloud_ok">cloud_ok</option>
+      </select>
+      <label class="check"><input type="checkbox" name="include_profile" value="yes"> Profil in den Loopback-Kontext, sonst nicht</label>
+      <label class="check"><input type="checkbox" name="include_history" value="yes"> Gespeicherte Sätze derselben Datenklasse mitschicken</label>
+      <label class="check"><input type="checkbox" name="persist" value="yes"> Satz speichern, sonst nur diese Ansicht</label>
+      <button>Dialog senden</button>
+    </form>
+  </section>
+
+  <section class="panel" aria-label="Profil">
+    <h2>Profil</h2>
+    <p class="hint">Nur der Owner schreibt das Profil. Version {{ profile.version if profile else 0 }}. Ältere Versionen bleiben stehen.</p>
+    <form action="/ui/assistant/profile" method="post" class="form-stack">
+      {% include 'partials/csrf.html' %}
+      <label for="notes">Notizen</label>
+      <textarea id="notes" name="notes" maxlength="4000" rows="4">{{ profile.notes if profile else '' }}</textarea>
+      <button>Profil speichern</button>
+    </form>
+  </section>
+
+  <section class="panel" aria-label="Karten">
+    <h2>Karten und Presets</h2>
+    {% for card in cards %}
+    <details>
+      <summary>{{ card.name }} · Version {{ card.version }} · {{ card.data_class }}</summary>
+      <p>{{ card.template }}</p>
+      <form action="/ui/assistant/cards/{{ card.id }}/run" method="post" class="form-stack">
+        {% include 'partials/csrf.html' %}
+        <input type="hidden" name="idempotency_key" id="card-key-{{ card.id }}" value="{{ order_keys[card.id|string] }}">
+        {% for name in placeholders_of(card.placeholders) %}
+        <label for="ph-{{ card.id }}-{{ name }}">{{ name }}</label>
+        <input id="ph-{{ card.id }}-{{ name }}" name="ph_{{ name }}" required maxlength="500">
+        {% endfor %}
+        <button>{{ card.name }} ausführen</button>
+      </form>
+      <form action="/ui/assistant/cards/{{ card.id }}" method="post" class="form-stack">
+        {% include 'partials/csrf.html' %}
+        <label for="name-{{ card.id }}">Name</label>
+        <input id="name-{{ card.id }}" name="name" required maxlength="80" value="{{ card.name }}">
+        <label for="category-{{ card.id }}">Kategorie</label>
+        <select id="category-{{ card.id }}" name="category">
+          {% for category in ['frage', 'code', 'checkliste', 'planung'] %}
+          <option value="{{ category }}" {% if card.category == category %}selected{% endif %}>{{ category }}</option>
+          {% endfor %}
+        </select>
+        <label for="class-{{ card.id }}">Datenklasse</label>
+        <select id="class-{{ card.id }}" name="data_class">
+          {% for item in ['local_only', 'cloud_redacted', 'cloud_ok'] %}
+          <option value="{{ item }}" {% if card.data_class == item %}selected{% endif %}>{{ item }}</option>
+          {% endfor %}
+        </select>
+        <label for="holders-{{ card.id }}">Platzhalter</label>
+        <input id="holders-{{ card.id }}" name="placeholders" value="{{ placeholders_of(card.placeholders)|join(' ') }}">
+        <label for="template-{{ card.id }}">Vorlage</label>
+        <textarea id="template-{{ card.id }}" name="template" required maxlength="16384" rows="4">{{ card.template }}</textarea>
+        <button>Karte speichern</button>
+      </form>
+      <form action="/ui/assistant/cards/{{ card.id }}/copy" method="post">
+        {% include 'partials/csrf.html' %}
+        <button>Kopie</button>
+      </form>
+      <p><a href="/ui/assistant/cards/{{ card.id }}/export">Export</a></p>
+    </details>
+    {% endfor %}
+    <h3>Neue Karte</h3>
+    <form action="/ui/assistant/cards" method="post" class="form-stack">
+      {% include 'partials/csrf.html' %}
+      <label for="new-name">Name</label>
+      <input id="new-name" name="name" required maxlength="80">
+      <label for="new-category">Kategorie</label>
+      <select id="new-category" name="category">
+        <option value="frage">frage</option>
+        <option value="code">code</option>
+        <option value="checkliste">checkliste</option>
+        <option value="planung">planung</option>
+      </select>
+      <label for="new-class">Datenklasse</label>
+      <select id="new-class" name="data_class">
+        <option value="local_only">local_only</option>
+        <option value="cloud_redacted">cloud_redacted</option>
+        <option value="cloud_ok">cloud_ok</option>
+      </select>
+      <label for="new-holders">Platzhalter</label>
+      <input id="new-holders" name="placeholders" value="thema">
+      <label for="new-template">Vorlage</label>
+      <textarea id="new-template" name="template" required maxlength="16384" rows="3">{% raw %}Erklaere {{thema}}.{% endraw %}</textarea>
+      <button>Karte anlegen</button>
+    </form>
+    <h3>Import</h3>
+    <form action="/ui/assistant/cards/import" method="post" class="form-stack">
+      {% include 'partials/csrf.html' %}
+      <label for="raw">JSON</label>
+      <textarea id="raw" name="raw" required maxlength="20000" rows="4"></textarea>
+      <button>Karte importieren</button>
+    </form>
+  </section>
+
+  <section class="panel" aria-label="Deep Search">
+    <h2>Deep Search</h2>
+    <p class="hint">Treffer aus dem eingefügten Korpus. MediaWiki ist nur eine Enzyklopädie-Suche, keine allgemeine Websuche. SearXNG gilt nur für eine selbst gesetzte Instanz. local_only macht keinen Netzabruf. Widersprüche nur aus mitgegebenen Claim-Paaren. Das ist kein lebendes Modell.</p>
+    {% if search %}
+    <p><strong>{{ search.evidence_label }}</strong> · {{ search.data_class }} · Netz {{ search.network_calls }} · Anweisungen angewandt: {{ search.instructions_applied }}</p>
+    <ol>{% for step in search.plan %}<li>{{ step }}</li>{% endfor %}</ol>
+    {% for source in search.sources %}
+    <article>
+      <h3>{{ source.title }}</h3>
+      <p>{{ source.provenance }} · {{ source.published_on }}</p>
+      <p>{{ source.excerpt }}</p>
+    </article>
+    {% endfor %}
+    {% for gap in search.gaps %}<p>Lücke: {{ gap }}</p>{% endfor %}
+    {% for item in search.contradictions %}<p>Widerspruch: {{ item }}</p>{% endfor %}
+    {% if search.partial %}<p>Unvollständig.</p>{% endif %}
+    {% if search.blocked %}<p>Externer Teil blockiert.</p>{% endif %}
+    {% endif %}
+    <form action="/ui/assistant/search" method="post" class="form-stack">
+      {% include 'partials/csrf.html' %}
+      <input type="hidden" id="search-key" name="idempotency_key" value="{{ order_keys['search'] }}">
+      <label for="question">Frage</label>
+      <textarea id="question" name="question" required maxlength="4000" rows="3"></textarea>
+      <label for="search-class">Datenklasse</label>
+      <select id="search-class" name="data_class" required>
+        <option value="local_only" selected>local_only, Vorschlag</option>
+        <option value="cloud_redacted">cloud_redacted</option>
+        <option value="cloud_ok">cloud_ok</option>
+      </select>
+      <label for="corpus">Lokaler Korpus als JSON</label>
+      <textarea id="corpus" name="corpus" rows="4" maxlength="20000"></textarea>
+      <label for="fetch-urls">HTTPS-Adressen, eine pro Zeile</label>
+      <textarea id="fetch-urls" name="fetch_urls" rows="3" maxlength="800"></textarea>
+      <label class="check"><input type="checkbox" name="allow_external" value="yes"> Externe Adressen abrufen, nur cloud_ok und nur mit dieser Freigabe</label>
+      <label class="check"><input type="checkbox" name="save_order" value="yes"> Als Auftrag speichern</label>
+      <button>Suche starten</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

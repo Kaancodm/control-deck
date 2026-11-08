@@ -116,4 +116,7 @@ done
 run_guard 2 '{"tool_name":"Bash","tool_input":{}}' 'missing-command'
 run_guard 2 "$(payload_with_command 'cat "')" 'unclosed-quote'
 
+echo "guard.sh: an empty write path stays blocked"
+run_guard 2 '{"tool_name":"Write","tool_input":{"file_path":""}}' 'empty-file-path'
+
 echo "guard.sh: all $CASE_COUNT cases passed"

@@ -55,8 +55,13 @@ von 7200 Sekunden. Er bricht einen erlaubten Versuch nicht mehr still nach 3600
 Sekunden ab. Der Versuch selbst endet bei `policy.timeout_s`. Ein von aussen
 beendeter Runner, der kein Ergebnis schreibt, bekommt vom Lease-Reaper genau
 ein `worker_unavailable`. Das ist kein `timeout` und keine zweite Warteschlange.
-Die Erholung bleibt auf derselben Lane, innerhalb von `max_attempts`. Eine
-verspätete Antwort der alten Lease wird abgewiesen. Der Ollama-Transport bleibt
+Die Erholung bleibt auf derselben Lane, innerhalb von `max_attempts`. Das ist
+die Lease-Regel aus Etappe 10, nicht ein unbegrenzter gleicher Versuch. Ein
+`worker_unavailable` oder `timeout`, den der laufende Runner selbst speichert,
+geht weiter zur naechsten zulaessigen Lane. Der Reaper ruft diese Fallback-Regel
+nicht zusaetzlich auf. Jedes neu geschriebene Verloren-Ergebnis zaehlt genau
+einmal als unbekannter Lane-Versuch. Eine verspaetete Antwort der alten Lease
+wird abgewiesen. Der Ollama-Transport bleibt
 davon getrennt: 120 Sekunden bis zum ersten
 Chunk, danach 60 Sekunden Leerlauf. Das ist keine Ergebnisfrist und keine
 Kanal-Quittung. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen

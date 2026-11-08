@@ -36,8 +36,9 @@ selbst gesetzte Zeit sind keine Freigabe. Das Gate wird dadurch nicht gelockert.
 | Benchmark 40 Fragen, CHF 0 | geprüft, offline | Korpusbelege ja, Modellqualität not_scored |
 | Vergleich bestehendes Ollama mit Infomaniak | ungeprüft | keine Provisionierung, kein Lauf |
 | Installiertes Modell | nicht belegt | kein Download, kein Uncensored-Nachweis |
-| Kaan-Transport und Quittung nach 60 Sekunden | fehlt, nicht behauptet | Seite nennt die Lücke |
-| Zeitlimit-Resultat nach externem Abbruch | fehlt, nicht behauptet | Seite nennt die Lücke |
+| Kaan-Transport | fehlt, nicht behauptet | kein Netzversand und keine Zustellung |
+| Kanal-Quittung nach 60 Sekunden | geprueft, offline | Freigabe, nicht Start; Transport fehlt |
+| Zeitlimit-Resultat nach externem Abbruch | geprueft, offline | gleiche Lane bis max_attempts |
 | Physisches iPhone oder Safari | ungeprüft | Emulator Chromium 320/390/1024 und WebKit liefen; kein Gerät |
 | Reboot, Offsite-Restore, lebendes Modell | ungeprüft | nicht Bestandteil dieses Laufs |
 
@@ -193,9 +194,9 @@ reichen die beiden Variablen oben und ein bereits installiertes Modell mit Tag.
 Für die Enzyklopädie auf dem Server zusätzlich `DECK_ASSISTANT_WEB=1`,
 `DECK_ASSISTANT_SEARCH_PROVIDER=mediawiki`, die öffentliche Allowlist und
 `DECK_ASSISTANT_MEDIAWIKI_API`. Modelldownload, bezahlte Suche, Server-Neustart,
-Offsite-Restore und ein physisches iPhone bleiben offen. Die offenen Entwürfe 54,
-55, 56, 57, 59 und 61 sowie die geschlossenen 58 und 60 sind nicht übernommen.
-Entwurf 59 ändert nur die Wissens-Kette `alembic_kb` mit Revision `kb_0001`.
-Er legt keine Datei unter `alembic/versions/` an. `20261108_0019` bleibt auf der
-Hauptkette nach `20261104_0018`. Die beiden Ketten kollidieren nicht. Dieser Stand
-wird nicht in 59 oder 61 gemergt.
+Offsite-Restore und ein physisches iPhone bleiben offen. Dieser Integrationszweig
+enthaelt den Assistenten, den laptop-unabhaengigen Weg und die Quittung. Die
+Entwuerfe 54, 55, 56, 57 und 59 sind nicht enthalten. Entwurf 59 bleibt die
+Wissens-Kette `alembic_kb` mit `kb_0001` und legt keine Datei unter
+`alembic/versions/` an. Die Hauptkette endet auf `20261108_0062`. Ein Merge der
+GitHub-Entwuerfe ist damit nicht erfolgt.

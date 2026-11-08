@@ -220,8 +220,13 @@ def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
     An owner deadline still expires the task and does not invent a worker
     result. Cancellation stays cancellation. A vanished runner gets one
     ``worker_unavailable`` result, which is not a timeout, then the existing
-    same-lane lease recovery until ``max_attempts``. A result that already
-    exists, including a timeout, is not rewritten.
+    same-lane lease recovery until ``max_attempts``. That bound is the Etappe
+    10 rule for lease expiry. A result the live runner submits, including
+    ``worker_unavailable`` and ``timeout``, still goes through ``decide_failure``
+    and may move to the next allowed lane. This sweep does not add another
+    same-lane retry and does not skip that submitted-result rule. A result that
+    already exists, including a timeout, is not rewritten. The same call settles
+    due channel receipts, using one bounded batch.
     """
     expire_overdue_tasks(session, limit=limit)
     now = datetime.now(tz=UTC)

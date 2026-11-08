@@ -16,8 +16,9 @@ Loopback-Präfix und `LOOPBACK_PROBE_7`, mit `python-stdlib`, ohne Drittmodule
 und ohne Uncensored-Nachweis. Das ist keine End-zu-End-Prüfung des Decks.
 Einzelheiten stehen in
 [ASSISTENT.md](ASSISTENT.md). Ein lebendes unzensiertes Modell, eine allgemeine
-Websuche, ein Kaan-Transport, eine Kanal-Quittung nach 60 Sekunden und ein
-Zeitlimit-Resultat nach externem Abbruch sind darin nicht enthalten.
+Websuche und ein Kaan-Transport sind darin nicht enthalten. Dieser
+Integrationsstand enthaelt die Kanal-Quittung und das Ergebnis nach externem
+Runner-Abbruch. Die GitHub-Entwuerfe bleiben getrennt.
 
 ## Nachtrag: Ollama Live-Adapter als Draft
 

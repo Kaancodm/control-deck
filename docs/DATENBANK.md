@@ -164,6 +164,15 @@ Downgrade (nur Dev/Test):
 uv run alembic downgrade base
 ```
 
+Die Hauptkette hat genau einen Kopf, `20261108_0062`. Er verbindet
+`20261108_0020` und `20261108_0061`, beide nach `20261104_0018`. Ein Upgrade
+von `20261104_0018`, von einer Datenbank auf `20261108_0020` und eine leere
+Datenbank enden auf diesem Kopf. `alembic downgrade -1` ist an der Verbindung
+mehrdeutig und läuft nicht. `alembic downgrade 20261108_0020` entfernt nur
+die Verbindung und laesst beide Eltern samt ihren Tabellen stehen. Die
+Wissens-Kette `alembic_kb` mit `kb_0001` bleibt eine eigene Script-Location
+und eine eigene Versionstabelle.
+
 ## Tests
 
 - **Unit:** State-Machine und Transition-Helfer ohne Datenbank.

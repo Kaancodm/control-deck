@@ -29,6 +29,7 @@ from app.core.schemas import (
 )
 from app.db.models import Event, Lease, Result, Task
 from app.db.repository import persist_result_v1, result_payload_for_storage
+from app.workers.lane_status import record_completed_attempt
 
 Termination = Literal["process_lost", "cancelled", "timeout"]
 _PROCESS_LOST = "Runner ended without a result."
@@ -152,6 +153,14 @@ def record_abandoned_attempt(
         result_payload=result_payload_for_storage(result),
         execution_profile="unknown",
     )
+    if failed:
+        record_completed_attempt(
+            session,
+            lane=worker,
+            status=ResultStatus.FAILED,
+            error_code=ErrorCode.WORKER_UNAVAILABLE,
+            execution_profile="unknown",
+        )
     return termination
 
 

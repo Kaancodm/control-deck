@@ -72,10 +72,17 @@ die Lease bis `expires_at`. Der Reaper schreibt für diesen Versuch genau ein
 Ergebnis `worker_unavailable`, wenn der Runner keines hinterlassen hat. Das ist
 kein `timeout`: ein Zeitlimit schreibt nur der noch laufende Runner selbst.
 Danach gilt die bisherige Lease-Erholung auf derselben Lane und innerhalb von
-`max_attempts` (`app/db/queue.py`). Ein Abbruch bleibt `cancelled`. Eine
-Owner-Deadline wird `expired` und erfindet kein Runner-Ergebnis. Eine
-verspätete Antwort der alten Lease wird abgewiesen. Es gibt keine zweite
-Warteschlange.
+`max_attempts` (`app/db/queue.py`). Ein gemeldetes `worker_unavailable` bleibt
+davon getrennt und darf auf die naechste zulaessige Lane wechseln. Ein Abbruch
+bleibt `cancelled`. Eine Owner-Deadline wird `expired` und erfindet kein
+Runner-Ergebnis. Eine verspaetete Antwort der alten Lease wird abgewiesen. Es
+gibt keine zweite Warteschlange.
+
+Dieselbe Reaper-Runde ist der begrenzte Takt: `run_once` ruft sie vor dem
+naechsten Claim auf. Sie setzt faellige Kanal-Quittungen auf `deadline_elapsed`,
+hoechstens das Sweep-Limit pro Runde. Eine fehlende Transportkennung wird nie
+zugestellt. Die Quittung entsteht bei der Freigabe, nicht beim Eingang in
+`awaiting_approval` und nicht bei `task.start`.
 
 Ein stiller Worker, der bis zum Adapter-Limit nichts liefert, wird `timeout` und
 geht zur nächsten erlaubten Lane. `local_only` bleibt bei Ollama. Der Test

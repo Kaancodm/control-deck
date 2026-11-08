@@ -4,23 +4,28 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.channels.receipt import MissingChannel, accept_task_receipt, settle_due_receipts
 from app.core.retries import RetryState, canonical_chain, decide_failure
 from app.core.schemas import ErrorCode, TaskV1, Worker
-from app.db.models import ChannelReceipt, Event, Result, Task
+from app.db.models import ChannelReceipt, Event, LaneStatus, Result, Task
 from app.db.queue import dequeue_next_queued_task, reap_expired_leases
+from app.db.repository import approve_task, create_task_from_v1
 from app.db.routing import retry_state_for_task
+from app.db.settings import update_settings
 from app.db.state_machine import TaskState
 from app.db.transitions import LeaseOwnershipError, request_operator_cancel
-from app.db.worker_ops import WorkerOperationError, submit_worker_result
+from app.db.worker_ops import WorkerOperationError, start_worker_attempt, submit_worker_result
 from app.ui.progress import channel_label
-from tests.integration.test_database import _insert_task
-from tests.integration.test_worker_control import _prepared_claim, _start
+from app.workers.runner import HostRunner
+from app.workers.runner_main import SimulationExecutor
+from tests.integration.test_database import _insert_task, _minimal_task_payload
+from tests.integration.test_worker_control import _prepared_claim, _record_preparation, _start
 from tests.integration.test_worker_identity import _valid_result
 
 
@@ -296,3 +301,167 @@ def test_timeout_fallback_stays_distinct_from_process_loss(db_session: Session) 
         == 1
     )
     assert lease_id is not None
+
+
+def test_approval_records_acceptance_and_worker_start_leaves_it(db_session: Session) -> None:
+    task = _insert_task(db_session, approved=False)
+    db_session.commit()
+    assert task.status == TaskState.AWAITING_APPROVAL
+    assert (
+        db_session.scalar(select(ChannelReceipt).where(ChannelReceipt.task_id == task.id)) is None
+    )
+    approve_task(db_session, task)
+    db_session.commit()
+    receipt = db_session.scalar(select(ChannelReceipt).where(ChannelReceipt.task_id == task.id))
+    assert receipt is not None
+    assert receipt.status == "accepted" and receipt.transport == "missing"
+    assert receipt.delivered_at is None
+    deadline = receipt.deadline_at
+    claimed = dequeue_next_queued_task(
+        db_session, worker=Worker.OLLAMA, lease_ttl=timedelta(minutes=5)
+    )
+    assert claimed is not None and claimed.id == task.id and claimed.lease is not None
+    _record_preparation(db_session, claimed, claimed.lease.lease_id)
+    _start(db_session, claimed.id, claimed.lease.lease_id)
+    db_session.commit()
+    db_session.refresh(receipt)
+    assert receipt.deadline_at == deadline
+    assert receipt.status == "accepted" and receipt.transport == "missing"
+    with pytest.raises(ValueError, match="not awaiting approval"):
+        approve_task(db_session, task)
+
+
+def _age_receipt(session: Session, task_id: uuid.UUID) -> None:
+    session.execute(
+        text(
+            "UPDATE channel_receipts SET accepted_at = stamp.moment, "
+            "deadline_at = stamp.moment + interval '60 seconds' "
+            "FROM (SELECT clock_timestamp() - interval '61 seconds' AS moment) AS stamp "
+            "WHERE task_id = :task_id"
+        ),
+        {"task_id": task_id},
+    )
+
+
+def test_runner_tick_settles_due_receipts_within_the_sweep_limit(
+    db_session: Session, tmp_path: Path
+) -> None:
+    due_one = _insert_task(db_session)
+    due_two = _insert_task(db_session)
+    waiting = _insert_task(db_session)
+    db_session.commit()
+    _age_receipt(db_session, due_one.id)
+    _age_receipt(db_session, due_two.id)
+    update_settings(db_session, {"lanes.ollama.paused": True})
+    db_session.commit()
+    assert reap_expired_leases(db_session, limit=1) == 0
+    db_session.commit()
+    statuses = {row.task_id: row.status for row in db_session.scalars(select(ChannelReceipt)).all()}
+    assert statuses[waiting.id] == "accepted"
+    assert sorted(status for task_id, status in statuses.items() if task_id != waiting.id) == [
+        "accepted",
+        "deadline_elapsed",
+    ]
+    assert all(row.delivered_at is None for row in db_session.scalars(select(ChannelReceipt)))
+    factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
+    outcome = HostRunner(factory, runs_root=tmp_path / "runs").run_once(
+        Worker.OLLAMA, SimulationExecutor(Worker.OLLAMA)
+    )
+    assert outcome.action == "idle"
+    db_session.expire_all()
+    refreshed = {
+        row.task_id: (row.status, row.transport, row.delivered_at)
+        for row in db_session.scalars(select(ChannelReceipt)).all()
+    }
+    assert refreshed[due_one.id][0] == refreshed[due_two.id][0] == "deadline_elapsed"
+    assert refreshed[waiting.id] == ("accepted", "missing", None)
+    assert refreshed[due_one.id][1] == "missing" and refreshed[due_one.id][2] is None
+
+
+def test_lost_runner_stays_on_the_pinned_lane_until_max_attempts(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blocklist = tmp_path / "blocklist.txt"
+    blocklist.write_text("", encoding="utf-8")
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(blocklist))
+    payload = _minimal_task_payload(uuid.uuid4(), max_attempts=2)
+    payload["data_class"] = "cloud_ok"
+    payload["fallback_chain"] = ["claude", "codex"]
+    task = create_task_from_v1(db_session, TaskV1.model_validate(payload))
+    approve_task(db_session, task)
+    db_session.commit()
+    for expected_attempt in (1, 2):
+        claimed = dequeue_next_queued_task(
+            db_session, worker=Worker.CLAUDE, lease_ttl=timedelta(minutes=5)
+        )
+        assert claimed is not None and claimed.id == task.id and claimed.attempt == expected_attempt
+        _expire(db_session, claimed)
+        assert reap_expired_leases(db_session) == 1
+        db_session.commit()
+        db_session.refresh(task)
+        assert retry_state_for_task(task).pinned_worker == Worker.CLAUDE
+        assert retry_state_for_task(task).cursor == 0
+        assert (
+            dequeue_next_queued_task(
+                db_session, worker=Worker.CODEX, lease_ttl=timedelta(minutes=5)
+            )
+            is None
+        )
+        health = db_session.get(LaneStatus, "claude", populate_existing=True)
+        assert health is not None and health.unknown_attempts == expected_attempt
+        assert reap_expired_leases(db_session) == 0
+        db_session.commit()
+        assert db_session.get(LaneStatus, "claude", populate_existing=True).unknown_attempts == (
+            expected_attempt
+        )
+    db_session.refresh(task)
+    assert task.status == TaskState.FAILED and task.attempt == 2
+    stored = _results(db_session, task.id)
+    assert [row.payload["error"]["code"] for row in stored] == [
+        "worker_unavailable",
+        "worker_unavailable",
+    ]
+    assert (
+        dequeue_next_queued_task(db_session, worker=Worker.CLAUDE, lease_ttl=timedelta(minutes=5))
+        is None
+    )
+
+    reported = _minimal_task_payload(uuid.uuid4(), max_attempts=3)
+    reported["data_class"] = "cloud_ok"
+    reported["fallback_chain"] = ["claude", "codex"]
+    live = create_task_from_v1(db_session, TaskV1.model_validate(reported))
+    approve_task(db_session, live)
+    db_session.commit()
+    claimed = dequeue_next_queued_task(
+        db_session, worker=Worker.CLAUDE, lease_ttl=timedelta(minutes=5)
+    )
+    assert claimed is not None and claimed.lease is not None
+    _record_preparation(db_session, claimed, claimed.lease.lease_id)
+    start_worker_attempt(
+        db_session,
+        task_id=claimed.id,
+        lease_id=claimed.lease.lease_id,
+        attempt=claimed.attempt,
+        worker=Worker.CLAUDE,
+    )
+    db_session.commit()
+    result = _valid_result(claimed.id)
+    result.update(
+        worker="claude",
+        attempt=1,
+        status="failed",
+        error={"code": "worker_unavailable", "message": "Synthetic provider failure"},
+    )
+    submitted = submit_worker_result(
+        db_session, lease_id=claimed.lease.lease_id, result_payload=result
+    )
+    db_session.commit()
+    assert submitted.status == TaskState.QUEUED
+    assert retry_state_for_task(submitted).cursor == 1
+    assert retry_state_for_task(submitted).pinned_worker is None
+    assert (
+        dequeue_next_queued_task(db_session, worker=Worker.CLAUDE, lease_ttl=timedelta(minutes=5))
+        is None
+    )
+    nxt = dequeue_next_queued_task(db_session, worker=Worker.CODEX, lease_ttl=timedelta(minutes=5))
+    assert nxt is not None and nxt.id == live.id and nxt.attempt == 2

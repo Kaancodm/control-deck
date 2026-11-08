@@ -217,13 +217,19 @@ def test_old_attempt_result_after_reclaim_is_fenced(api_client, db_session):
     assert len(lost) == 1 and lost[0].attempt == 1
     assert lost[0].execution_profile == "unknown"
     assert lost[0].payload["error"]["code"] == "worker_unavailable"
-    assert db_session.get(LaneStatus, "ollama", populate_existing=True) is None
+    lost_health = db_session.get(LaneStatus, "ollama", populate_existing=True)
+    assert lost_health is not None
+    assert lost_health.unknown_attempts == 1
+    assert lost_health.consecutive_failures == 1
+    assert lost_health.completed_attempts == 0
+    assert lost_health.last_error_code == "worker_unavailable"
 
     assert submit_live(db_session, current).status_code == 200
     accepted = attempt_evidence(db_session)
     assert accepted["completed_attempts"] == 1
     assert accepted["simulated_attempts"] == accepted["remote_attempts"] == 0
-    assert accepted["unknown_attempts"] == accepted["consecutive_failures"] == 0
+    assert accepted["unknown_attempts"] == 1
+    assert accepted["consecutive_failures"] == 0
     stored = db_session.scalar(select(Result).where(Result.task_id == task_id, Result.attempt == 2))
     assert stored is not None and stored.execution_profile == "live"
     task = db_session.get(Task, task_id, populate_existing=True)

@@ -6,7 +6,9 @@ import argparse
 
 import pytest
 from alembic.config import Config
+from alembic.util import CommandError
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
 
 from alembic import command
 from app.db.session import get_engine, reset_engine_for_tests
@@ -90,5 +92,54 @@ def test_downgrade_refuses_to_drop_loopback_turns() -> None:
     finally:
         with engine.begin() as connection:
             connection.execute(text("DELETE FROM assistant_turns"))
+        command.upgrade(config, "head")
+        reset_engine_for_tests()
+
+
+def _versions(connection: Connection) -> set[str]:
+    return set(connection.scalars(text("SELECT version_num FROM alembic_version")))
+
+
+def test_join_downgrade_leaves_both_parents_and_0020_still_upgrades() -> None:
+    require_test_database_url()
+    reset_engine_for_tests()
+    config = Config("alembic.ini")
+    config.cmd_opts = argparse.Namespace(x=["target=test"])
+    command.upgrade(config, "head")
+    engine = get_engine(for_tests=True)
+    try:
+        with pytest.raises(CommandError, match="Ambiguous walk"):
+            command.downgrade(config, "-1")
+        with engine.connect() as connection:
+            assert _versions(connection) == {"20261108_0062"}
+        command.downgrade(config, "20261108_0020")
+        with engine.connect() as connection:
+            assert _versions(connection) == {"20261108_0020", "20261108_0061"}
+            assert (
+                connection.scalar(text("SELECT to_regclass('assistant_turns')"))
+                == "assistant_turns"
+            )
+            assert (
+                connection.scalar(text("SELECT to_regclass('channel_receipts')"))
+                == "channel_receipts"
+            )
+        command.upgrade(config, "head")
+        command.check(config)
+        with engine.connect() as connection:
+            assert _versions(connection) == {"20261108_0062"}
+        command.downgrade(config, "20261104_0018")
+        command.upgrade(config, "20261108_0020")
+        with engine.connect() as connection:
+            assert _versions(connection) == {"20261108_0020"}
+            assert connection.scalar(text("SELECT to_regclass('channel_receipts')")) is None
+        command.upgrade(config, "head")
+        command.check(config)
+        with engine.connect() as connection:
+            assert _versions(connection) == {"20261108_0062"}
+            assert (
+                connection.scalar(text("SELECT to_regclass('channel_receipts')"))
+                == "channel_receipts"
+            )
+    finally:
         command.upgrade(config, "head")
         reset_engine_for_tests()

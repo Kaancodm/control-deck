@@ -22,9 +22,12 @@ T = TypeVar("T")
 class OllamaHTTPError(Exception):
     """Only safe categories cross the adapter boundary, never server error text."""
 
-    def __init__(self, reason: FailureReason, status_code: int | None = None) -> None:
+    def __init__(
+        self, reason: FailureReason, status_code: int | None = None, *, phase: str = "unknown"
+    ) -> None:
         self.reason = reason
         self.status_code = status_code
+        self.phase = phase
         super().__init__(f"Ollama HTTP request failed ({reason})")
 
 
@@ -133,6 +136,7 @@ class OllamaHTTPClient:
         results: list[T] = []
         failures: list[OllamaHTTPError] = []
         sockets: list[socket.socket] = []
+        phase = ["connect"]
 
         def made_progress() -> None:
             progress[0] = time.monotonic()
@@ -140,6 +144,7 @@ class OllamaHTTPClient:
 
         def request() -> None:
             try:
+                phase[0] = "connect"
                 connection.connect()
                 assert connection.sock is not None
                 sockets.append(connection.sock)
@@ -151,6 +156,7 @@ class OllamaHTTPClient:
                     if body is not None
                     else None
                 )
+                phase[0] = "headers"
                 connection.request(
                     method,
                     path,
@@ -160,20 +166,23 @@ class OllamaHTTPClient:
                 response = connection.getresponse()
                 try:
                     if response.status != 200:
-                        raise OllamaHTTPError("unavailable", response.status)
+                        raise OllamaHTTPError("unavailable", response.status, phase="status")
                     if response.getheader("Content-Encoding", "identity") != "identity":
-                        raise OllamaHTTPError("internal")
+                        raise OllamaHTTPError("internal", phase="headers")
+                    phase[0] = "body"
                     results.append(consume(response, made_progress))
                 finally:
                     response.close()
             except OllamaHTTPError as exc:
+                if exc.phase == "unknown":
+                    exc.phase = phase[0]
                 failures.append(exc)
             except TimeoutError:
-                failures.append(OllamaHTTPError("timeout"))
+                failures.append(OllamaHTTPError("timeout", phase=phase[0]))
             except (OSError, http.client.HTTPException):
-                failures.append(OllamaHTTPError("unavailable"))
+                failures.append(OllamaHTTPError("unavailable", phase=phase[0]))
             except Exception:
-                failures.append(OllamaHTTPError("internal"))
+                failures.append(OllamaHTTPError("internal", phase=phase[0]))
             finally:
                 connection.close()
                 finished.set()
@@ -191,12 +200,12 @@ class OllamaHTTPClient:
                     self.idle_timeout_s if received_chunk.is_set() else self.first_chunk_timeout_s
                 )
                 if now - started >= timeout_s or streaming and now - progress[0] >= idle_budget:
-                    failure = OllamaHTTPError("timeout")
+                    failure = OllamaHTTPError("timeout", phase=phase[0])
                     break
             if failure is None and cancelled():
                 failure = OllamaHTTPError("cancelled")
             if failure is None and time.monotonic() - started >= timeout_s:
-                failure = OllamaHTTPError("timeout")
+                failure = OllamaHTTPError("timeout", phase=phase[0])
         except Exception:
             failure = OllamaHTTPError("internal")
         finally:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -13,9 +14,16 @@ import pytest
 from app.assistant.deepsearch import run_deep_search
 from app.assistant.dialogue import reply_to_owner
 from app.assistant.errors import AssistantError
-from app.assistant.ollama_chat import LOOPBACK_PREFIX, OllamaDialogueAdapter
+from app.assistant.ollama_chat import (
+    DIALOGUE_FIRST_CHUNK_S,
+    DIALOGUE_IDLE_S,
+    DIALOGUE_TIMEOUT_S,
+    LOOPBACK_PREFIX,
+    OllamaDialogueAdapter,
+)
 from app.assistant.providers import resolve_model, resolve_provider, resolve_search
 from app.assistant.web import BoundedFetch, GovernedWeb, UnconfiguredWeb, load_search
+from app.workers.lanes.ollama_http import OllamaHTTPClient
 
 SECRET = "sk-benchmarktrap1"
 
@@ -172,7 +180,7 @@ def test_cancelled_loopback_and_tool_call_discard_the_text() -> None:
             adapter.complete("Hallo", data_class="local_only", cancelled=lambda: True)
     finally:
         server.shutdown()
-    assert seen == [] and cancelled.value.code == "assistant_model_unavailable"
+    assert seen == [] and cancelled.value.code == "assistant_cancelled"
 
     def tools(path: str, raw: bytes, method: str) -> tuple[int, str, bytes]:
         del path, raw, method
@@ -198,8 +206,9 @@ def test_cancelled_loopback_and_tool_call_discard_the_text() -> None:
             adapter.complete("Hallo", data_class="local_only")
     finally:
         server.shutdown()
-    assert rejected.value.code == "assistant_model_unavailable"
+    assert rejected.value.code == "assistant_model_malformed"
     assert "shell" not in str(rejected.value)
+    assert "shell" not in json.dumps(rejected.value.detail)
 
 
 def test_model_secret_is_not_returned() -> None:
@@ -630,3 +639,162 @@ def test_documented_normalisers_drop_markup_and_private_urls() -> None:
     with pytest.raises(AssistantError) as rejected:
         normalize_mediawiki({"error": {"code": "nosrsearch"}}, host="example.invalid")
     assert rejected.value.code == "assistant_web_rejected"
+
+
+def test_dialogue_budget_covers_a_cold_start_inside_the_outer_shell() -> None:
+    assert 8 < DIALOGUE_FIRST_CHUNK_S <= DIALOGUE_TIMEOUT_S <= 80
+    assert DIALOGUE_IDLE_S < DIALOGUE_TIMEOUT_S
+
+
+def _post_server(
+    action: Callable[[BaseHTTPRequestHandler], None],
+) -> tuple[ThreadingHTTPServer, list[int]]:
+    hits = [0]
+
+    class Handler(_Quiet):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            hits[0] += 1
+            action(self)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, hits
+
+
+def _reply(handler: BaseHTTPRequestHandler, status: int, body: bytes, content_type: str) -> None:
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def test_header_delay_beyond_the_old_cap_still_uses_one_adapter_call() -> None:
+    def action(handler: BaseHTTPRequestHandler) -> None:
+        time.sleep(9)
+        _reply(handler, 200, _chat_line("FIXTURE_REPLY_7"), "application/x-ndjson")
+
+    server, hits = _post_server(action)
+    try:
+        port = server.server_address[1]
+        adapter = OllamaDialogueAdapter(url=f"http://127.0.0.1:{port}", model="fixture:localtest")
+        started = time.monotonic()
+        reply = adapter.complete(
+            "Reply with the single token LOOPBACK_PROBE_7", data_class="local_only"
+        )
+    finally:
+        server.shutdown()
+    assert time.monotonic() - started >= 9
+    assert hits[0] == 1
+    assert reply.loopback_calls == 1 and reply.model_identity == "unverified"
+    assert "FIXTURE_REPLY_7" in reply.text
+
+
+def test_header_stall_is_a_read_timeout_and_hides_the_body() -> None:
+    def action(handler: BaseHTTPRequestHandler) -> None:
+        time.sleep(1)
+        _reply(handler, 200, f"late {SECRET}".encode(), "text/plain")
+
+    server, hits = _post_server(action)
+    try:
+        port = server.server_address[1]
+        adapter = OllamaDialogueAdapter(url=f"http://127.0.0.1:{port}", model="fixture:localtest")
+        with pytest.raises(AssistantError) as stalled:
+            adapter.complete("Hallo", data_class="local_only", timeout_s=0.25)
+    finally:
+        server.shutdown()
+    detail = stalled.value.detail
+    rendered = str(stalled.value) + json.dumps(detail)
+    assert stalled.value.code == "assistant_model_read_timeout"
+    assert detail["class"] == "read_timeout" and detail["phase"] == "headers"
+    assert detail["reason"] == "timeout"
+    assert isinstance(detail["elapsed_ms"], int) and int(detail["elapsed_ms"]) < 900
+    assert SECRET not in rendered and "late" not in rendered
+    assert hits[0] == 1
+
+
+def test_body_stall_after_the_first_chunk_is_still_one_read_timeout() -> None:
+    def action(handler: BaseHTTPRequestHandler) -> None:
+        first = json.dumps(
+            {
+                "model": "fixture:localtest:local",
+                "message": {"role": "assistant", "content": "partial"},
+                "done": False,
+            }
+        ).encode()
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/x-ndjson")
+        handler.end_headers()
+        handler.wfile.write(first + b"\n")
+        handler.wfile.flush()
+        time.sleep(1)
+
+    server, hits = _post_server(action)
+    try:
+        port = server.server_address[1]
+        client = OllamaHTTPClient(
+            f"http://127.0.0.1:{port}", first_chunk_timeout_s=5, idle_timeout_s=0.2
+        )
+        adapter = OllamaDialogueAdapter(
+            url=f"http://127.0.0.1:{port}", model="fixture:localtest", client=client
+        )
+        with pytest.raises(AssistantError) as stalled:
+            adapter.complete("Hallo", data_class="local_only", timeout_s=5)
+    finally:
+        server.shutdown()
+    assert stalled.value.code == "assistant_model_read_timeout"
+    assert stalled.value.detail["phase"] == "body"
+    assert "partial" not in json.dumps(stalled.value.detail)
+    assert hits[0] == 1
+
+
+def test_http_404_is_model_missing_without_the_error_body() -> None:
+    def action(handler: BaseHTTPRequestHandler) -> None:
+        _reply(handler, 404, f'{{"error":"missing {SECRET}"}}'.encode(), "application/json")
+
+    server, hits = _post_server(action)
+    try:
+        port = server.server_address[1]
+        adapter = OllamaDialogueAdapter(url=f"http://127.0.0.1:{port}", model="fixture:localtest")
+        with pytest.raises(AssistantError) as missing:
+            adapter.complete("Hallo", data_class="local_only", timeout_s=2)
+    finally:
+        server.shutdown()
+    rendered = str(missing.value) + json.dumps(missing.value.detail)
+    assert missing.value.code == "assistant_model_missing"
+    assert missing.value.detail["class"] == "model_missing"
+    assert missing.value.detail["http_status"] == 404
+    assert SECRET not in rendered and "error" not in rendered
+    assert hits[0] == 1
+
+
+def test_malformed_stream_and_closed_port_stay_distinct() -> None:
+    def action(handler: BaseHTTPRequestHandler) -> None:
+        _reply(handler, 200, f"not-json {SECRET}\n".encode(), "application/x-ndjson")
+
+    server, hits = _post_server(action)
+    try:
+        port = server.server_address[1]
+        adapter = OllamaDialogueAdapter(url=f"http://127.0.0.1:{port}", model="fixture:localtest")
+        with pytest.raises(AssistantError) as malformed:
+            adapter.complete("Hallo", data_class="local_only", timeout_s=2)
+    finally:
+        server.shutdown()
+    assert malformed.value.code == "assistant_model_malformed"
+    assert malformed.value.detail["class"] == "malformed"
+    assert SECRET not in str(malformed.value) + json.dumps(malformed.value.detail)
+    assert hits[0] == 1
+
+    held = socket.socket()
+    held.bind(("127.0.0.1", 0))
+    closed = held.getsockname()[1]
+    held.close()
+    refused = OllamaDialogueAdapter(url=f"http://127.0.0.1:{closed}", model="fixture:localtest")
+    with pytest.raises(AssistantError) as failed:
+        refused.complete("Hallo", data_class="local_only", timeout_s=2)
+    assert failed.value.code == "assistant_model_connect_failed"
+    assert failed.value.detail["phase"] == "connect"
+    assert str(closed) not in str(failed.value)

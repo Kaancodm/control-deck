@@ -180,6 +180,30 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
         "Das Loopback-Modell antwortet nicht.",
         "Der Mock bleibt der Standard.",
     ),
+    "assistant_model_connect_timeout": (
+        "Die Loopback-Verbindung hat das Zeitlimit erreicht.",
+        "Der Dienst antwortet nicht auf den Verbindungsaufbau.",
+    ),
+    "assistant_model_connect_failed": (
+        "Die Loopback-Verbindung wurde abgewiesen.",
+        "Der Dienst lauscht auf dieser Adresse nicht.",
+    ),
+    "assistant_model_read_timeout": (
+        "Das Loopback-Modell hat das Zeitlimit erreicht.",
+        "Ein kalter Start hat einen Versuch. Es gibt keinen zweiten.",
+    ),
+    "assistant_model_http": (
+        "Der Loopback-Dienst lieferte einen HTTP-Status ausser 200.",
+        "Der Status steht in der Probe, der Inhalt nicht.",
+    ),
+    "assistant_model_missing": (
+        "Der Loopback-Dienst kennt dieses Modell nicht.",
+        "Ein installiertes name:tag verwenden. Kein Download.",
+    ),
+    "assistant_model_malformed": (
+        "Die Loopback-Antwort hat den Vertrag nicht erfüllt.",
+        "Der Inhalt wird nicht angezeigt.",
+    ),
     "assistant_web_unconfigured": (
         "Die Websuche ist nicht konfiguriert.",
         "Allowlist und Suchadresse fehlen.",

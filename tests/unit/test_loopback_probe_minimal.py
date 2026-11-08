@@ -147,10 +147,49 @@ def test_probe_without_isolated_flag_stops_before_a_socket() -> None:
     assert seen == []
 
 
+def test_isolated_probe_reports_a_missing_model_without_the_body() -> None:
+    class Handler(_Quiet):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            body = b'{"error":"missing sk-benchmarktrap1"}'
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        env = _base_env()
+        env["DECK_OLLAMA_URL"] = f"http://127.0.0.1:{port}"
+        env["DECK_ASSISTANT_OLLAMA_MODEL"] = "fixture:localtest"
+        completed = _run(env, isolated=True)
+    finally:
+        server.shutdown()
+    assert completed.returncode == 3
+    report = json.loads(completed.stderr)
+    assert report["code"] == "assistant_model_missing"
+    assert report["detail"]["class"] == "model_missing"
+    assert report["detail"]["http_status"] == 404
+    assert report["third_party_modules"] == []
+    assert "app/workers/lanes/ollama_http.py" in report["implementation"]
+    assert "sk-benchmarktrap1" not in completed.stderr
+    assert completed.stdout == ""
+
+
 def test_isolated_probe_rejects_a_remote_url_before_connect() -> None:
     env = _base_env()
     env["DECK_OLLAMA_URL"] = "http://example.com:11434"
     env["DECK_ASSISTANT_OLLAMA_MODEL"] = "fixture:localtest"
     completed = _run(env, isolated=True)
     assert completed.returncode == 3
-    assert completed.stderr.strip() == "assistant_model_unconfigured"
+    report = json.loads(completed.stderr)
+    assert report["ok"] is False
+    assert report["code"] == "assistant_model_unconfigured"
+    assert report["third_party_modules"] == []
+    assert "app/assistant/ollama_chat.py" in report["implementation"]
+    assert "example.com" not in completed.stderr

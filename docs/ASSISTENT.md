@@ -144,11 +144,21 @@ env -u PYTHONPATH -u DECK_DATABASE_URL -u DECK_LIVE_ENABLED \
 ```
 
 `PORT` ist der Port, den readyz für das lokale Ollama schon gezeigt hat.
-`name:tag` ist ein bereits installiertes Modell. `python3 -S` lädt keine
+`name:tag` ist ein bereits installiertes Modell. Der Aufruf hängt `:local` an
+und zieht kein Modell. Es gibt genau einen Versuch. Das Gesamtlimit ist 75
+Sekunden, das Warten auf das erste Stück 60 Sekunden, die Pause zwischen
+Stücken 20 Sekunden. Der Lauf vom 2026-11-08 um 05:42 endete nach etwa 8
+Sekunden mit `assistant_model_unavailable`, weil das alte Limit 8 Sekunden war
+und jeder Transportfehler auf diesen einen Code fiel. Ein früherer Rohaufruf
+desselben installierten Modells brauchte 10,915 Sekunden. `python3 -S` lädt keine
 site-packages. Stehen site-packages auf dem Pfad, endet das Skript mit Code 4
 und öffnet keinen Socket. Code 2 heisst, eine der beiden Variablen fehlt.
-Code 3 schreibt den Adapter-Code auf die Fehlerausgabe, zum Beispiel
-`assistant_model_unconfigured`, und enthält keinen Antworttext. Code 0 schreibt
+Code 3 schreibt ein JSON-Objekt auf die Fehlerausgabe. `code` unterscheidet
+Verbindungszeitlimit, Lesezeitlimit, HTTP-Status, fehlendes Modell und
+ungültige Antwort. `detail` enthält nur diese festen Felder plus `elapsed_ms`
+und bei HTTP den Status als Zahl. Prompt, Antworttext, Umgebungsvariablen und
+Fehlerkörper fehlen. `implementation` enthält auch dann die sha256 der
+geladenen Dateien. Code 0 schreibt
 ein JSON-Objekt. `runtime` ist `python-stdlib`, `third_party_modules` ist
 eine leere Liste, und `implementation` enthält die sha256 der geladenen
 App-Dateien. Der Satz ist fest: `Reply with the single token LOOPBACK_PROBE_7`.
@@ -158,8 +168,9 @@ Socket ab. Vom Cloud-Lauf aus wird der Server nicht kontaktiert.
 
 ## Offen
 
-Der Modellaufruf dieser Probe auf dem Server bleibt offen. Der Lauf um 05:32
-hat die Probe nicht erreicht. Die Prüfung der Ollama-Version 0.40.14 für
+Ein erfolgreicher Modellaufruf dieser Probe auf dem Server bleibt offen. Der
+Lauf um 05:32 hat die Probe nicht erreicht. Der Lauf um 05:42 hat sie erreicht
+und endete am 8-Sekunden-Limit. Die Prüfung der Ollama-Version 0.40.14 für
 diesen Dialog und eine allgemeine Websuche bleiben offen. MediaWiki ist nur die
 Enzyklopädie. Ein einzelner Cloud-Lauf mit dem öffentlichen Wort `octet` und
 `srlimit=1` lieferte einen API-Treffer, kein Fixture und kein `FIXTURE_REPLY_7`.

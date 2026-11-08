@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 
 class AssistantError(Exception):
-    """Expected assistant failure identified by a fixed code."""
+    """Expected assistant failure identified by a fixed code.
 
-    def __init__(self, code: str) -> None:
+    ``detail`` holds only sanitised tokens. ``str(self)`` stays the code.
+    """
+
+    def __init__(self, code: str, *, detail: Mapping[str, object] | None = None) -> None:
         self.code = code
+        self.detail: dict[str, object] = {} if detail is None else dict(detail)
         super().__init__(code)

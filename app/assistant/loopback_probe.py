@@ -80,6 +80,51 @@ def probe(url: str, model: str) -> dict[str, object]:
     return report
 
 
+_DETAIL_CLASS = {
+    "cancelled",
+    "model_missing",
+    "http_status",
+    "connect_timeout",
+    "read_timeout",
+    "connect_failed",
+    "malformed",
+    "unavailable",
+}
+_DETAIL_PHASE = {"connect", "headers", "body", "status", "unknown"}
+_DETAIL_REASON = {"cancelled", "timeout", "unavailable", "internal"}
+
+
+def public_detail(detail: object) -> dict[str, object]:
+    """Copy only fixed tokens. Server text, prompts, and environment stay out."""
+    if not isinstance(detail, dict):
+        return {}
+    cleaned: dict[str, object] = {}
+    kind = detail.get("class")
+    phase = detail.get("phase")
+    reason = detail.get("reason")
+    if isinstance(kind, str) and kind in _DETAIL_CLASS:
+        cleaned["class"] = kind
+    if isinstance(phase, str) and phase in _DETAIL_PHASE:
+        cleaned["phase"] = phase
+    if isinstance(reason, str) and reason in _DETAIL_REASON:
+        cleaned["reason"] = reason
+    elapsed = detail.get("elapsed_ms")
+    status = detail.get("http_status")
+    if type(elapsed) is int and 0 <= elapsed <= 120_000:
+        cleaned["elapsed_ms"] = elapsed
+    if type(status) is int and 100 <= status <= 599:
+        cleaned["http_status"] = status
+    return cleaned
+
+
+def failure_report(exc: AssistantError) -> dict[str, object]:
+    report = execution_facts()
+    report["ok"] = False
+    report["code"] = exc.code
+    report["detail"] = public_detail(exc.detail)
+    return report
+
+
 def main() -> int:
     url = os.environ.get("DECK_OLLAMA_URL", "").strip()
     model = os.environ.get("DECK_ASSISTANT_OLLAMA_MODEL", "").strip()
@@ -89,7 +134,7 @@ def main() -> int:
     try:
         result = probe(url, model)
     except AssistantError as exc:
-        print(exc.code, file=sys.stderr)
+        print(json.dumps(failure_report(exc), ensure_ascii=False), file=sys.stderr)
         return 3
     print(json.dumps(result, ensure_ascii=False))
     return 0

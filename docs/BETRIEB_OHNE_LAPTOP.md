@@ -174,8 +174,10 @@ Nicht belegt und nicht als erledigt zu werten:
   `test_stop_cancels_child_without_a_database_mutation`.
 - Offsite-Restore und Wiederherstellungsschlüssel nicht geprüft.
 - Das HARPA-Fragenpaket ist nicht begonnen. Die Kanalzeile speichert die
-  Annahme und die 60-Sekunden-Frist. Ein echter Transport, n8n und Kaan sind
-  nicht angeschlossen. Fehlender Transport bleibt ausdrücklich fehlend.
+  Annahme und die 60-Sekunden-Frist. Fehlender Transport bleibt ausdrücklich
+  fehlend. Der Vertragsentwurf fuer einen spaeteren Routine-Wake steht in
+  [TRANSPORT.md](TRANSPORT.md). Er ist standardmaessig aus, sendet nichts und
+  legt keine Routine an. HTTP 200 ist dort nur ein gestarteter Lauf.
 - Ein von aussen beendeter Runner bekommt ein Ergebnis `worker_unavailable`
   für genau diesen Versuch. Das ist kein Zeitlimit. Die Lease-Erholung bleibt
   auf derselben Lane. Ein physisches iPhone und ein Reboot der Maschine sind

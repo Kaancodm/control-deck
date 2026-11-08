@@ -36,6 +36,7 @@ from app.db.worker_ops import (
     start_worker_attempt,
     submit_worker_result,
 )
+from app.transport.outbox import dispatch_pending_wakes
 from app.workers.artifacts import initialize_attempt_output, write_worker_artifact
 from app.workers.contracts import (
     AttemptContext,
@@ -186,6 +187,11 @@ class HostRunner:
             with self.session_factory() as session:
                 reap_expired_leases(session)
                 session.commit()
+            try:
+                dispatch_pending_wakes(self.session_factory)
+            except Exception:
+                # A wake failure must not block the next claim. The outbox keeps the row.
+                pass
             with self.session_factory() as session:
                 prepared = claim_prepared_attempt(
                     session,

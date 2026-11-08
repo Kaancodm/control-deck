@@ -53,7 +53,9 @@ Der Runner-Schalter `DECK_LIVE_ENABLED` schaltet den Assistenten nicht ein.
 Mit dem Assistenten-Schalter, `DECK_OLLAMA_URL` als HTTP-Loopback mit Port und
 `DECK_ASSISTANT_OLLAMA_MODEL` als `name:tag` oder `namespace/name:tag` geht eine
 Anfrage an den bestehenden Loopback-Client. Der Schrägstrich ist Teil der
-Modellkennung im JSON-Feld `model`. Der Pfad bleibt `/api/chat`. Ein Host, ein
+Modellkennung im JSON-Feld `model`. Eine Kennung wird nicht nach Sprache
+angenommen oder abgelehnt. Englisch ist dabei kein Fehler an sich. Ob eine
+Antwort genuegt, haengt vom Auftrag ab. Der Pfad bleibt `/api/chat`. Ein Host, ein
 Schema, ein zweiter Schrägstrich oder `..` ist keine Kennung. Die Antwort
 trägt `ollama_loopback` und den Hinweis, dass die Identität unbelegt ist. Ein Fixture ist kein installiertes Modell und kein
 Uncensored-Nachweis. Profil und gespeicherte Sätze derselben Datenklasse gehen
@@ -198,5 +200,8 @@ Offsite-Restore und ein physisches iPhone bleiben offen. Dieser Integrationszwei
 enthaelt den Assistenten, den laptop-unabhaengigen Weg und die Quittung. Die
 Entwuerfe 54, 55, 56, 57 und 59 sind nicht enthalten. Entwurf 59 bleibt die
 Wissens-Kette `alembic_kb` mit `kb_0001` und legt keine Datei unter
-`alembic/versions/` an. Die Hauptkette endet auf `20261108_0062`. Ein Merge der
-GitHub-Entwuerfe ist damit nicht erfolgt.
+`alembic/versions/` an. Die Hauptkette endet auf diesem Folgezweig bei
+`20261108_0063`. Ein Merge der GitHub-Entwuerfe ist damit nicht erfolgt.
+Der Executor meldete fuer Head `ca8f141` einen isolierten Aufruf von etwa 56
+Sekunden, Identitaet unverified. Die Modellqualitaet bleibt schwach. Uncensored
+bleibt eine Autorenangabe. Dieser Stand hat das Modell nicht erneut aufgerufen.

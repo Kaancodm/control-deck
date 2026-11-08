@@ -293,7 +293,7 @@ def test_provenance_follows_login_capacity_with_one_head():
     from alembic.script import ScriptDirectory
 
     migrations = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert migrations.get_heads() == ["20261108_0062"]
+    assert migrations.get_heads() == ["20261108_0063"]
     provenance = migrations.get_revision("20261104_0018")
     assert provenance is not None
     assert provenance.down_revision == "20261104_0017"
@@ -309,6 +309,9 @@ def test_provenance_follows_login_capacity_with_one_head():
     joined = migrations.get_revision("20261108_0062")
     assert joined is not None
     assert joined.down_revision == ("20261108_0020", "20261108_0061")
+    wake = migrations.get_revision("20261108_0063")
+    assert wake is not None
+    assert wake.down_revision == "20261108_0062"
     knowledge = ScriptDirectory.from_config(Config("alembic_kb.ini"))
     assert knowledge.get_heads() == ["kb_0001"]
 

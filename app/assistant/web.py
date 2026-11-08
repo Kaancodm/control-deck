@@ -1,9 +1,9 @@
-"""Bounded HTTPS fetch. Production refuses private addresses and has no search vendor.
+"""Bounded HTTPS fetch and documented search providers.
 
-The repository documents no search credential or provider. ``load_search`` stays
-unconfigured until the owner sets the three switches. Tests use ``for_fixture``,
-which is not reachable from that loader. ``local_only`` and ``cloud_redacted``
-raise before a connection: redaction is task-scoped and is not applied here.
+Production stays off until the owner selects ``mediawiki`` or ``searxng``.
+MediaWiki search is encyclopedia-only. SearXNG is a configured instance, not a
+public service this process starts. ``for_fixture`` is test-only. ``local_only``
+and ``cloud_redacted`` raise before a connection.
 """
 
 from __future__ import annotations
@@ -83,11 +83,11 @@ def _public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     )
 
 
-def _split_url(raw: str, *, https_only: bool) -> tuple[str, str, int, str]:
+def _split_url(raw: str, *, https_only: bool, limit: int = 200) -> tuple[str, str, int, str]:
     if (
         not isinstance(raw, str)
         or not raw
-        or len(raw) > 200
+        or len(raw) > limit
         or any(char in raw for char in "\r\n\0 ")
     ):
         raise AssistantError("assistant_web_blocked")
@@ -216,23 +216,15 @@ class BoundedFetch:
         target = self._target(raw)
         return self._get(target, cancelled=cancelled, hops_left=1)
 
-    def search_query(
-        self, query: str, *, cancelled: Callable[[], bool]
-    ) -> tuple[FetchedDocument, ...]:
-        if self.search_url is None:
-            raise AssistantError("assistant_web_unconfigured")
-        reject_secrets(query, source="search_query")
-        target = self._target(self.search_url)
-        body = json.dumps({"q": query}, ensure_ascii=False).encode("utf-8")
-        if len(body) > 4500:
-            raise AssistantError("assistant_oversize")
-        payload, content_type, truncated = self._transfer(
-            target, method="POST", body=body, cancelled=cancelled
-        )
-        return _documents(payload, content_type, truncated, target.host)
+    def get_unfollowed(
+        self, raw: str, *, cancelled: Callable[[], bool], limit: int = 800
+    ) -> tuple[bytes, str, bool]:
+        """GET one URL and refuse redirects so a query cannot ride to another host."""
+        target = self._target(raw, limit=limit)
+        return self._transfer(target, method="GET", body=None, cancelled=cancelled)
 
-    def _target(self, raw: str) -> _Target:
-        scheme, host, port, path = _split_url(raw, https_only=self.https_only)
+    def _target(self, raw: str, *, limit: int = 200) -> _Target:
+        scheme, host, port, path = _split_url(raw, https_only=self.https_only, limit=limit)
         if (host, port) not in self.allow:
             raise AssistantError("assistant_web_blocked")
         try:
@@ -302,7 +294,7 @@ class BoundedFetch:
             self._require_peer(conn, target)
             headers = {
                 "Accept": "application/json, text/html, text/plain",
-                "User-Agent": "control-deck-assistant",
+                "User-Agent": "control-deck-assistant/0 (local search)",
                 "Connection": "close",
             }
             if body is not None:
@@ -357,7 +349,7 @@ class BoundedFetch:
                     body=None,
                     headers={
                         "Accept": "application/json, text/html, text/plain",
-                        "User-Agent": "control-deck-assistant",
+                        "User-Agent": "control-deck-assistant/0 (local search)",
                         "Connection": "close",
                     },
                 )
@@ -562,10 +554,23 @@ class UnconfiguredWeb:
 
 
 class GovernedWeb:
-    """Owner-configured fetch. Class checks run before ``client.calls`` grows."""
+    """Owner-configured fetch and one documented search provider."""
 
-    def __init__(self, client: BoundedFetch) -> None:
+    def __init__(self, client: BoundedFetch, *, provider_id: str = "", endpoint: str = "") -> None:
         self.client = client
+        self.provider_id = provider_id
+        self.endpoint = endpoint
+
+    @classmethod
+    def for_fixture(cls, port: int, *, provider: str) -> GovernedWeb:
+        """Speak a documented contract to a loopback fixture. Production never uses this."""
+        if provider == "mediawiki":
+            endpoint = f"http://127.0.0.1:{port}/w/api.php"
+        elif provider == "searxng":
+            endpoint = f"http://127.0.0.1:{port}/search"
+        else:
+            raise AssistantError("assistant_web_unconfigured")
+        return cls(BoundedFetch.for_fixture(port), provider_id=provider, endpoint=endpoint)
 
     @property
     def network_calls(self) -> int:
@@ -573,7 +578,30 @@ class GovernedWeb:
 
     def search(self, query: str, *, data_class: str) -> tuple[FetchedDocument, ...]:
         self._gate(data_class)
-        return self.client.search_query(query, cancelled=lambda: False)
+        if self.provider_id == "mediawiki":
+            from app.assistant.search_providers import mediawiki_request_url, normalize_mediawiki
+
+            requested = mediawiki_request_url(self.endpoint, query)
+            normalise = normalize_mediawiki
+        elif self.provider_id == "searxng":
+            from app.assistant.search_providers import normalize_searxng, searxng_request_url
+
+            requested = searxng_request_url(self.endpoint, query)
+            normalise = normalize_searxng
+        else:
+            raise AssistantError("assistant_web_unconfigured")
+        payload, content_type, truncated = self.client.get_unfollowed(
+            requested, cancelled=lambda: False
+        )
+        if truncated or content_type != "application/json":
+            raise AssistantError("assistant_web_rejected")
+        try:
+            decoded = payload.decode("utf-8")
+            parsed = json.loads(decoded)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise AssistantError("assistant_web_rejected") from exc
+        host = urlsplit(self.endpoint).hostname or ""
+        return normalise(parsed, host=host)
 
     def fetch(self, urls: Sequence[str], *, data_class: str) -> tuple[FetchedDocument, ...]:
         self._gate(data_class)
@@ -592,20 +620,34 @@ def load_search(environment: Mapping[str, str]) -> UnconfiguredWeb | GovernedWeb
     """Build the production provider. Loopback entries are not an allowlist."""
     if environment.get("DECK_ASSISTANT_WEB") != "1":
         return UnconfiguredWeb()
-    allow = parse_allowlist(environment.get("DECK_ASSISTANT_WEB_ALLOWLIST", ""))
-    search = environment.get("DECK_ASSISTANT_SEARCH_URL", "").strip()
-    search_url = search or None
-    if search_url is not None:
-        scheme, host, port, _path = _split_url(search_url, https_only=True)
-        if scheme != "https" or (host, port) not in allow:
-            raise AssistantError("assistant_web_unconfigured")
+    provider = environment.get("DECK_ASSISTANT_SEARCH_PROVIDER", "").strip()
+    allow_raw = environment.get("DECK_ASSISTANT_WEB_ALLOWLIST", "").strip()
+    if allow_raw:
+        allow = parse_allowlist(allow_raw)
+    else:
+        allow = frozenset()
+    if provider not in {"mediawiki", "searxng"} or not allow:
+        return UnconfiguredWeb()
+    if provider == "mediawiki":
+        endpoint = environment.get("DECK_ASSISTANT_MEDIAWIKI_API", "").strip()
+        expected = "/api.php"
+    else:
+        endpoint = environment.get("DECK_ASSISTANT_SEARXNG_URL", "").strip()
+        expected = "/search"
+    if not endpoint:
+        raise AssistantError("assistant_web_unconfigured")
+    scheme, host, port, path = _split_url(endpoint, https_only=True)
+    if scheme != "https" or (host, port) not in allow or "?" in path or not path.endswith(expected):
+        raise AssistantError("assistant_web_unconfigured")
     return GovernedWeb(
         BoundedFetch(
             allow=allow,
             https_only=True,
             timeout_s=3,
             max_bytes=16384,
-            search_url=search_url,
+            search_url=None,
             fixture=False,
-        )
+        ),
+        provider_id=provider,
+        endpoint=endpoint,
     )

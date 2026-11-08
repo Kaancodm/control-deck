@@ -88,6 +88,8 @@ class DeepSearchResult:
         labels = {
             "local_corpus": "Beleg aus dem lokalen Korpus, kein Modellurteil",
             "owner_fetch": "Abruf nach Owner-Freigabe, kein Modellurteil",
+            "encyclopedia": "Enzyklopädie-Treffer, keine allgemeine Websuche, kein Modellurteil",
+            "configured_search": "Treffer der konfigurierten Suche, kein Modellurteil",
             "incomplete": "Unvollständig, kein Modellurteil",
             "gap": "Keine belegte Quelle",
         }
@@ -122,7 +124,7 @@ _WEB_GAPS = {
     "live_search_disabled": "Live-Suche ist aus. Kein externer Abruf.",
     "assistant_web_unconfigured": (
         "Web nicht konfiguriert. Es fehlen DECK_ASSISTANT_WEB, "
-        "DECK_ASSISTANT_WEB_ALLOWLIST und DECK_ASSISTANT_SEARCH_URL."
+        "DECK_ASSISTANT_WEB_ALLOWLIST und DECK_ASSISTANT_SEARCH_PROVIDER."
     ),
     "assistant_web_blocked": (
         "Adresse nicht freigegeben. Kein privates Netz und keine fremde Umleitung."
@@ -162,7 +164,7 @@ def run_deep_search(
     refusals = 0
     external: list[FetchedDocument] = []
     if web_needed or addresses:
-        plan.append("Externer Abruf nur nach Owner-Freigabe und Allowlist")
+        plan.append("Externe Suche nur als Enzyklopädie oder konfigurierte Instanz")
     if web_needed:
         pages, gap, refused = _take_external(
             lambda: provider.search(cleaned, data_class=checked),
@@ -174,6 +176,8 @@ def run_deep_search(
         refusals += refused
         if gap is not None:
             gaps.append(gap)
+        elif not pages:
+            gaps.append(_empty_search_gap(getattr(provider, "provider_id", "")))
         external.extend(pages)
     if addresses:
         pages, gap, refused = _take_external(
@@ -196,12 +200,16 @@ def run_deep_search(
             gaps.append(f"Datum fehlt: {document.title}")
         if document.truncated:
             gaps.append(f"Antwort gekuerzt: {document.title}")
+        if document.kind in {"mediawiki", "searxng"}:
+            provenance = document.kind
+        else:
+            provenance = "owner_fetch"
         found.append(
             Evidence(
                 document.title,
                 document.published_on,
                 _proven_excerpt(document.text),
-                provenance="owner_fetch",
+                provenance=provenance,
             )
         )
     if not found and not unread and not external:
@@ -221,9 +229,14 @@ def run_deep_search(
         gaps.append("Unsicher, weil mitgelieferte Claim-Paare sich widersprechen.")
     date_missing = any(not document.published_on or document.truncated for document in external)
     incomplete = partial or blocked or refusals > 0 or date_missing
+    provenances = {item.provenance for item in found}
     if incomplete:
         evidence_status = "incomplete"
-    elif any(item.provenance == "owner_fetch" for item in found):
+    elif provenances == {"mediawiki"}:
+        evidence_status = "encyclopedia"
+    elif provenances == {"searxng"}:
+        evidence_status = "configured_search"
+    elif "owner_fetch" in provenances:
         evidence_status = "owner_fetch"
     elif found:
         evidence_status = "local_corpus"
@@ -243,6 +256,14 @@ def run_deep_search(
         question_origin="owner",
         evidence_status=evidence_status,
     )
+
+
+def _empty_search_gap(provider_id: object) -> str:
+    if provider_id == "mediawiki":
+        return "Keine Enzyklopädie-Treffer. Das ist keine allgemeine Websuche."
+    if provider_id == "searxng":
+        return "Die konfigurierte SearXNG-Instanz lieferte keine Treffer."
+    return "Der Suchprovider lieferte keine Treffer."
 
 
 def _hold_gap(data_class: str, allow_external: bool, *, kind: str) -> str:

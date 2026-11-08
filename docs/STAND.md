@@ -6,11 +6,12 @@ Migration `20261108_0019` folgt auf `20261104_0018` und speichert Profilversione
 Kartenstände, optionale Dialogsätze und Idempotenzschlüssel. `20261108_0020`
 erlaubt die Dialogherkunft `ollama_loopback`. Das ist keine zweite
 Auftragswarteschlange. Der Assistent bleibt standardmässig beim Mock. Ein
-Loopback-Dialog und ein begrenzter HTTPS-Abruf sind opt-in und in diesem Lauf nur
-gegen lokale Fixtures geprüft. Einzelheiten stehen in [ASSISTENT.md](ASSISTENT.md).
-Ein lebendes unzensiertes Modell, ein öffentlicher Webabruf, ein Kaan-Transport,
-eine Kanal-Quittung nach 60 Sekunden und ein Zeitlimit-Resultat nach externem
-Abbruch sind darin nicht enthalten.
+Loopback-Dialog, MediaWiki-Enzyklopädie und SearXNG-Vertrag sind opt-in.
+Fixtureresultate sind keine API-Treffer. Ein einzelner Cloud-Lauf der
+Enzyklopädie mit dem Wort octet lieferte einen API-Treffer. Einzelheiten stehen in
+[ASSISTENT.md](ASSISTENT.md). Ein lebendes unzensiertes Modell, eine allgemeine
+Websuche, ein Kaan-Transport, eine Kanal-Quittung nach 60 Sekunden und ein
+Zeitlimit-Resultat nach externem Abbruch sind darin nicht enthalten.
 
 ## Nachtrag: Ollama Live-Adapter als Draft
 

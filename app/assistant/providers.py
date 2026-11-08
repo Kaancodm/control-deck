@@ -70,6 +70,7 @@ class FetchedDocument:
     claim: str = ""
     value: str = ""
     truncated: bool = False
+    kind: str = "fetch"
 
 
 class ModelAdapter(Protocol):
@@ -108,7 +109,7 @@ _WEB_BOUNDED = ProviderContract(
     summary=(
         "Opt-in HTTPS fetch for an owner allowlist. "
         "local_only and cloud_redacted are refused with no request. "
-        "No search vendor is configured in this repository."
+        "Search is MediaWiki encyclopedia or a configured SearXNG instance."
     ),
 )
 _MOCK = ProviderContract(
@@ -255,18 +256,28 @@ def activation_status(environment: Mapping[str, str] | None = None) -> tuple[str
             "Modellstandard ist der Mock, kein Live-Modell. DECK_ASSISTANT_OLLAMA ist aus."
         )
     if env.get("DECK_ASSISTANT_WEB") == "1":
-        missing_web = [
-            name
-            for name in ("DECK_ASSISTANT_WEB_ALLOWLIST", "DECK_ASSISTANT_SEARCH_URL")
-            if not env.get(name, "").strip()
-        ]
+        provider = env.get("DECK_ASSISTANT_SEARCH_PROVIDER", "").strip()
+        missing_web: list[str] = []
+        if not env.get("DECK_ASSISTANT_WEB_ALLOWLIST", "").strip():
+            missing_web.append("DECK_ASSISTANT_WEB_ALLOWLIST")
+        if provider not in {"mediawiki", "searxng"}:
+            missing_web.append("DECK_ASSISTANT_SEARCH_PROVIDER")
+        elif provider == "mediawiki" and not env.get("DECK_ASSISTANT_MEDIAWIKI_API", "").strip():
+            missing_web.append("DECK_ASSISTANT_MEDIAWIKI_API")
+        elif provider == "searxng" and not env.get("DECK_ASSISTANT_SEARXNG_URL", "").strip():
+            missing_web.append("DECK_ASSISTANT_SEARXNG_URL")
         if missing_web:
             lines.append("Web unvollständig: " + ", ".join(missing_web))
+        elif provider == "mediawiki":
+            lines.append(
+                "Enzyklopädie-Suche über die MediaWiki-API ist konfiguriert. "
+                "Das ist keine allgemeine Websuche."
+            )
         else:
-            lines.append("Webabruf folgt der Allowlist. local_only bleibt ohne Netz.")
+            lines.append("SearXNG ist konfiguriert. Eine öffentliche Instanz wird nicht gestartet.")
     else:
         lines.append(
             "Webabruf ist aus. Nötig sind DECK_ASSISTANT_WEB, "
-            "DECK_ASSISTANT_WEB_ALLOWLIST und DECK_ASSISTANT_SEARCH_URL."
+            "DECK_ASSISTANT_WEB_ALLOWLIST und DECK_ASSISTANT_SEARCH_PROVIDER."
         )
     return tuple(lines)

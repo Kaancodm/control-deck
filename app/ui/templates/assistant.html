@@ -137,7 +137,7 @@
 
   <section class="panel" aria-label="Deep Search">
     <h2>Deep Search</h2>
-    <p class="hint">Treffer aus dem eingefügten Korpus. Ein externer Abruf braucht cloud_ok, die Freigabe und eine Allowlist. local_only macht keinen Netzabruf. Widersprüche nur aus mitgegebenen Claim-Paaren. Das ist kein lebendes Modell.</p>
+    <p class="hint">Treffer aus dem eingefügten Korpus. MediaWiki ist nur eine Enzyklopädie-Suche, keine allgemeine Websuche. SearXNG gilt nur für eine selbst gesetzte Instanz. local_only macht keinen Netzabruf. Widersprüche nur aus mitgegebenen Claim-Paaren. Das ist kein lebendes Modell.</p>
     {% if search %}
     <p><strong>{{ search.evidence_label }}</strong> · {{ search.data_class }} · Netz {{ search.network_calls }} · Anweisungen angewandt: {{ search.instructions_applied }}</p>
     <ol>{% for step in search.plan %}<li>{{ step }}</li>{% endfor %}</ol>

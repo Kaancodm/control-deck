@@ -30,7 +30,9 @@ selbst gesetzte Zeit sind keine Freigabe. Das Gate wird dadurch nicht gelockert.
 | Auftrag über bestehende Task-Tabelle und Events | geprüft, offline | Integration |
 | Bestätigung als Labels, keine zweite Warteschlange | geprüft, offline | Integration |
 | Loopback-Dialog | Adapter geprüft, Standard aus | Lokales HTTP-Fixture, Identität unbelegt |
-| Web-Abruf | Transport geprüft, Standard aus | Fixture und Policy, kein öffentliches Netz |
+| Web-Abruf | Transport geprüft, Standard aus | Fixture und Policy |
+| MediaWiki-Suche | Enzyklopädie-Vertrag, Standard aus | Fixture; kein allgemeines Web |
+| SearXNG | Vertrag, keine Instanz | Fixture; keine öffentliche Instanz |
 | Benchmark 40 Fragen, CHF 0 | geprüft, offline | Korpusbelege ja, Modellqualität not_scored |
 | Vergleich bestehendes Ollama mit Infomaniak | ungeprüft | keine Provisionierung, kein Lauf |
 | Installiertes Modell | nicht belegt | kein Download, kein Uncensored-Nachweis |
@@ -70,21 +72,31 @@ Lauf einer Karte nimmt die gespeicherte Datenklasse, nicht eine mitgeschickte Kl
 Deep Search plant höchstens vier Schritte, liest den mitgegebenen lokalen Korpus
 und zeigt Quellen mit Datum, Lücken, Widersprüche und unlesbare Quellen. Ein Auszug
 ist ein Stück des gelieferten Textes. Der Belegstatus heisst `local_corpus`,
-`owner_fetch`, `incomplete` oder `gap`, nie bewiesen und nie Mock. Widersprüche
+`owner_fetch`, `encyclopedia`, `configured_search`, `incomplete` oder `gap`.
+`encyclopedia` ist ein MediaWiki-Treffer und keine allgemeine Websuche.
+`configured_search` ist ein Treffer einer gesetzten SearXNG-Instanz. Nie
+bewiesen und nie Mock. Widersprüche
 entstehen nur aus mitgegebenen Claim-Paaren samt Titel und Datum. Freier Text wird
 nicht zu einem erkannten Widerspruch umgedeutet. `local_only` blockiert Suche und
 Adressabruf, ohne den Provider aufzurufen. `cloud_redacted` ebenfalls, weil hier
 keine Redaktion vor dem Verlassen des Hosts hängt. `cloud_ok` braucht zusätzlich
 das Freigabe-Kästchen.
 
-Ein Web-Anbieter ist im Repository nicht hinterlegt. Ohne `DECK_ASSISTANT_WEB=1`,
-`DECK_ASSISTANT_WEB_ALLOWLIST` und für die Suche `DECK_ASSISTANT_SEARCH_URL` bleibt
-der Abruf aus und die Lücke nennt diese Namen. Die Allowlist nimmt nur öffentliche
-HTTPS-Hosts. Loopback, private und link-lokale Adressen, Umleitungen dorthin und
-Adressen mit Zugangsdaten werden abgewiesen. Ein POST an die Suchadresse folgt
-keiner Umleitung. Tests sprechen ein lokales Fixture über `for_fixture` an. Dieser
-Konstruktor ist nicht der Produktionslader. Seiten und Modellantworten sind Daten.
-Sie ändern keine Klasse und keine Rechte.
+Ohne `DECK_ASSISTANT_WEB=1`, `DECK_ASSISTANT_WEB_ALLOWLIST` und
+`DECK_ASSISTANT_SEARCH_PROVIDER` bleibt der Abruf aus und die Lücke nennt diese
+Namen. Der Provider ist `mediawiki` oder `searxng`. MediaWiki braucht
+`DECK_ASSISTANT_MEDIAWIKI_API` auf `https` und einem Pfad, der auf `/api.php`
+endet. Der Aufruf ist `action=query`, `list=search`, `srnamespace=0`,
+`srlimit=3`, `srprop=snippet|timestamp`, `format=json`, `utf8=1`. Das ist die
+dokumentierte Enzyklopädie-Suche und kein allgemeines Web. SearXNG braucht
+`DECK_ASSISTANT_SEARXNG_URL` auf `https` und dem Pfad `/search`. Der Aufruf ist
+`GET` mit `q` und `format=json`. Eine Instanz wird hier nicht gestartet und
+keine öffentliche Instanz angesprochen. Ergebnisadressen werden nicht geholt.
+Die Allowlist nimmt nur öffentliche HTTPS-Hosts. Loopback, private und
+link-lokale Adressen, Umleitungen dorthin und Adressen mit Zugangsdaten werden
+abgewiesen. Ein Such-GET folgt keiner Umleitung. Tests sprechen ein lokales
+Fixture über `for_fixture` an. Dieser Konstruktor ist nicht der Produktionslader.
+Seiten und Modellantworten sind Daten. Sie ändern keine Klasse und keine Rechte.
 
 Der Status ist eine Projektion der bestehenden Aufgabe: Freigabe offen vor der
 Queue, Gesendet erst nach `queued`, Angekommen bei Lease ohne Start, Läuft nur bei
@@ -113,17 +125,31 @@ sie nicht. Ein Downgrade in einer Test- oder Entwicklungsdatenbank auf `0018`
 entfernt die Assistenten-Tabellen. `task.v1` und `result.v1` bleiben unverändert.
 Es gibt keinen Löschjob im Betrieb.
 
+## Isolierte Loopback-Probe
+
+Die Probe `python -m app.assistant.loopback_probe` benutzt dieselbe Klasse
+`OllamaDialogueAdapter`. Sie läuft auf dem Host, auf dem Ollama schon lauscht.
+Sie liest nur `DECK_OLLAMA_URL` und `DECK_ASSISTANT_OLLAMA_MODEL`. Sie setzt
+`DECK_LIVE_ENABLED` nicht, liest keine Datenbankadresse, migriert nicht und
+startet keine Queue. Der Satz ist fest: `Reply with the single token LOOPBACK_PROBE_7`.
+Die Ausgabe nennt Profil, Identität `unverified`, `uncensored_claim`, Aufrufzähler,
+Präfix und einen kurzen Ausschnitt. Ein Treffer belegt kein unzensiertes Modell
+und keine Ollama-Version. Eine Adresse ausserhalb von Loopback bricht vor dem
+Socket ab. Vom Cloud-Lauf aus wird der Server nicht kontaktiert.
+
 ## Offen
 
-Ein laufendes Modell auf einem Server, die Prüfung der Ollama-Version 0.40.14 für
-diesen Dialog, ein öffentlicher Webabruf und jede Suche bei einem Anbieter bleiben
-offen. Dafür fehlen auf dem nächsten isolierten Serverlauf mindestens
-`DECK_ASSISTANT_OLLAMA=1`, eine Loopback-`DECK_OLLAMA_URL`, ein bereits vorhandenes
-`DECK_ASSISTANT_OLLAMA_MODEL` mit Tag, und für das Web `DECK_ASSISTANT_WEB=1`,
-eine öffentliche `DECK_ASSISTANT_WEB_ALLOWLIST` sowie `DECK_ASSISTANT_SEARCH_URL`
-auf derselben Liste. Ein Suchanbieter und Zugangsdaten liegen nicht im Repository.
-Modelldownload, bezahlte Suche, Server-Neustart, Offsite-Restore und ein physisches
-iPhone bleiben offen. Die offenen Entwürfe 54,
+Ein Lauf dieser Probe auf dem Server, die Prüfung der Ollama-Version 0.40.14 für
+diesen Dialog und eine allgemeine Websuche bleiben offen. MediaWiki ist nur die
+Enzyklopädie. Ein einzelner Cloud-Lauf mit dem öffentlichen Wort `octet` und
+`srlimit=1` lieferte einen API-Treffer, kein Fixture und kein `FIXTURE_REPLY_7`.
+SearXNG hat einen Vertrag, aber keine gesetzte Instanz und wurde nicht
+angesprochen. Firecrawl und Parallel sind keine hinterlegten Zugangsdaten. Für den Serverlauf der Probe
+reichen die beiden Variablen oben und ein bereits installiertes Modell mit Tag.
+Für die Enzyklopädie auf dem Server zusätzlich `DECK_ASSISTANT_WEB=1`,
+`DECK_ASSISTANT_SEARCH_PROVIDER=mediawiki`, die öffentliche Allowlist und
+`DECK_ASSISTANT_MEDIAWIKI_API`. Modelldownload, bezahlte Suche, Server-Neustart,
+Offsite-Restore und ein physisches iPhone bleiben offen. Die offenen Entwürfe 54,
 55, 56, 57, 59 und 61 sowie die geschlossenen 58 und 60 sind nicht übernommen.
 Entwurf 59 ändert nur die Wissens-Kette `alembic_kb` mit Revision `kb_0001`.
 Er legt keine Datei unter `alembic/versions/` an. `20261108_0019` bleibt auf der

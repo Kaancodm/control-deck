@@ -22,9 +22,23 @@ _FAILURES = {
 @dataclass(frozen=True)
 class AttemptProgress:
     intake: str
+    channel: str
     acknowledgement: str
     outcome: str
     note: str
+
+
+def channel_label(*, status: str | None, transport: str | None) -> str:
+    """Name the channel receipt without calling a worker start a delivery."""
+    if status == "delivered" and transport not in (None, "", "missing"):
+        return "Zugestellt"
+    if status == "deadline_elapsed":
+        return "Frist ohne Zustellung"
+    if status == "accepted" and transport == "missing":
+        return "Angenommen, Transport fehlt"
+    if status == "accepted":
+        return "Angenommen, Zustellung offen"
+    return "Keine Kanal-Quittung"
 
 
 def attempt_progress(
@@ -37,6 +51,8 @@ def attempt_progress(
     error_code: str | None,
     execution_profile: str | None,
     fallback_pending: bool,
+    channel_status: str | None = None,
+    channel_transport: str | None = None,
 ) -> AttemptProgress:
     """Describe the open attempt, or the stored result when nothing is running.
 
@@ -98,6 +114,7 @@ def attempt_progress(
         )
     return AttemptProgress(
         intake="Gespeichert",
+        channel=channel_label(status=channel_status, transport=channel_transport),
         acknowledgement=acknowledgement,
         outcome=outcome,
         note=" ".join(notes),

@@ -213,7 +213,10 @@ def test_old_attempt_result_after_reclaim_is_fenced(api_client, db_session):
     stale_lease["lease"]["lease_id"] = old["lease"]["lease_id"]
     assert submit_live(db_session, stale_lease).status_code == 409
     assert result_event_evidence(db_session, task_id) == before
-    assert db_session.scalar(select(func.count()).select_from(Result)) == 0
+    lost = db_session.scalars(select(Result).order_by(Result.attempt)).all()
+    assert len(lost) == 1 and lost[0].attempt == 1
+    assert lost[0].execution_profile == "unknown"
+    assert lost[0].payload["error"]["code"] == "worker_unavailable"
     assert db_session.get(LaneStatus, "ollama", populate_existing=True) is None
 
     assert submit_live(db_session, current).status_code == 200
@@ -221,8 +224,8 @@ def test_old_attempt_result_after_reclaim_is_fenced(api_client, db_session):
     assert accepted["completed_attempts"] == 1
     assert accepted["simulated_attempts"] == accepted["remote_attempts"] == 0
     assert accepted["unknown_attempts"] == accepted["consecutive_failures"] == 0
-    stored = db_session.scalar(select(Result).where(Result.task_id == task_id))
-    assert stored.attempt == 2 and stored.execution_profile == "live"
+    stored = db_session.scalar(select(Result).where(Result.task_id == task_id, Result.attempt == 2))
+    assert stored is not None and stored.execution_profile == "live"
     task = db_session.get(Task, task_id, populate_existing=True)
     assert task.status == TaskState.REVIEW and task.attempt == 2
     before = result_event_evidence(db_session, task_id)
@@ -230,7 +233,7 @@ def test_old_attempt_result_after_reclaim_is_fenced(api_client, db_session):
     assert submit_live(db_session, current).status_code == 409
     assert result_event_evidence(db_session, task_id) == before
     assert attempt_evidence(db_session) == accepted
-    assert db_session.scalar(select(func.count()).select_from(Result)) == 1
+    assert db_session.scalar(select(func.count()).select_from(Result)) == 2
 
 
 @pytest.mark.parametrize("boundary", ["lease", "cancel", "deadline", "fence"])
@@ -353,7 +356,7 @@ def test_counter_migration_preserves_observations_and_guards_evidence(db_session
     db_session.commit()
     with pytest.raises(RuntimeError, match="accepted attempt evidence"):
         command.downgrade(config, "20251103_0015")
-    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261104_0018"
+    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0061"
 
 
 def test_public_worker_cannot_promote_result_to_live(api_client, db_session):
@@ -500,7 +503,7 @@ def test_provenance_migration_classifies_old_results_and_removes_unattested_succ
         db_session.commit()
         with pytest.raises(RuntimeError, match="execution provenance"):
             command.downgrade(config, "20261104_0017")
-        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261104_0018"
+        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0061"
     finally:
         db_session.rollback()
         command.upgrade(config, "head")
@@ -565,7 +568,7 @@ def test_0018_downgrade_guards_each_evidence_source(api_client, db_session, sour
     try:
         with pytest.raises(RuntimeError, match="execution provenance or accepted attempt evidence"):
             command.downgrade(config, "20261104_0017")
-        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261104_0018"
+        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0061"
         after = [
             list(db_session.execute(select(model.__table__)).mappings())
             for model in (Result, LaneStatus)
@@ -600,7 +603,7 @@ def test_0018_evidence_free_downgrade_and_upgrade_roundtrip(db_session):
         db_session.commit()
         command.upgrade(config, "head")
         command.check(config)
-        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261104_0018"
+        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0061"
         assert db_session.scalar(select(func.count()).select_from(LaneStatus)) == 0
     finally:
         db_session.rollback()

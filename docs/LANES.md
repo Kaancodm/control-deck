@@ -53,8 +53,11 @@ kleineres Adapter-Limit gilt nur, wenn der Aufruf es setzt, zum Beispiel in eine
 kurzen Test. Der Dienstsupervisor wartet standardmässig bis zu derselben Grenze
 von 7200 Sekunden. Er bricht einen erlaubten Versuch nicht mehr still nach 3600
 Sekunden ab. Der Versuch selbst endet bei `policy.timeout_s`. Ein von aussen
-beendeter Prozess schreibt kein Ergebnis; der Lease-Reaper legt dann denselben
-Lane-Versuch zurück. Der Ollama-Transport bleibt davon getrennt: 120 Sekunden bis zum ersten
+beendeter Runner, der kein Ergebnis schreibt, bekommt vom Lease-Reaper genau
+ein `worker_unavailable`. Das ist kein `timeout` und keine zweite Warteschlange.
+Die Erholung bleibt auf derselben Lane, innerhalb von `max_attempts`. Eine
+verspätete Antwort der alten Lease wird abgewiesen. Der Ollama-Transport bleibt
+davon getrennt: 120 Sekunden bis zum ersten
 Chunk, danach 60 Sekunden Leerlauf. Das ist keine Ergebnisfrist und keine
 Kanal-Quittung. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
 versteckten Retry. Inventarprüfungen verwenden ein eigenes begrenztes `list`.

@@ -41,7 +41,8 @@ Wichtige Pfade:
 - `queued` → `leased` → `running` → `review` → `done`
 - Ohne Review-Pflicht und ohne `human`-Regel: `running` → `done`
 - Owner-Ablehnung: `review` → `failed`; Owner-Abbruch aus `review` → `cancelled`
-- Retry oder Lease-Ablauf: zurück nach `queued` (`retry`, `lease_expired`), ohne Freigabe nach `awaiting_approval`, bei erschöpften Versuchen nach `failed`
+- Retry oder Lease-Ablauf: zurück nach `queued` (`retry`, `lease_expired`), ohne Freigabe nach `awaiting_approval`, bei erschöpften Versuchen nach `failed`. Fehlt beim Lease-Ablauf ein Ergebnis, schreibt der Reaper genau eines mit `worker_unavailable`. Ein schon gespeichertes `timeout` wird nicht umetikettiert.
+- `channel_receipts` speichert je Auftrag höchstens eine Annahme in die Warteschlange. Sie ist nicht `task.start`. Der Transport `missing` wird nie als zugestellt gespeichert. Die Frist ist 60 Sekunden ab `accepted_at` und kann mit einer übergebenen Uhr geprüft werden.
 - Eine abgelaufene Owner-Deadline führt aus `awaiting_approval`, `queued`, `leased`, `running` oder `review` nach `expired`
 
 ## Routing-Laufzeitdaten

@@ -125,6 +125,8 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         assert band.is_visible()
         assert "Ergebnis da" in band.inner_text()
         assert "Worker gestartet" in band.inner_text()
+        assert "Angenommen, Transport fehlt" in band.inner_text()
+        assert "Zugestellt" not in band.inner_text()
         assert "Simulation, kein Anbieter-Nachweis" in band.inner_text()
         page.get_by_label("Ergebnis geprüft", exact=True).check()
         page.get_by_role("button", name="Ergebnis freigeben", exact=True).click()

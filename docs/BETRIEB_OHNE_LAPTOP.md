@@ -11,12 +11,15 @@ Sie ist kein dauerhafter Zustand und kein Abnahmeentscheid.
   Tests dürfen ein kürzeres Adapter-Limit setzen. Der Ollama-Leerlauf von 120 und
   danach 60 Sekunden bleibt ein Transportsignal, keine Ergebnisfrist und keine
   Kanal-Quittung.
-- Die Auftragsseite zeigt auf schmalen Displays drei Zeilen: Eingang, Quittung,
-  Ausgang. Die Quittung ist das Deck-Ereignis `task.start` des Versuchs, den die
-  Zeilen beschreiben. Sie ist nicht die 60-Sekunden-Quittung eines n8n-Kanals.
-  Dieser Kanal ist nicht gebaut. Ein laufender neuer Versuch übernimmt nicht den
-  Fehler des vorigen Versuchs als eigenes Ergebnis. Ein abgeschlossener späterer
-  Erfolg ist als späterer Versuch beschriftet.
+- Die Auftragsseite zeigt auf schmalen Displays vier Zeilen: Eingang, Kanal,
+  Start, Ausgang. Start ist das Deck-Ereignis `task.start` des Versuchs, den die
+  Zeilen beschreiben. Kanal ist eine eigene gespeicherte Annahme in die
+  Warteschlange, mit Idempotenz und einer Frist von 60 Sekunden. Ohne
+  konfigurierten Kanal steht dort «Angenommen, Transport fehlt» oder nach der
+  Frist «Frist ohne Zustellung». Das ist keine Zustellung und kein n8n- oder
+  Kaan-Transport. Ein laufender neuer Versuch übernimmt nicht den Fehler des
+  vorigen Versuchs als eigenes Ergebnis. Ein abgeschlossener späterer Erfolg
+  ist als späterer Versuch beschriftet.
 - Eine Simulation bleibt als Simulation beschriftet. Ein Live-Versuch wird nur so
   genannt, wenn das gespeicherte Profil `live` ist.
 - iPhone Safari ab 320 CSS-Pixel: Eingabefelder mindestens 16 Pixel, kein seitliches
@@ -65,10 +68,14 @@ Server-Bindung und kein Zertifikat.
 ## Neustart und Fallback
 
 Aufträge, Leases und Ergebnisse liegen in PostgreSQL. Endet der Runner, bleibt
-die Lease bis `expires_at`. Der Reaper legt einen abgelaufenen Versuch zurück in
-die Warteschlange, auf derselben Lane und innerhalb von `max_attempts`
-(`app/db/queue.py`, Etappe 10). Ein gespeichertes Ergebnis bleibt je Versuch
-eindeutig; eine verspätete Antwort der alten Lease wird abgewiesen.
+die Lease bis `expires_at`. Der Reaper schreibt für diesen Versuch genau ein
+Ergebnis `worker_unavailable`, wenn der Runner keines hinterlassen hat. Das ist
+kein `timeout`: ein Zeitlimit schreibt nur der noch laufende Runner selbst.
+Danach gilt die bisherige Lease-Erholung auf derselben Lane und innerhalb von
+`max_attempts` (`app/db/queue.py`). Ein Abbruch bleibt `cancelled`. Eine
+Owner-Deadline wird `expired` und erfindet kein Runner-Ergebnis. Eine
+verspätete Antwort der alten Lease wird abgewiesen. Es gibt keine zweite
+Warteschlange.
 
 Ein stiller Worker, der bis zum Adapter-Limit nichts liefert, wird `timeout` und
 geht zur nächsten erlaubten Lane. `local_only` bleibt bei Ollama. Der Test
@@ -100,8 +107,9 @@ Dieser Branch stellt nichts wieder her und löscht nichts.
 6. Einen Reboot und die Lease-Erholung danach bewusst prüfen.
 7. Offsite-Restore und den Wiederherstellungsschlüssel prüfen, bevor der Satz
    als Rettung gilt.
-8. Am iPhone die drei Zeilen Eingang, Quittung und Ausgang nach einem echten
-   Auftrag gegenlesen. Eine Simulation bleibt eine Simulation.
+8. Am iPhone die Zeilen Eingang, Kanal, Start und Ausgang nach einem echten
+   Auftrag gegenlesen. Eine Simulation bleibt eine Simulation. Ohne Kanal darf
+   die Zeile Kanal nicht «Zugestellt» sagen.
 
 Der Code allein ist nicht produktionsreif. Die Beobachtung vom 2026-11-07 ersetzt
 diese Prüfung nicht.
@@ -158,7 +166,10 @@ Nicht belegt und nicht als erledigt zu werten:
 - Reboot der Maschine nicht geprüft. Der Prozessstopp in der Testdatenbank bleibt
   `test_stop_cancels_child_without_a_database_mutation`.
 - Offsite-Restore und Wiederherstellungsschlüssel nicht geprüft.
-- Das HARPA-Fragenpaket ist nicht begonnen. Die Kanal-Quittung nach 60 Sekunden
-  ist nicht gebaut.
-- Ein von aussen beendeter Runner schreibt weiter kein Timeout-Ergebnis. Der
-  Reaper legt denselben Lane-Versuch zurück.
+- Das HARPA-Fragenpaket ist nicht begonnen. Die Kanalzeile speichert die
+  Annahme und die 60-Sekunden-Frist. Ein echter Transport, n8n und Kaan sind
+  nicht angeschlossen. Fehlender Transport bleibt ausdrücklich fehlend.
+- Ein von aussen beendeter Runner bekommt ein Ergebnis `worker_unavailable`
+  für genau diesen Versuch. Das ist kein Zeitlimit. Die Lease-Erholung bleibt
+  auf derselben Lane. Ein physisches iPhone und ein Reboot der Maschine sind
+  damit nicht geprüft.

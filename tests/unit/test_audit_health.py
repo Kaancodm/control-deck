@@ -293,10 +293,13 @@ def test_provenance_follows_login_capacity_with_one_head():
     from alembic.script import ScriptDirectory
 
     migrations = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert migrations.get_heads() == ["20261104_0018"]
+    assert migrations.get_heads() == ["20261108_0061"]
     provenance = migrations.get_revision("20261104_0018")
     assert provenance is not None
     assert provenance.down_revision == "20261104_0017"
+    receipt = migrations.get_revision("20261108_0061")
+    assert receipt is not None
+    assert receipt.down_revision == "20261104_0018"
 
 
 @pytest.mark.parametrize("profile", ["simulation", "remote", "unknown"])

@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.datastructures import FormData, UploadFile
@@ -26,9 +27,10 @@ from app.audit.presentation import (
 )
 from app.audit.repository import list_audit
 from app.audit.service import read_lane_health
+from app.channels.receipt import channel_facts, settle_task_receipt
 from app.core.schemas import DataClass, TaskV1, Worker
 from app.db.failures import list_failed_tasks
-from app.db.models import Task
+from app.db.models import ChannelReceipt, Task
 from app.db.settings import read_settings, update_settings
 from app.db.state_machine import InvalidTaskTransitionError, TaskState
 from app.db.ui_auth import (
@@ -359,8 +361,11 @@ def create_task(request: Request, session: DbSession, data: ParsedForm) -> Respo
         return page(request, "task_form.html", values={}, error=code, status=422)
 
 
-def _attempt_progress(task: Task) -> AttemptProgress:
-    """Read stored events only. This is the deck's own receipt, not a channel ACK."""
+def _attempt_progress(task: Task, session: Session) -> AttemptProgress:
+    """Read stored events and the channel receipt. Worker start is a separate line."""
+    settle_task_receipt(session, task.id)
+    receipt = session.scalar(select(ChannelReceipt).where(ChannelReceipt.task_id == task.id))
+    channel_status, channel_transport = channel_facts(receipt)
     result = max(task.results, key=lambda row: row.attempt, default=None)
     result_status = None
     error_code = None
@@ -393,6 +398,8 @@ def _attempt_progress(task: Task) -> AttemptProgress:
         error_code=error_code,
         execution_profile=profile,
         fallback_pending=fallback,
+        channel_status=channel_status,
+        channel_transport=channel_transport,
     )
 
 
@@ -417,7 +424,7 @@ def detail(request: Request, task_id: UUID, session: DbSession) -> Response:
         request,
         "task_detail.html",
         task=task,
-        progress=_attempt_progress(task),
+        progress=_attempt_progress(task, session),
         outputs=outputs,
         contexts=contexts,
         context_unavailable=context_unavailable,

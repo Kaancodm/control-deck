@@ -4,7 +4,7 @@ From a checkout of this commit, with Python 3.12 already on the host:
 
     env -u PYTHONPATH -u DECK_DATABASE_URL -u DECK_LIVE_ENABLED \
       DECK_OLLAMA_URL='http://127.0.0.1:PORT' \
-      DECK_ASSISTANT_OLLAMA_MODEL='name:tag' \
+      DECK_ASSISTANT_OLLAMA_MODEL='namespace/name:tag' \
       python3 -S scripts/loopback_probe_isolated.py
 
 ``python3 -S`` does not import site-packages, so the project lockfile and

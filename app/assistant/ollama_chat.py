@@ -26,21 +26,45 @@ LOOPBACK_PREFIX = "Loopback, Identität nicht belegt."
 DIALOGUE_TIMEOUT_S = 75.0
 DIALOGUE_FIRST_CHUNK_S = 60.0
 DIALOGUE_IDLE_S = 20.0
-_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
+# Ollama 0.40.14 types/model/name.go: a namespace has no dots; model and tag may.
+# One slash is the namespace separator. A host, scheme, or extra slash is not a name.
+_NAMESPACE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,79}\Z")
+_NAME_PART = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}\Z")
 _PHASES = {"connect", "headers", "body", "status", "unknown"}
 _REASONS = {"cancelled", "timeout", "unavailable", "internal"}
 
 
 def validate_model_tag(model: str) -> str:
-    """Require one explicit tag. Reject cloud aliases and the runner's ``:local`` suffix."""
+    """Accept ``name:tag`` or one ``namespace/name:tag``.
+
+    The value is stored and sent as a JSON string. It is not a URL path and
+    not a filesystem path. ``:local`` is appended by the client, so the
+    configured name must already carry its real tag and must not be a cloud
+    or local source suffix.
+    """
     if (
         not isinstance(model, str)
-        or not _MODEL.fullmatch(model)
+        or model != model.strip()
+        or any(ord(char) < 33 or ord(char) == 127 for char in model)
         or model.count(":") != 1
-        or not all(model.split(":"))
-        or ":cloud" in model.casefold()
-        or model.casefold().endswith("-cloud")
-        or model.casefold().endswith(":local")
+        or model.count("/") > 1
+        or ".." in model
+        or "\\" in model
+    ):
+        raise AssistantError("assistant_model_unconfigured")
+    namespace, _, rest = model.partition("/")
+    if "/" not in model:
+        namespace = ""
+        rest = model
+    name, tag = rest.split(":", 1)
+    folded = model.casefold()
+    if (
+        (namespace != "" and _NAMESPACE.fullmatch(namespace) is None)
+        or _NAME_PART.fullmatch(name) is None
+        or _NAME_PART.fullmatch(tag) is None
+        or ":cloud" in folded
+        or folded.endswith("-cloud")
+        or folded.endswith(":local")
     ):
         raise AssistantError("assistant_model_unconfigured")
     return model

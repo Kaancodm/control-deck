@@ -181,6 +181,84 @@ def test_isolated_probe_reports_a_missing_model_without_the_body() -> None:
     assert completed.stdout == ""
 
 
+def test_isolated_probe_sends_the_installed_namespaced_tag_in_json() -> None:
+    tag = "huihui_ai/qwen3-abliterated:4b-v2"
+    seen: list[tuple[str, bytes]] = []
+
+    class Handler(_Quiet):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length)
+            seen.append((self.path, raw))
+            requested = json.loads(raw)["model"]
+            line = json.dumps(
+                {
+                    "model": requested,
+                    "message": {"role": "assistant", "content": "FIXTURE_REPLY_7"},
+                    "done": True,
+                    "done_reason": "stop",
+                }
+            )
+            body = (line + "\n").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        env = _base_env()
+        env["DECK_OLLAMA_URL"] = f"http://127.0.0.1:{port}"
+        env["DECK_ASSISTANT_OLLAMA_MODEL"] = tag
+        completed = _run(env, isolated=True)
+    finally:
+        server.shutdown()
+    assert completed.returncode == 0, completed.stderr
+    report = json.loads(completed.stdout)
+    assert report["configured_model"] == tag
+    assert report["third_party_modules"] == []
+    assert report["uncensored_claim"] is False
+    assert len(seen) == 1
+    path, raw = seen[0]
+    assert path == "/api/chat"
+    assert tag not in path
+    assert json.loads(raw)["model"] == f"{tag}:local"
+
+
+def test_isolated_probe_rejects_a_path_model_before_connect() -> None:
+    seen: list[bytes] = []
+
+    class Handler(_Quiet):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            seen.append(self.rfile.read(length))
+            self.send_response(500)
+            self.end_headers()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        env = _base_env()
+        env["DECK_OLLAMA_URL"] = f"http://127.0.0.1:{port}"
+        env["DECK_ASSISTANT_OLLAMA_MODEL"] = "huihui_ai/../../x:tag"
+        completed = _run(env, isolated=True)
+    finally:
+        server.shutdown()
+    assert completed.returncode == 3
+    report = json.loads(completed.stderr)
+    assert report["ok"] is False
+    assert report["code"] == "assistant_model_unconfigured"
+    assert report["detail"] == {}
+    assert "huihui" not in completed.stderr
+    assert seen == []
+
+
 def test_isolated_probe_rejects_a_remote_url_before_connect() -> None:
     env = _base_env()
     env["DECK_OLLAMA_URL"] = "http://example.com:11434"

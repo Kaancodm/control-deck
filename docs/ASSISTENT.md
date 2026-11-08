@@ -50,9 +50,11 @@ unzensiertes Modell.
 Der Dialog bleibt ein Mock, solange `DECK_ASSISTANT_OLLAMA` nicht exakt `1` ist.
 Der Runner-Schalter `DECK_LIVE_ENABLED` schaltet den Assistenten nicht ein.
 Mit dem Assistenten-Schalter, `DECK_OLLAMA_URL` als HTTP-Loopback mit Port und
-`DECK_ASSISTANT_OLLAMA_MODEL` als `name:tag` geht eine Anfrage an den bestehenden
-Loopback-Client. Die Antwort trägt `ollama_loopback` und den Hinweis, dass die
-Identität unbelegt ist. Ein Fixture ist kein installiertes Modell und kein
+`DECK_ASSISTANT_OLLAMA_MODEL` als `name:tag` oder `namespace/name:tag` geht eine
+Anfrage an den bestehenden Loopback-Client. Der Schrägstrich ist Teil der
+Modellkennung im JSON-Feld `model`. Der Pfad bleibt `/api/chat`. Ein Host, ein
+Schema, ein zweiter Schrägstrich oder `..` ist keine Kennung. Die Antwort
+trägt `ollama_loopback` und den Hinweis, dass die Identität unbelegt ist. Ein Fixture ist kein installiertes Modell und kein
 Uncensored-Nachweis. Profil und gespeicherte Sätze derselben Datenklasse gehen
 nur mit ins Prompt, wenn das jeweilige Kästchen gesetzt ist. Der Mock ignoriert
 beide Kästchen. Es gibt keinen Modell-Download und keinen Aufruf von `/api/pull`.
@@ -144,8 +146,9 @@ env -u PYTHONPATH -u DECK_DATABASE_URL -u DECK_LIVE_ENABLED \
 ```
 
 `PORT` ist der Port, den readyz für das lokale Ollama schon gezeigt hat.
-`name:tag` ist ein bereits installiertes Modell. Der Aufruf hängt `:local` an
-und zieht kein Modell. Es gibt genau einen Versuch. Das Gesamtlimit ist 75
+`name:tag` oder `namespace/name:tag` ist ein bereits installiertes Modell nach
+den Namensregeln von Ollama 0.40.14. Der Aufruf hängt `:local` an die Kennung
+im JSON an und zieht kein Modell. Es gibt genau einen Versuch. Das Gesamtlimit ist 75
 Sekunden, das Warten auf das erste Stück 60 Sekunden, die Pause zwischen
 Stücken 20 Sekunden. Der Lauf vom 2026-11-08 um 05:42 endete nach etwa 8
 Sekunden mit `assistant_model_unavailable`, weil das alte Limit 8 Sekunden war

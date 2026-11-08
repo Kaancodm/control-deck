@@ -20,6 +20,7 @@ from app.assistant.ollama_chat import (
     DIALOGUE_TIMEOUT_S,
     LOOPBACK_PREFIX,
     OllamaDialogueAdapter,
+    validate_model_tag,
 )
 from app.assistant.providers import resolve_model, resolve_provider, resolve_search
 from app.assistant.web import BoundedFetch, GovernedWeb, UnconfiguredWeb, load_search
@@ -163,6 +164,81 @@ def test_missing_model_or_secret_does_not_connect(monkeypatch: pytest.MonkeyPatc
     assert missing.value.code == "assistant_model_unconfigured"
     assert secret.value.code == "assistant_secret" and SECRET not in str(secret.value)
     assert remote.value.code == cloud.value.code == "assistant_model_unconfigured"
+
+
+INSTALLED_TAG = "huihui_ai/qwen3-abliterated:4b-v2"
+_REJECTED_TAGS = (
+    "../etc/passwd:tag",
+    "/etc/passwd:tag",
+    "huihui_ai/../../x:tag",
+    "huihui_ai//qwen:tag",
+    "a/b/c:tag",
+    "ns\\model:tag",
+    "file://model:tag",
+    "http://127.0.0.1/model:tag",
+    "model:tag extra",
+    "model:tag\n",
+    "model:tag\x00",
+    "model:tag?x=1",
+    "model:tag#frag",
+    "model:tag:local",
+    "ns/model:local",
+    "ns/model:cloud",
+    "ns/model:foo-cloud",
+    "ns/model",
+    "ns/model:",
+    ":tag",
+    "registry.ollama.ai/library/model:tag",
+    "name:tag$(id)",
+    "name:tag;rm",
+    "name:`id`",
+    " ../model:tag",
+)
+
+
+def test_namespaced_model_tag_is_json_data_on_the_fixed_chat_path() -> None:
+    seen: list[tuple[str, bytes]] = []
+
+    def script(path: str, raw: bytes, method: str) -> tuple[int, str, bytes]:
+        seen.append((path, raw))
+        body = json.loads(raw)
+        line = json.dumps(
+            {
+                "model": body["model"],
+                "message": {"role": "assistant", "content": "FIXTURE_REPLY_7"},
+                "done": True,
+                "done_reason": "stop",
+            }
+        )
+        return 200, "application/x-ndjson", (line + "\n").encode()
+
+    server, _raw = _serve(script)
+    try:
+        port = server.server_address[1]
+        adapter = OllamaDialogueAdapter(
+            url=f"http://127.0.0.1:{port}",
+            model=INSTALLED_TAG,
+        )
+        produced = adapter.complete("Hallo", data_class="local_only")
+    finally:
+        server.shutdown()
+    assert produced.text.startswith(LOOPBACK_PREFIX)
+    assert len(seen) == 1
+    path, raw = seen[0]
+    assert path == "/api/chat"
+    assert INSTALLED_TAG not in path
+    body = json.loads(raw)
+    assert body["model"] == f"{INSTALLED_TAG}:local"
+
+
+def test_model_tag_accepts_the_installed_name_and_rejects_path_inputs() -> None:
+    assert validate_model_tag(INSTALLED_TAG) == INSTALLED_TAG
+    assert validate_model_tag("fixture:localtest") == "fixture:localtest"
+    for candidate in _REJECTED_TAGS:
+        with pytest.raises(AssistantError) as refused:
+            validate_model_tag(candidate)
+        assert refused.value.code == "assistant_model_unconfigured"
+        assert candidate not in str(refused.value)
 
 
 def test_cancelled_loopback_and_tool_call_discard_the_text() -> None:

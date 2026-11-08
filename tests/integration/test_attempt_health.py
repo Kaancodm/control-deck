@@ -353,7 +353,7 @@ def test_counter_migration_preserves_observations_and_guards_evidence(db_session
     db_session.commit()
     with pytest.raises(RuntimeError, match="accepted attempt evidence"):
         command.downgrade(config, "20251103_0015")
-    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0019"
+    assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0020"
 
 
 def test_public_worker_cannot_promote_result_to_live(api_client, db_session):
@@ -500,7 +500,7 @@ def test_provenance_migration_classifies_old_results_and_removes_unattested_succ
         db_session.commit()
         with pytest.raises(RuntimeError, match="execution provenance"):
             command.downgrade(config, "20261104_0017")
-        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0019"
+        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0020"
     finally:
         db_session.rollback()
         command.upgrade(config, "head")
@@ -565,7 +565,7 @@ def test_0018_downgrade_guards_each_evidence_source(api_client, db_session, sour
     try:
         with pytest.raises(RuntimeError, match="execution provenance or accepted attempt evidence"):
             command.downgrade(config, "20261104_0017")
-        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0019"
+        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0020"
         after = [
             list(db_session.execute(select(model.__table__)).mappings())
             for model in (Result, LaneStatus)
@@ -600,7 +600,7 @@ def test_0018_evidence_free_downgrade_and_upgrade_roundtrip(db_session):
         db_session.commit()
         command.upgrade(config, "head")
         command.check(config)
-        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0019"
+        assert db_session.scalar(text("SELECT version_num FROM alembic_version")) == "20261108_0020"
         assert db_session.scalar(select(func.count()).select_from(LaneStatus)) == 0
     finally:
         db_session.rollback()

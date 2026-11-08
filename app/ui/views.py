@@ -172,6 +172,24 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
     ),
     "live_model_disabled": ("Das Live-Modell ist aus.", "Der Mock ist kein lebendes Modell."),
     "live_search_disabled": ("Die Live-Suche ist aus.", "local_only bleibt ohne Netzabruf."),
+    "assistant_model_unconfigured": (
+        "Das Loopback-Modell ist unvollständig.",
+        "URL und Modellname mit Tag setzen.",
+    ),
+    "assistant_model_unavailable": (
+        "Das Loopback-Modell antwortet nicht.",
+        "Der Mock bleibt der Standard.",
+    ),
+    "assistant_web_unconfigured": (
+        "Die Websuche ist nicht konfiguriert.",
+        "Allowlist und Suchadresse fehlen.",
+    ),
+    "assistant_web_blocked": (
+        "Die Adresse ist nicht freigegeben.",
+        "Nur die Allowlist, ohne private Netze.",
+    ),
+    "assistant_web_rejected": ("Der Abruf wurde abgewiesen.", "Inhalt, Zeit oder Grösse prüfen."),
+    "assistant_cancelled": ("Der Abruf wurde abgebrochen.", "Erneut senden."),
     "order_missing": ("Dieser Assistenten-Auftrag fehlt.", "Zur Assistentenseite zurück."),
     "temporarily_unavailable": (
         "Der Dienst ist vorübergehend nicht verfügbar.",

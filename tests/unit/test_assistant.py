@@ -29,7 +29,14 @@ class SpyWeb:
         self.calls = 0
         self.network_calls = 0
 
-    def search(self, query: str, *, data_class: str) -> None:
+    def search(self, query: str, *, data_class: str) -> tuple[object, ...]:
+        del query, data_class
+        self.calls += 1
+        self.network_calls += 1
+        raise AssertionError("web provider called")
+
+    def fetch(self, urls: object, *, data_class: str) -> tuple[object, ...]:
+        del urls, data_class
         self.calls += 1
         self.network_calls += 1
         raise AssertionError("web provider called")
@@ -134,7 +141,12 @@ def test_dialogue_prompt_is_only_the_owner_sentence(monkeypatch: pytest.MonkeyPa
         return original(self, prompt, data_class=data_class)
 
     monkeypatch.setattr(MockModel, "complete", spy)
-    reply_to_owner("Wie geht es dir heute Morgen", data_class="local_only")
+    reply_to_owner(
+        "Wie geht es dir heute Morgen",
+        data_class="local_only",
+        profile_notes="PROFILTOKEN",
+        history=(("frueher", "alte antwort"),),
+    )
     assert seen == ["Wie geht es dir heute Morgen"]
 
 
@@ -159,6 +171,8 @@ def test_local_only_search_never_calls_web() -> None:
         data_class="local_only",
         sources=(),
         web=spy,
+        allow_external=True,
+        fetch_urls=("https://example.com/news",),
     )
     assert spy.calls == 0 and result.network_calls == 0 and result.blocked
     assert any("local_only" in gap for gap in result.gaps)
@@ -171,11 +185,25 @@ def test_cloud_search_hook_refuses_without_a_citation() -> None:
         data_class="cloud_ok",
         sources=(),
         web=hook,
+        allow_external=True,
     )
     assert hook.network_calls == 0 and hook.refusals == 1
     assert result.network_calls == 0
     assert any("Live-Suche ist aus" in gap for gap in result.gaps)
     assert result.sources == ()
+
+
+def test_cloud_search_without_owner_approval_does_not_call() -> None:
+    spy = SpyWeb()
+    result = run_deep_search(
+        question="aktuelle Nachrichten",
+        data_class="cloud_ok",
+        sources=(),
+        web=spy,
+        fetch_urls=("https://example.com/news",),
+    )
+    assert spy.calls == 0 and result.network_calls == 0 and result.blocked
+    assert any("Owner-Freigabe" in gap for gap in result.gaps)
 
 
 def test_search_shows_gap_conflict_partial_and_ignores_injection() -> None:
@@ -384,9 +412,13 @@ def test_main_revision_is_separate_from_the_knowledge_chain() -> None:
     versions = Path("alembic/versions")
     assistant = (versions / "20261108_0019_assistant_owner_records.py").read_text(encoding="utf-8")
     knowledge = Path("alembic_kb/versions/0001_test_contract.py").read_text(encoding="utf-8")
+    follow = (versions / "20261108_0020_assistant_turn_origin.py").read_text(encoding="utf-8")
     assert 'revision = "20261108_0019"' in assistant
     assert 'down_revision = "20261104_0018"' in assistant
+    assert 'revision = "20261108_0020"' in follow
+    assert 'down_revision = "20261108_0019"' in follow
     assert 'revision = "kb_0001"' in knowledge
     assert "down_revision = None" in knowledge
     assert "20261108_0019" not in knowledge
+    assert "20261108_0020" not in knowledge
     assert not list(versions.glob("kb_*.py"))

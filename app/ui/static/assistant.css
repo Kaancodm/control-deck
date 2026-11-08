@@ -11,8 +11,18 @@
 .assistant-page summary { min-height: var(--control-size); display: block; cursor: pointer; overflow-wrap: anywhere; }
 .assistant-page button { max-width: 100%; white-space: normal; text-align: center; }
 .assistant-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-page .check, .assistant-page li, .assistant-page ul, .assistant-page label {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.assistant-page .check input { width: auto; flex: 0 0 auto; }
 @media (max-width: 40rem) {
-  .assistant-page button, .assistant-page .button, .assistant-page input, .assistant-page select, .assistant-page textarea {
+  .assistant-page button,
+  .assistant-page .button,
+  .assistant-page input:not([type="checkbox"]),
+  .assistant-page select,
+  .assistant-page textarea {
     width: 100%;
   }
 }

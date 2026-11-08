@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from app.assistant.errors import AssistantError
-from app.assistant.providers import DisabledWebSearch, SearchAdapter
+from app.assistant.providers import DisabledWebSearch, FetchedDocument, SearchAdapter
 from app.assistant.text import (
     CORPUS_LIMIT,
     MESSAGE_MAX,
@@ -87,6 +87,7 @@ class DeepSearchResult:
         """German UI label. Corpus excerpts are not a model judgement."""
         labels = {
             "local_corpus": "Beleg aus dem lokalen Korpus, kein Modellurteil",
+            "owner_fetch": "Abruf nach Owner-Freigabe, kein Modellurteil",
             "incomplete": "Unvollständig, kein Modellurteil",
             "gap": "Keine belegte Quelle",
         }
@@ -117,17 +118,38 @@ def parse_corpus(raw: str) -> tuple[CorpusSource, ...]:
     return tuple(sources)
 
 
+_WEB_GAPS = {
+    "live_search_disabled": "Live-Suche ist aus. Kein externer Abruf.",
+    "assistant_web_unconfigured": (
+        "Web nicht konfiguriert. Es fehlen DECK_ASSISTANT_WEB, "
+        "DECK_ASSISTANT_WEB_ALLOWLIST und DECK_ASSISTANT_SEARCH_URL."
+    ),
+    "assistant_web_blocked": (
+        "Adresse nicht freigegeben. Kein privates Netz und keine fremde Umleitung."
+    ),
+    "assistant_web_rejected": "Der Abruf wurde abgewiesen.",
+    "assistant_cancelled": "Der Abruf wurde abgebrochen.",
+}
+
+
 def run_deep_search(
     *,
     question: str,
     data_class: str,
     sources: Sequence[CorpusSource],
     web: SearchAdapter | None = None,
+    allow_external: bool = False,
+    fetch_urls: Sequence[str] = (),
 ) -> DeepSearchResult:
     """Plan at most four steps and keep every gap, conflict, and partial read visible."""
     cleaned = bounded(question, limit=MESSAGE_MAX)
     checked = require_data_class(data_class)
     reject_secrets(cleaned, source="search_question")
+    addresses = tuple(fetch_urls)
+    if len(addresses) > 3 or any(len(item) > 200 or not item.strip() for item in addresses):
+        raise AssistantError("assistant_input")
+    for item in addresses:
+        reject_secrets(item, source="fetch_url")
     provider = web if web is not None else DisabledWebSearch()
     web_needed = needs_web(cleaned)
     plan = [
@@ -138,31 +160,71 @@ def run_deep_search(
     gaps: list[str] = []
     blocked = False
     refusals = 0
-    network_calls = 0
+    external: list[FetchedDocument] = []
+    if web_needed or addresses:
+        plan.append("Externer Abruf nur nach Owner-Freigabe und Allowlist")
     if web_needed:
-        plan.append("Externe Suche nur ueber den gesperrten Provider")
-        if checked == "local_only":
-            blocked = True
-            gaps.append("Externe Suche blockiert, weil local_only keinen Netzabruf erlaubt.")
-        else:
-            try:
-                provider.search(cleaned, data_class=checked)
-            except AssistantError as exc:
-                if exc.code != "live_search_disabled":
-                    raise
-                refusals += 1
-                gaps.append("Live-Suche ist aus. Kein externer Abruf.")
-            reported = getattr(provider, "network_calls", 0)
-            if isinstance(reported, int):
-                network_calls = reported
+        pages, gap, refused = _take_external(
+            lambda: provider.search(cleaned, data_class=checked),
+            data_class=checked,
+            allow_external=allow_external,
+            hold=_hold_gap(checked, allow_external, kind="suche"),
+        )
+        blocked = blocked or gap is not None
+        refusals += refused
+        if gap is not None:
+            gaps.append(gap)
+        external.extend(pages)
+    if addresses:
+        pages, gap, refused = _take_external(
+            lambda: provider.fetch(addresses, data_class=checked),
+            data_class=checked,
+            allow_external=allow_external,
+            hold=_hold_gap(checked, allow_external, kind="adressen"),
+        )
+        blocked = blocked or gap is not None
+        refusals += refused
+        if gap is not None:
+            gaps.append(gap)
+        external.extend(pages)
+    reported = provider.network_calls
+    network_calls = reported if isinstance(reported, int) else 0
     found, partial, unread = _read_local(cleaned, sources)
     gaps.extend(unread)
-    if not found and not unread:
+    for document in external:
+        if not document.published_on:
+            gaps.append(f"Datum fehlt: {document.title}")
+        if document.truncated:
+            gaps.append(f"Antwort gekuerzt: {document.title}")
+        found.append(
+            Evidence(
+                document.title,
+                document.published_on,
+                _proven_excerpt(document.text),
+                provenance="owner_fetch",
+            )
+        )
+    if not found and not unread and not external:
         gaps.append("Keine passende lokale Quelle.")
-    contradictions = _contradictions(cleaned, sources)
-    incomplete = partial or blocked or refusals > 0
+    extra = tuple(
+        CorpusSource(
+            document.title,
+            document.published_on,
+            document.text,
+            document.claim or None,
+            document.value or None,
+        )
+        for document in external
+    )
+    contradictions = _contradictions(cleaned, tuple(sources) + extra)
+    if external and contradictions:
+        gaps.append("Unsicher, weil mitgelieferte Claim-Paare sich widersprechen.")
+    date_missing = any(not document.published_on or document.truncated for document in external)
+    incomplete = partial or blocked or refusals > 0 or date_missing
     if incomplete:
         evidence_status = "incomplete"
+    elif any(item.provenance == "owner_fetch" for item in found):
+        evidence_status = "owner_fetch"
     elif found:
         evidence_status = "local_corpus"
     else:
@@ -181,6 +243,47 @@ def run_deep_search(
         question_origin="owner",
         evidence_status=evidence_status,
     )
+
+
+def _hold_gap(data_class: str, allow_external: bool, *, kind: str) -> str:
+    if data_class == "local_only":
+        if kind == "suche":
+            return "Externe Suche blockiert, weil local_only keinen Netzabruf erlaubt."
+        return "Externe Adressen blockiert, weil local_only keinen Netzabruf erlaubt."
+    if data_class == "cloud_redacted":
+        return "cloud_redacted verlaesst den Host nicht ohne Redaktion."
+    if not allow_external:
+        if kind == "suche":
+            return "Externe Suche braucht die Owner-Freigabe."
+        return "Externe Adressen brauchen die Owner-Freigabe."
+    return "Externer Abruf bleibt zu."
+
+
+def _take_external(
+    action: Callable[[], tuple[FetchedDocument, ...]],
+    *,
+    data_class: str,
+    allow_external: bool,
+    hold: str,
+) -> tuple[tuple[FetchedDocument, ...], str | None, int]:
+    """Return pages, a visible gap, and hook refusals. Policy holds never call ``action``."""
+    if data_class != "cloud_ok" or not allow_external:
+        return (), hold, 0
+    try:
+        pages = action()
+    except AssistantError as exc:
+        if exc.code in {
+            "assistant_secret",
+            "assistant_data_class",
+            "assistant_input",
+            "assistant_oversize",
+        }:
+            raise
+        gap = _WEB_GAPS.get(exc.code)
+        if gap is None:
+            raise
+        return (), gap, 1 if exc.code == "live_search_disabled" else 0
+    return pages, None, 0
 
 
 def _source(item: object) -> CorpusSource:

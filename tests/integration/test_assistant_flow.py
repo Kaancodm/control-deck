@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import threading
 from html.parser import HTMLParser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from argon2 import PasswordHasher
@@ -326,3 +328,87 @@ def test_import_rejects_a_secret_and_search_can_be_saved(
     )
     assert again.status_code == 303
     assert db_session.scalar(select(func.count()).select_from(Task)) == 1
+
+
+def test_opt_in_loopback_stores_dialogue_without_creating_a_task(
+    ui_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[bytes] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length)
+            captured.append(raw)
+            body = json.loads(raw)
+            line = (
+                json.dumps(
+                    {
+                        "model": body["model"],
+                        "message": {"role": "assistant", "content": "FIXTURE_REPLY_7"},
+                        "done": True,
+                        "done_reason": "stop",
+                    }
+                ).encode()
+                + b"\n"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Content-Length", str(len(line)))
+            self.end_headers()
+            self.wfile.write(line)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        home = login(ui_client)
+        parsed = Inputs(home.text)
+        profile = ui_client.post(
+            "/ui/assistant/profile",
+            data={"csrf": parsed.csrf, "notes": "Notiz PROFILTOKEN"},
+            follow_redirects=True,
+        )
+        assert profile.status_code == 200
+        db_session.add(
+            AssistantTurn(
+                data_class="cloud_ok",
+                owner_text="FREMDKLASSE",
+                reply_text="fremd",
+                reply_origin="mock",
+            )
+        )
+        db_session.commit()
+        port = server.server_address[1]
+        monkeypatch.setenv("DECK_ASSISTANT_OLLAMA", "1")
+        monkeypatch.setenv("DECK_OLLAMA_URL", f"http://127.0.0.1:{port}")
+        monkeypatch.setenv("DECK_ASSISTANT_OLLAMA_MODEL", "fixture:localtest")
+        page = Inputs(ui_client.get("/ui/assistant").text)
+        saved = ui_client.post(
+            "/ui/assistant/talk",
+            data={
+                "csrf": page.csrf,
+                "message": "Wie geht es dir heute Morgen",
+                "data_class": "local_only",
+                "include_profile": "yes",
+                "include_history": "yes",
+                "persist": "yes",
+            },
+            follow_redirects=True,
+        )
+    finally:
+        server.shutdown()
+    assert saved.status_code == 200
+    assert "FIXTURE_REPLY_7" in saved.text
+    assert "ollama_loopback" in saved.text
+    assert "Nicht gespeichert" not in saved.text
+    body = captured[0].decode()
+    assert "PROFILTOKEN" in body and "FREMDKLASSE" not in body
+    assert db_session.scalar(select(func.count()).select_from(Task)) == 0
+    origin = db_session.scalar(
+        select(AssistantTurn.reply_origin).order_by(AssistantTurn.created_at.desc())
+    )
+    assert origin == "ollama_loopback"

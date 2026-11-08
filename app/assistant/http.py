@@ -35,7 +35,7 @@ from app.assistant.dialogue import (
 )
 from app.assistant.errors import AssistantError
 from app.assistant.orders import describe_search, submit_order
-from app.assistant.providers import resolve_search
+from app.assistant.providers import activation_status, resolve_search
 from app.assistant.records import AssistantCard, AssistantOrderKey, placeholders_of
 from app.assistant.status import CHANNEL_GAPS, heartbeat_is_current, project_order
 from app.db.models import Event, Task
@@ -76,6 +76,7 @@ def _context(session: DbSession) -> dict[str, Any]:
         "reply": None,
         "search": None,
         "notice": None,
+        "activation": activation_status(),
     }
 
 
@@ -104,7 +105,24 @@ def talk(request: Request, session: DbSession, data: ParsedForm) -> Response:
     owner(request, session)
     csrf(request, session, data)
     try:
-        reply = reply_to_owner(_text(data, "message"), data_class=_text(data, "data_class"))
+        data_class = _text(data, "data_class")
+        notes = None
+        if _text(data, "include_profile") == "yes":
+            profile = current_profile(session)
+            notes = profile.notes if profile is not None else None
+        history: tuple[tuple[str, str], ...] = ()
+        if _text(data, "include_history") == "yes":
+            history = tuple(
+                (turn.owner_text, turn.reply_text)
+                for turn in recent_turns(session, limit=8)
+                if turn.data_class == data_class
+            )
+        reply = reply_to_owner(
+            _text(data, "message"),
+            data_class=data_class,
+            profile_notes=notes,
+            history=history,
+        )
         if _text(data, "persist") == "yes":
             store_turn(session, reply, owner_text=_text(data, "message").strip())
             return RedirectResponse("/ui/assistant", status_code=303)
@@ -237,11 +255,16 @@ def search(request: Request, session: DbSession, data: ParsedForm) -> Response:
     try:
         question = _text(data, "question")
         data_class = _text(data, "data_class")
+        addresses = tuple(
+            line.strip() for line in _text(data, "fetch_urls").splitlines() if line.strip()
+        )
         result = run_deep_search(
             question=question,
             data_class=data_class,
             sources=parse_corpus(_text(data, "corpus")),
             web=resolve_search(),
+            allow_external=_text(data, "allow_external") == "yes",
+            fetch_urls=addresses,
         )
         if _text(data, "save_order") != "yes":
             return preview_redirect(request, "/ui/assistant", search=result)

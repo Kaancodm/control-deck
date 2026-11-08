@@ -1,0 +1,18 @@
+.assistant-page { display: grid; gap: var(--space-4); min-width: 0; overflow-wrap: anywhere; }
+.assistant-page > *, .assistant-page .panel, .assistant-page form, .assistant-page details { min-width: 0; max-width: 100%; }
+.assistant-page .panel, .assistant-page pre, .assistant-page input, .assistant-page select, .assistant-page textarea {
+  max-width: 100%;
+}
+.assistant-page input, .assistant-page select, .assistant-page textarea, .assistant-page button, .assistant-page .button {
+  font-size: 1rem;
+}
+.assistant-page textarea { min-height: 6rem; }
+.assistant-page details { border-top: 1px solid var(--color-line); padding-block: var(--space-3); }
+.assistant-page summary { min-height: var(--control-size); display: block; cursor: pointer; overflow-wrap: anywhere; }
+.assistant-page button { max-width: 100%; white-space: normal; text-align: center; }
+.assistant-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 40rem) {
+  .assistant-page button, .assistant-page .button, .assistant-page input, .assistant-page select, .assistant-page textarea {
+    width: 100%;
+  }
+}

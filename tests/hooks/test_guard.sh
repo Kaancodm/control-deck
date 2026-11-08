@@ -40,6 +40,10 @@ payload_with_command() {
   python3 -c 'import json, sys; print(json.dumps({"tool_name": "Bash", "tool_input": {"command": sys.argv[1]}}))' "$1"
 }
 
+payload_with_shell() {
+  python3 -c 'import json, sys; print(json.dumps({"tool_name": "Shell", "tool_input": {"command": sys.argv[1]}}))' "$1"
+}
+
 echo "guard.sh: invalid JSON blocks"
 run_guard 2 'not-json' 'invalid-json'
 
@@ -104,5 +108,12 @@ for command in 'cat "$TARGET"' 'cat $(printf .env)' 'cat `printf .env`' \
 done
 run_guard 2 '{"tool_name":"Bash","tool_input":{}}' 'missing-command'
 run_guard 2 "$(payload_with_command 'cat "')" 'unclosed-quote'
+
+echo "guard.sh: Shell uses the same command checks and still blocks empty writes"
+run_guard 0 "$(payload_with_shell 'uv run pytest tests/unit/')" 'safe-shell'
+run_guard 2 "$(payload_with_shell 'cat .env')" 'secret-shell'
+run_guard 2 "$(payload_with_shell 'cat "$TARGET"')" 'dynamic-shell'
+run_guard 2 '{"tool_name":"Shell","tool_input":{}}' 'missing-shell-command'
+run_guard 2 '{"tool_name":"Write","tool_input":{"file_path":""}}' 'empty-file-path'
 
 echo "guard.sh: all $CASE_COUNT cases passed"

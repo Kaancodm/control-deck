@@ -158,6 +158,21 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
         "Inbetriebnahme gemäss Betriebshandbuch.",
     ),
     "preview_unavailable": ("Die Vorschau ist abgelaufen.", "Chat-Entwurf erneut übernehmen."),
+    "assistant_input": ("Die Eingabe ist ungültig.", "Text kürzen oder die Felder prüfen."),
+    "assistant_secret": ("Ein Geheimnis wurde erkannt.", "Den Wert entfernen und erneut senden."),
+    "assistant_data_class": (
+        "Die Datenklasse fehlt oder ist unbekannt.",
+        "Eine erlaubte Klasse wählen.",
+    ),
+    "assistant_card": ("Die Karte ist ungültig.", "Vorlage, Platzhalter und Grösse prüfen."),
+    "assistant_oversize": ("Die Eingabe ist zu gross.", "Text kürzen und erneut senden."),
+    "profile_owner_only": (
+        "Das Profil bleibt beim Owner.",
+        "Nur die Profilseite speichert Notizen.",
+    ),
+    "live_model_disabled": ("Das Live-Modell ist aus.", "Der Mock ist kein lebendes Modell."),
+    "live_search_disabled": ("Die Live-Suche ist aus.", "local_only bleibt ohne Netzabruf."),
+    "order_missing": ("Dieser Assistenten-Auftrag fehlt.", "Zur Assistentenseite zurück."),
     "temporarily_unavailable": (
         "Der Dienst ist vorübergehend nicht verfügbar.",
         "Kurz warten und neu laden.",

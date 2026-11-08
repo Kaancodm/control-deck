@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-deck.local/schemas/assistant_card.v1.json",
+  "title": "Assistant command card v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "name",
+    "category",
+    "template",
+    "placeholders",
+    "data_class"
+  ],
+  "properties": {
+    "schema_version": {"const": "assistant_card.v1"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 80},
+    "category": {"enum": ["frage", "code", "checkliste", "planung"]},
+    "template": {"type": "string", "minLength": 1, "maxLength": 16384},
+    "placeholders": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$"}
+    },
+    "data_class": {"enum": ["local_only", "cloud_redacted", "cloud_ok"]}
+  }
+}

@@ -57,7 +57,7 @@ def is_secret_path(resolved: str) -> bool:
     return False
 
 
-if data.get("tool_name") == "Bash":
+if data.get("tool_name") in {"Bash", "Shell"}:
     command = tool_input.get("command")
     if not isinstance(command, str) or not command.strip():
         print("INVALID_COMMAND")

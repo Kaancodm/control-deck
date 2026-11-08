@@ -1,5 +1,15 @@
 # Stand des Repositorys
 
+## Nachtrag 2026-11-08: Assistent offline
+
+Migration `20261108_0019` folgt auf `20261104_0018` und speichert Profilversionen,
+Kartenstände, optionale Dialogsätze und Idempotenzschlüssel. Sie ist keine zweite
+Auftragswarteschlange. Der persönliche Assistent und Deep Search laufen in diesem
+Stand nur mit Mock und ausgeschalteten Live-Haken. Einzelheiten, Quellen und der
+Status je Baustein stehen in [ASSISTENT.md](ASSISTENT.md). Ein lebendes unzensiertes
+Modell, ein Kaan-Transport, eine Kanal-Quittung nach 60 Sekunden und ein
+Zeitlimit-Resultat nach externem Abbruch sind darin nicht enthalten.
+
 ## Nachtrag: Ollama Live-Adapter als Draft
 
 Der auf `main` nach #37 neu aufgebaute Stack ergänzt gemäss [ADR 0009](DECISIONS/0009-ollama-loopback-http.md)

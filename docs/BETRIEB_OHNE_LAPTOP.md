@@ -12,8 +12,11 @@ Sie ist kein dauerhafter Zustand und kein Abnahmeentscheid.
   danach 60 Sekunden bleibt ein Transportsignal, keine Ergebnisfrist und keine
   Kanal-Quittung.
 - Die Auftragsseite zeigt auf schmalen Displays drei Zeilen: Eingang, Quittung,
-  Ausgang. Die Quittung ist das Deck-Ereignis `task.start`. Sie ist nicht die
-  60-Sekunden-Quittung eines n8n-Kanals. Dieser Kanal ist nicht gebaut.
+  Ausgang. Die Quittung ist das Deck-Ereignis `task.start` des Versuchs, den die
+  Zeilen beschreiben. Sie ist nicht die 60-Sekunden-Quittung eines n8n-Kanals.
+  Dieser Kanal ist nicht gebaut. Ein laufender neuer Versuch übernimmt nicht den
+  Fehler des vorigen Versuchs als eigenes Ergebnis. Ein abgeschlossener späterer
+  Erfolg ist als späterer Versuch beschriftet.
 - Eine Simulation bleibt als Simulation beschriftet. Ein Live-Versuch wird nur so
   genannt, wenn das gespeicherte Profil `live` ist.
 - iPhone Safari ab 320 CSS-Pixel: Eingabefelder mindestens 16 Pixel, kein seitliches
@@ -102,3 +105,60 @@ Dieser Branch stellt nichts wieder her und löscht nichts.
 
 Der Code allein ist nicht produktionsreif. Die Beobachtung vom 2026-11-07 ersetzt
 diese Prüfung nicht.
+
+## Nachprüfung 2026-11-08
+
+Geprüft wurde dieser Branch gegen `origin/main`
+`0ec4f488bf480627dc685efbc1c605e677092fbe`. Der Stand davor war `5a1b252`.
+Die Prüfung lief in einer wegwerfbaren Testdatenbank. Sie ist Offline-Vorbereitung
+und kein Live-Nachweis.
+
+Testlauf am 2026-11-08, nur gegen eine Datenbank mit Namen auf `_test`:
+
+- `make lint`: bestanden (ruff check, ruff format --check, mypy app/).
+- `make test`: 2887 bestanden, 94 übersprungen, 1 Warnung. Die Sprünge sind die
+  bestehenden Fälle ohne Wissensdatenbank-URL und ohne Restore-Probe.
+- `bash tests/hooks/test_guard.sh`: 41 Fälle bestanden.
+- `test_silent_worker_is_visible_then_falls_back_once` und
+  `tests/integration/test_ui_browser.py` sind in diesem Lauf enthalten. Der
+  Browserlauf ist headless Chromium, kein physisches iPhone.
+
+In diesem Lauf korrigiert:
+
+- Die drei Zeilen haben einen älteren Fehlversuch als Ergebnis gezeigt, sobald
+  irgendein `task.start` vorhanden war. Quittung und Ausgang gelten jetzt für den
+  offenen Versuch. Der ältere Fehler bleibt als «Vorheriger Versuch» sichtbar.
+  Ein Erfolg ab Versuch 2 trägt «Späterer Versuch». Die Herkunftsbeschriftung
+  gehört zum gezeigten Ergebnis, nicht zu einem anderen Versuch.
+- `app/workers/daemon.py` hat den Runner-Prozess standardmässig nach 3600 Sekunden
+  beendet. `policy.timeout_s` darf bis 7200 Sekunden gehen. Der Supervisor wartet
+  jetzt bis zu dieser Schema-Grenze. Der Versuch endet weiter bei
+  `policy.timeout_s`. Ein unvollständiger Ollama-Strom wird als Fehler verworfen
+  und nicht als gekürzter Erfolg gespeichert; das zeigen die bestehenden
+  Stub-Tests `test_incomplete_or_malformed_stream_discards_partial_output` und
+  `test_first_chunk_and_following_idle_budgets`. Das ist kein Live-Modelllauf.
+
+Belegt, nur offline oder simuliert:
+
+- Formular, stille Simulation, sichtbares Zeitlimit, genau ein Ollama-Lauf,
+  danach beschriftete Simulation bis `review`.
+- Chromium headless bei 320 und 1024 CSS-Pixel: kein Quer-Scrollen, Eingabe
+  mindestens 16 Pixel, Auftragsweg sichtbar. Das ist nicht Safari auf einem
+  physischen iPhone.
+- Die Runner-Allowlist lässt `HOME`, CLI-Verzeichnisse, sudo und SSH fallen.
+  Der Cleanroom-Befehl setzt `HOME=/tmp/home` und enthält kein sudo. Beides sind
+  Tests des Befehls und der Umgebungsauswahl, kein laufender Container und keine
+  Prüfung einer vorhandenen Anmeldung.
+
+Nicht belegt und nicht als erledigt zu werten:
+
+- Kein Ausrollen, kein Merge, kein Zugriff auf den Produktionsserver.
+- Keine Live-CLI, kein Live-Ollama, kein agy. Vorhandene Anmeldungen bleiben
+  unangetastet.
+- Reboot der Maschine nicht geprüft. Der Prozessstopp in der Testdatenbank bleibt
+  `test_stop_cancels_child_without_a_database_mutation`.
+- Offsite-Restore und Wiederherstellungsschlüssel nicht geprüft.
+- Das HARPA-Fragenpaket ist nicht begonnen. Die Kanal-Quittung nach 60 Sekunden
+  ist nicht gebaut.
+- Ein von aussen beendeter Runner schreibt weiter kein Timeout-Ergebnis. Der
+  Reaper legt denselben Lane-Versuch zurück.

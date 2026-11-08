@@ -11,7 +11,7 @@ import sys
 import threading
 from collections.abc import Mapping
 
-from app.core.schemas import Worker
+from app.core.schemas import ATTEMPT_TIMEOUT_MAX_S, Worker
 from app.operations.errors import OperationError
 from app.operations.process import run_command
 from app.workers.live_config import LiveConfigurationError, load_live_config
@@ -39,7 +39,7 @@ def run_loop(
     stop: threading.Event,
     iterations: int = 0,
     poll_seconds: float = 1,
-    attempt_timeout_s: float = 3600,
+    attempt_timeout_s: float = ATTEMPT_TIMEOUT_MAX_S,
     live: bool = False,
     command: tuple[str, ...] | None = None,
 ) -> int:

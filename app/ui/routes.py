@@ -377,9 +377,18 @@ def _attempt_progress(task: Task) -> AttemptProgress:
         isinstance(event.detail, dict) and event.detail.get("retry_action") == "fallback"
         for event in task.events
     )
+    started: list[int] = []
+    for event in task.events:
+        if event.event_type != "task.start" or not isinstance(event.detail, dict):
+            continue
+        attempt = event.detail.get("attempt")
+        if type(attempt) is int:
+            started.append(attempt)
     return attempt_progress(
         status=task.status.value,
-        event_types=tuple(event.event_type for event in task.events),
+        current_attempt=task.attempt,
+        started_attempts=tuple(started),
+        result_attempt=None if result is None else result.attempt,
         result_status=result_status,
         error_code=error_code,
         execution_profile=profile,

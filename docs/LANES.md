@@ -50,7 +50,11 @@ Die Dauer ist das Minimum aus `policy.timeout_s` (Standard 900 Sekunden, Grenze 
 7200) und der verbleibenden Owner-Deadline. Die Adapter-Obergrenze ist dieselbe
 Schema-Grenze 7200 und unterschreitet den Standard 900 nicht mehr. Ein explizit
 kleineres Adapter-Limit gilt nur, wenn der Aufruf es setzt, zum Beispiel in einem
-kurzen Test. Der Ollama-Transport bleibt davon getrennt: 120 Sekunden bis zum ersten
+kurzen Test. Der Dienstsupervisor wartet standardmässig bis zu derselben Grenze
+von 7200 Sekunden. Er bricht einen erlaubten Versuch nicht mehr still nach 3600
+Sekunden ab. Der Versuch selbst endet bei `policy.timeout_s`. Ein von aussen
+beendeter Prozess schreibt kein Ergebnis; der Lease-Reaper legt dann denselben
+Lane-Versuch zurück. Der Ollama-Transport bleibt davon getrennt: 120 Sekunden bis zum ersten
 Chunk, danach 60 Sekunden Leerlauf. Das ist keine Ergebnisfrist und keine
 Kanal-Quittung. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
 versteckten Retry. Inventarprüfungen verwenden ein eigenes begrenztes `list`.

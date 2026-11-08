@@ -863,4 +863,6 @@ def test_silent_worker_is_visible_then_falls_back_once(
     visible = ui_client.get(location)
     assert "simulation-ok" in visible.text
     assert "Ergebnis da" in visible.text
+    assert "Späterer Versuch" in visible.text
+    assert "Nächste passende Lane ist vorgemerkt" not in visible.text
     assert db_session.scalar(select(func.count()).select_from(Result)) == 2

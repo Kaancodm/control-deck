@@ -175,7 +175,9 @@ def test_all_rendered_post_forms_include_csrf(template, state):
         draft_json="{}",
         progress=attempt_progress(
             status=state.value,
-            event_types=(),
+            current_attempt=0,
+            started_attempts=(),
+            result_attempt=None,
             result_status=None,
             error_code=None,
             execution_profile=None,

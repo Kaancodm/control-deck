@@ -30,17 +30,33 @@ class AttemptProgress:
 def attempt_progress(
     *,
     status: str,
-    event_types: tuple[str, ...],
+    current_attempt: int,
+    started_attempts: tuple[int, ...],
+    result_attempt: int | None,
     result_status: str | None,
     error_code: str | None,
     execution_profile: str | None,
     fallback_pending: bool,
 ) -> AttemptProgress:
-    """Describe intake, worker acknowledgement and result or failure."""
-    started = "task.start" in event_types
+    """Describe the open attempt, or the stored result when nothing is running.
+
+    A start or failure from an earlier attempt is not reported as the receipt or
+    the outcome of the attempt that is leased or running now.
+    """
+    starts = set(started_attempts)
+    in_flight = status in {"leased", "running"}
+    result_is_current = result_attempt is not None and result_attempt == current_attempt
+    use_result = result_status is not None and not (in_flight and not result_is_current)
+    if use_result and result_attempt is not None and not result_is_current:
+        started = result_attempt in starts
+    else:
+        started = current_attempt in starts
+    shown_status = result_status if use_result else None
+    shown_error = error_code if use_result else None
+    shown_profile = execution_profile if use_result else None
     if started:
         acknowledgement = "Worker gestartet"
-    elif status in {"leased", "running"}:
+    elif in_flight:
         acknowledgement = "Keine Quittung"
     elif status == "awaiting_approval":
         acknowledgement = "Start-Freigabe offen"
@@ -48,26 +64,38 @@ def attempt_progress(
         acknowledgement = "Worker noch nicht gestartet"
     else:
         acknowledgement = "Keine Worker-Quittung"
-    if result_status == "succeeded":
+    if shown_status == "succeeded":
         outcome = "Ergebnis da"
-    elif result_status == "failed":
-        label = _FAILURES.get(error_code or "")
+    elif shown_status == "failed":
+        label = _FAILURES.get(shown_error or "")
         outcome = f"Fehler: {label}" if label is not None else "Fehler"
-    elif result_status == "cancelled":
+    elif shown_status == "cancelled":
         outcome = "Abgebrochen"
-    elif result_status == "blocked":
+    elif shown_status == "blocked":
         outcome = "Blockiert"
     else:
         outcome = "Noch offen"
     notes: list[str] = []
-    if execution_profile == "simulation":
+    if shown_profile == "simulation":
         notes.append("Simulation, kein Anbieter-Nachweis")
-    elif execution_profile == "live":
+    elif shown_profile == "live":
         notes.append("Live-Versuch")
-    elif execution_profile:
+    elif shown_profile:
         notes.append("Herkunft nicht als Live-Nachweis gewertet")
+    if use_result and result_is_current and current_attempt > 1:
+        notes.append("Späterer Versuch")
     if fallback_pending:
         notes.append("Nächste passende Lane ist vorgemerkt")
+    if (
+        in_flight
+        and not result_is_current
+        and result_attempt is not None
+        and result_status == "failed"
+    ):
+        label = _FAILURES.get(error_code or "")
+        notes.append(
+            f"Vorheriger Versuch: {label}" if label is not None else "Vorheriger Versuch: Fehler"
+        )
     return AttemptProgress(
         intake="Gespeichert",
         acknowledgement=acknowledgement,

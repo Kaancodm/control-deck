@@ -9,7 +9,7 @@ import threading
 
 import pytest
 
-from app.core.schemas import Worker
+from app.core.schemas import ATTEMPT_TIMEOUT_MAX_S, Worker
 from app.operations.errors import OperationError
 from app.workers import daemon
 
@@ -110,6 +110,20 @@ def test_stop_cancels_child_without_a_database_mutation(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(daemon, "run_command", child)
     assert daemon.run_loop(Worker.CODEX, environment={}, stop=stop, iterations=2) == 0
+
+
+def test_supervisor_default_matches_the_attempt_maximum(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, float] = {}
+
+    def child(command: object, **kwargs: object) -> None:
+        timeout = kwargs["timeout_s"]
+        assert isinstance(timeout, int | float)
+        seen["timeout_s"] = timeout
+        raise OperationError("service_stopping")
+
+    monkeypatch.setattr(daemon, "run_command", child)
+    assert daemon.run_loop(Worker.OLLAMA, environment={}, stop=threading.Event(), iterations=1) == 0
+    assert seen["timeout_s"] == ATTEMPT_TIMEOUT_MAX_S == 7200
 
 
 def test_supervisor_passes_only_host_configuration() -> None:

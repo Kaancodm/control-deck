@@ -166,11 +166,21 @@ Die Identität bleibt `unverified`. Ein Treffer belegt kein unzensiertes Modell
 und keine Ollama-Version. Eine Adresse ausserhalb von Loopback bricht vor dem
 Socket ab. Vom Cloud-Lauf aus wird der Server nicht kontaktiert.
 
+## Serverbeleg der isolierten Probe
+
+Die isolierte Probe lief auf dem Server am 2026-11-08 von 05:53:46 bis
+05:53:55 Europe/Zurich, auf Head `eb5e908`, in einem Aufruf von etwa 9
+Sekunden. Die Antwort begann mit dem Loopback-Präfix und enthielt
+`LOOPBACK_PROBE_7`. `runtime` war `python-stdlib`, `third_party_modules` war
+leer, `prefix_ok` wahr, die Identität `unverified`, `uncensored_claim` falsch,
+und `implementation` nannte 16 Dateien. Danach war kein Modell geladen und die
+Produktion unverändert. Das ist die isolierte Probe, kein Lauf des Decks von
+der Freigabe bis zum Review. Der Lauf um 05:32 hat die Probe nicht erreicht.
+Der Lauf um 05:42 endete am damaligen 8-Sekunden-Limit.
+
 ## Offen
 
-Ein erfolgreicher Modellaufruf dieser Probe auf dem Server bleibt offen. Der
-Lauf um 05:32 hat die Probe nicht erreicht. Der Lauf um 05:42 hat sie erreicht
-und endete am 8-Sekunden-Limit. Die Prüfung der Ollama-Version 0.40.14 für
+Die Prüfung der Ollama-Version 0.40.14 für
 diesen Dialog und eine allgemeine Websuche bleiben offen. MediaWiki ist nur die
 Enzyklopädie. Ein einzelner Cloud-Lauf mit dem öffentlichen Wort `octet` und
 `srlimit=1` lieferte einen API-Treffer, kein Fixture und kein `FIXTURE_REPLY_7`.

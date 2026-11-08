@@ -10,8 +10,10 @@ Loopback-Dialog, MediaWiki-Enzyklopädie und SearXNG-Vertrag sind opt-in.
 Fixtureresultate sind keine API-Treffer. Ein einzelner Cloud-Lauf der
 Enzyklopädie mit dem Wort octet lieferte einen API-Treffer. Die Loopback-Probe
 startet mit Python 3.12 und der Standardbibliothek, ohne das Projekt-Lockfile.
-Ein Serverlauf um 05:42 endete am bisherigen 8-Sekunden-Limit. Das neue Limit
-bleibt ein Versuch unter 90 Sekunden.
+Ein Serverlauf um 05:42 endete am bisherigen 8-Sekunden-Limit. Am selben Tag
+von 05:53:46 bis 05:53:55 lieferte Head `eb5e908` in einem Aufruf den
+Loopback-Präfix und `LOOPBACK_PROBE_7`, mit `python-stdlib`, ohne Drittmodule
+und ohne Uncensored-Nachweis. Das ist keine End-zu-End-Prüfung des Decks.
 Einzelheiten stehen in
 [ASSISTENT.md](ASSISTENT.md). Ein lebendes unzensiertes Modell, eine allgemeine
 Websuche, ein Kaan-Transport, eine Kanal-Quittung nach 60 Sekunden und ein

@@ -39,7 +39,7 @@
         <option value="cloud_redacted">cloud_redacted</option>
         <option value="cloud_ok">cloud_ok</option>
       </select>
-      <label class="check"><input type="checkbox" name="persist" value="yes"> Satz speichern</label>
+      <label class="check"><input type="checkbox" name="persist" value="yes"> Satz speichern, sonst nur diese Ansicht</label>
       <button>Dialog senden</button>
     </form>
   </section>
@@ -134,8 +134,9 @@
 
   <section class="panel" aria-label="Deep Search">
     <h2>Deep Search</h2>
+    <p class="hint">Treffer kommen nur aus dem eingefügten Korpus. Widersprüche nur aus mitgegebenen Claim-Paaren. Das ist kein lebendes Modell und kein Web.</p>
     {% if search %}
-    <p><strong>{{ search.evidence_status }}</strong> · {{ search.data_class }} · Netz {{ search.network_calls }} · Anweisungen angewandt: {{ search.instructions_applied }}</p>
+    <p><strong>{{ search.evidence_label }}</strong> · {{ search.data_class }} · Netz {{ search.network_calls }} · Anweisungen angewandt: {{ search.instructions_applied }}</p>
     <ol>{% for step in search.plan %}<li>{{ step }}</li>{% endfor %}</ol>
     {% for source in search.sources %}
     <article>

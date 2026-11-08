@@ -30,8 +30,9 @@ selbst gesetzte Zeit sind keine Freigabe. Das Gate wird dadurch nicht gelockert.
 | Auftrag über bestehende Task-Tabelle und Events | geprüft, offline | Integration |
 | Bestätigung als Labels, keine zweite Warteschlange | geprüft, offline | Integration |
 | Live-Modell und Live-Suche | aus, nicht belegt | Hook wirft, kein Adapter verdrahtet |
-| Benchmark 40 Fragen, CHF 0 | geprüft, offline | Harness ohne Netz |
+| Benchmark 40 Fragen, CHF 0 | geprüft, offline | Korpusbelege ja, Modellqualität not_scored |
 | Vergleich bestehendes Ollama mit Infomaniak | ungeprüft | keine Provisionierung, kein Lauf |
+| Ollama-Vertrag | aus, nicht belegt | Hook wirft, kein Loopback-Aufruf, kein Uncensored-Anspruch |
 | Kaan-Transport und Quittung nach 60 Sekunden | fehlt, nicht behauptet | Seite nennt die Lücke |
 | Zeitlimit-Resultat nach externem Abbruch | fehlt, nicht behauptet | Seite nennt die Lücke |
 | Physisches iPhone oder Safari | ungeprüft | Emulator Chromium 320/390/1024 und WebKit liefen; kein Gerät |
@@ -57,11 +58,15 @@ editierbar; ein späterer Ladevorgang überschreibt eine Owner-Änderung nicht. 
 Lauf einer Karte nimmt die gespeicherte Datenklasse, nicht eine mitgeschickte Klasse.
 
 Deep Search plant höchstens vier Schritte, liest nur den mitgegebenen lokalen Korpus
-und zeigt Quellen mit Datum, Lücken, Widersprüche und unlesbare Quellen. Eine Frage
-mit Web-Bedarf und Klasse `local_only` blockiert den externen Schritt, ohne den
-Provider aufzurufen. Bei anderen Klassen antwortet der Live-Haken mit einer sichtbaren
-Lücke und ohne Netzabruf. Seiten und Modellantworten sind Daten. Sie ändern keine
-Klasse und keine Rechte.
+und zeigt Quellen mit Datum, Lücken, Widersprüche und unlesbare Quellen. Ein Auszug
+ist ein Stück des Owner-Textes. Der Belegstatus heisst `local_corpus`, `incomplete`
+oder `gap`, nie bewiesen und nie Mock. Widersprüche entstehen nur aus mitgegebenen
+Claim-Paaren samt Titel und Datum. Freier Text wird nicht zu einem erkannten
+Widerspruch umgedeutet. Eine Frage mit Web-Bedarf und Klasse `local_only` blockiert
+den externen Schritt, ohne den Provider aufzurufen. Der gesperrte Web-Haken weist
+`local_only` vor jedem Zähler ab. Bei anderen Klassen antwortet er mit einer
+sichtbaren Lücke und ohne Netzabruf. Seiten und Modellantworten sind Daten. Sie
+ändern keine Klasse und keine Rechte.
 
 Der Status ist eine Projektion der bestehenden Aufgabe: Freigabe offen vor der
 Queue, Gesendet erst nach `queued`, Angekommen bei Lease ohne Start, Läuft nur bei
@@ -73,10 +78,12 @@ kopiert.
 
 `benchmarks/assistant_corpus_v1.json` enthält 40 synthetische Fragen: Fund, kein Fund,
 ungewohnter Dialog, Quellen mit Datum, Widerspruch, Teilausfall, Rechtefallen und
-eine Geheimnis-Falle. Der Harness `app/assistant/benchmark.py` bewertet den Mock.
-Kostenfeld CHF 0, Netz verboten. Ein Korpus mit Kosten grösser als 0 wird vor dem
-Lauf abgewiesen. Ollama wird nicht aufgerufen. Infomaniak ist `not_provisioned`.
-Latenz p50/p95 beschreibt nur diesen Mocklauf.
+eine Geheimnis-Falle. Der Harness `app/assistant/benchmark.py` prüft Korpusbelege,
+Daten und Lücken. Dialogfälle prüfen nur den Mock-Vertrag. `model_quality` bleibt
+`not_scored`. Kostenfeld CHF 0, Netz verboten. Ein Korpus mit Kosten grösser als 0
+wird vor dem Lauf abgewiesen. Ollama wird nicht aufgerufen. Ein vorhandenes lokales
+Modell wird nicht angebunden und nicht als unzensiert bezeichnet. Infomaniak ist
+`not_provisioned`. Latenz p50/p95 beschreibt nur diesen Mocklauf.
 
 ## Migration
 
@@ -90,5 +97,7 @@ Downgrade in einer Test- oder Entwicklungsdatenbank entfernt diese Tabellen.
 Live-Adapter, Kontoaktivierung, Modelldownload, bezahlte Suche, Server-Neustart,
 Offsite-Restore und ein physisches iPhone bleiben offen. Die offenen Entwürfe 54,
 55, 56, 57, 59 und 61 sowie die geschlossenen 58 und 60 sind nicht übernommen.
-Falls Entwurf 59 ebenfalls eine Migration nach `20261104_0018` anlegt, kollidiert
-die Revisionsnummer `20261108_0019`. Dieser Stand wird nicht in 59 oder 61 gemergt.
+Entwurf 59 ändert nur die Wissens-Kette `alembic_kb` mit Revision `kb_0001`.
+Er legt keine Datei unter `alembic/versions/` an. `20261108_0019` bleibt auf der
+Hauptkette nach `20261104_0018`. Die beiden Ketten kollidieren nicht. Dieser Stand
+wird nicht in 59 oder 61 gemergt.

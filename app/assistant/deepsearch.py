@@ -64,6 +64,7 @@ class Evidence:
     title: str
     published_on: str
     excerpt: str
+    provenance: str = "owner_corpus"
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,16 @@ class DeepSearchResult:
     instructions_applied: bool
     question_origin: str
     evidence_status: str
+
+    @property
+    def evidence_label(self) -> str:
+        """German UI label. Corpus excerpts are not a model judgement."""
+        labels = {
+            "local_corpus": "Beleg aus dem lokalen Korpus, kein Modellurteil",
+            "incomplete": "Unvollständig, kein Modellurteil",
+            "gap": "Keine belegte Quelle",
+        }
+        return labels.get(self.evidence_status, "Unbekannter Belegstatus")
 
 
 def needs_web(question: str) -> bool:
@@ -149,19 +160,26 @@ def run_deep_search(
     if not found and not unread:
         gaps.append("Keine passende lokale Quelle.")
     contradictions = _contradictions(cleaned, sources)
+    incomplete = partial or blocked or refusals > 0
+    if incomplete:
+        evidence_status = "incomplete"
+    elif found:
+        evidence_status = "local_corpus"
+    else:
+        evidence_status = "gap"
     return DeepSearchResult(
         data_class=checked,
         plan=tuple(plan[:4]),
         sources=tuple(found[:5]),
         contradictions=tuple(contradictions),
         gaps=tuple(gaps),
-        partial=partial or blocked or refusals > 0,
+        partial=incomplete,
         blocked=blocked,
         network_calls=network_calls,
         hook_refusals=refusals,
         instructions_applied=False,
         question_origin="owner",
-        evidence_status="mock",
+        evidence_status=evidence_status,
     )
 
 
@@ -214,28 +232,44 @@ def _read_local(
             partial = True
             unread.append(f"Quelle nicht lesbar: {source.title}")
             continue
-        excerpt = " ".join(source.text.split())[:240]
-        found.append(Evidence(source.title, source.published_on, excerpt))
+        excerpt = _proven_excerpt(source.text)
+        found.append(
+            Evidence(source.title, source.published_on, excerpt, provenance="owner_corpus")
+        )
     if not wanted:
         return [], False, ["Keine passende lokale Quelle."]
     return found, partial, unread
 
 
+def _proven_excerpt(text: str) -> str:
+    """Keep the excerpt a slice of the owner text. Do not invent a citation."""
+    normalized = " ".join(text.split())
+    excerpt = normalized[:240]
+    if excerpt not in normalized:
+        raise AssistantError("assistant_input")
+    return excerpt
+
+
 def _contradictions(question: str, sources: Sequence[CorpusSource]) -> list[str]:
+    """Report only owner-supplied claim/value pairs. Free text is not inferred."""
     wanted = _tokens(question)
-    grouped: dict[str, set[str]] = {}
+    grouped: dict[str, dict[str, tuple[str, str]]] = {}
     for source in sources:
         if not source.readable or not source.claim or not source.value:
             continue
         haystack = f"{source.title} {source.text}".casefold()
         if wanted and not any(token in haystack for token in wanted):
             continue
-        grouped.setdefault(source.claim, set()).add(source.value)
+        grouped.setdefault(source.claim, {})[source.value] = (source.title, source.published_on)
     notes: list[str] = []
     for claim, values in grouped.items():
-        if len(values) > 1:
-            rendered = " gegen ".join(sorted(values))
-            notes.append(f"Widerspruch bei {claim}: {rendered}.")
+        if len(values) < 2:
+            continue
+        ordered = sorted(values, key=str.casefold)
+        rendered = " gegen ".join(
+            f"{value} ({values[value][0]}, {values[value][1]})" for value in ordered
+        )
+        notes.append(f"Widerspruch bei {claim}: {rendered}.")
     return notes
 
 

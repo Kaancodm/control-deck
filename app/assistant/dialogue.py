@@ -34,10 +34,17 @@ def reply_to_owner(
     checked = require_data_class(data_class)
     reject_secrets(cleaned, source="dialogue")
     adapter = model if model is not None else resolve_model()
-    if not isinstance(adapter, MockModel) and adapter.profile != "mock":
+    if type(adapter) is not MockModel:
         raise AssistantError("live_model_disabled")
     produced: ModelReply = adapter.complete(cleaned, data_class=checked)
-    if produced.profile != "mock" or produced.profile_written:
+    if (
+        produced.profile != "mock"
+        or produced.profile_written
+        or produced.live
+        or produced.network_calls != 0
+        or produced.uncensored_claim
+        or produced.data_class != checked
+    ):
         raise AssistantError("live_model_disabled")
     return DialogueReply(
         answer=produced.text,

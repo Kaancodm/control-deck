@@ -175,7 +175,7 @@ def test_card_run_stays_behind_the_existing_gate(
         data={
             "csrf": parsed.csrf,
             "idempotency_key": key,
-            "ph_thema": "Button",
+            "ph_thema": "Anders",
             "data_class": "cloud_ok",
         },
         follow_redirects=False,
@@ -187,6 +187,8 @@ def test_card_run_stays_behind_the_existing_gate(
     assert task.status == TaskState.AWAITING_APPROVAL and task.approved_at is None
     assert task.lease is None
     assert task.payload["data_class"] == "local_only"
+    assert "Button" in task.payload["instructions"]
+    assert "Anders" not in task.payload["instructions"]
     assert task.payload["fallback_chain"] == ["ollama"]
     assert task.payload["labels"]["confirmation_role"] == "Bote ohne eigene Rechte"
     assert "kein Live-Modell" in task.payload["labels"]["confirmation_path"]

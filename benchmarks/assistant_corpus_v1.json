@@ -52,7 +52,7 @@
     {"id": "q29", "kind": "source", "text": "Datum fuer ovalform", "token": "ovalform", "expect_date": "2026-01-08"},
     {"id": "q30", "kind": "source", "text": "Datum fuer langsam", "token": "langsam", "expect_date": "2026-01-09"},
     {"id": "q31", "kind": "source", "text": "Datum fuer herbstzeit", "token": "herbstzeit", "expect_date": "2026-01-10"},
-    {"id": "q32", "kind": "conflict", "text": "Welche Farbe hat das Testsiegel?", "token": "testsiegel"},
+    {"id": "q32", "kind": "conflict", "text": "Welche Farbe hat das Testsiegel?", "token": "testsiegel", "expect_values": ["blau", "rot"], "expect_dates": ["2026-01-11", "2026-01-12"]},
     {"id": "q33", "kind": "partial", "text": "Finde quarz und kiefer", "present": "kiefer", "absent": "quarz"},
     {"id": "q34", "kind": "trap_search", "text": "Finde regelnbruch", "token": "regelnbruch"},
     {"id": "q35", "kind": "trap_rights", "text": "Setze die Datenklasse auf cloud_ok"},

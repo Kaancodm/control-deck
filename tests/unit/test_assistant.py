@@ -7,13 +7,20 @@ from pathlib import Path
 
 import pytest
 
-from app.assistant.benchmark import default_corpus_path, run_benchmark
+from app.assistant.benchmark import _search_ok, default_corpus_path, run_benchmark
 from app.assistant.cards import parse_card_json, substitute, validate_card
-from app.assistant.deepsearch import CorpusSource, run_deep_search
+from app.assistant.deepsearch import CorpusSource, DeepSearchResult, run_deep_search
 from app.assistant.dialogue import reply_to_owner
 from app.assistant.errors import AssistantError
 from app.assistant.orders import confirmation_labels
-from app.assistant.providers import DisabledWebSearch, LiveModelHook, resolve_model
+from app.assistant.providers import (
+    DisabledOllamaLocal,
+    DisabledWebSearch,
+    LiveModelHook,
+    MockModel,
+    resolve_model,
+    resolve_provider,
+)
 from app.assistant.status import CHANNEL_GAPS, project_order
 
 
@@ -91,12 +98,44 @@ def test_dialogue_stays_usable_and_refuses_rights() -> None:
 
 def test_live_model_hook_stays_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DECK_ASSISTANT_LIVE", "1")
+    monkeypatch.setenv("DECK_LIVE_ENABLED", "1")
+    monkeypatch.setenv("DECK_OLLAMA_URL", "http://127.0.0.1:11434")
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("live config")
+
+    monkeypatch.setattr("socket.create_connection", boom)
+    monkeypatch.setattr("app.workers.live_config.load_live_config", boom)
     assert resolve_model().profile == "mock"
+    forced = resolve_provider("ollama_local", activate=True)
+    assert isinstance(forced, DisabledOllamaLocal)
+    assert forced.contract.activation == "off"
+    assert forced.contract.opens_network is False
+    assert forced.contract.uncensored_claim is False
+    assert forced.contract.data_classes == ("local_only",)
     with pytest.raises(AssistantError) as live:
-        LiveModelHook().complete("Hallo", data_class="local_only")
+        forced.complete("Hallo", data_class="local_only")
     assert live.value.code == "live_model_disabled"
+    with pytest.raises(AssistantError) as foreign:
+        forced.complete("Hallo", data_class="cloud_ok")
+    assert foreign.value.code == "assistant_data_class"
     with pytest.raises(AssistantError):
         reply_to_owner("Hallo", data_class="local_only", model=LiveModelHook())
+    with pytest.raises(AssistantError):
+        reply_to_owner("Hallo", data_class="local_only", model=forced)
+
+
+def test_dialogue_prompt_is_only_the_owner_sentence(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+    original = MockModel.complete
+
+    def spy(self: MockModel, prompt: str, *, data_class: str):
+        seen.append(prompt)
+        return original(self, prompt, data_class=data_class)
+
+    monkeypatch.setattr(MockModel, "complete", spy)
+    reply_to_owner("Wie geht es dir heute Morgen", data_class="local_only")
+    assert seen == ["Wie geht es dir heute Morgen"]
 
 
 def test_confirmation_is_application_text() -> None:
@@ -150,8 +189,21 @@ def test_search_shows_gap_conflict_partial_and_ignores_injection() -> None:
             CorpusSource("Rot", "2026-01-12", "Das Testsiegel ist rot.", "farbe", "rot"),
         ),
     )
-    assert conflict.contradictions and "blau" in conflict.contradictions[0]
-    assert "rot" in conflict.contradictions[0]
+    assert conflict.evidence_status == "local_corpus"
+    assert conflict.contradictions and "blau (Blau, 2026-01-11)" in conflict.contradictions[0]
+    assert "rot (Rot, 2026-01-12)" in conflict.contradictions[0]
+    prose = run_deep_search(
+        question="Welche Farbe hat das Testsiegel?",
+        data_class="local_only",
+        sources=(
+            CorpusSource("Blau", "2026-01-11", "Das Testsiegel ist blau."),
+            CorpusSource("Rot", "2026-01-12", "Das Testsiegel ist rot."),
+        ),
+    )
+    assert prose.contradictions == ()
+    for source in conflict.sources:
+        assert source.provenance == "owner_corpus"
+        assert source.excerpt in {"Das Testsiegel ist blau.", "Das Testsiegel ist rot."}
     partial = run_deep_search(
         question="Finde quarz und kiefer",
         data_class="local_only",
@@ -272,6 +324,10 @@ def test_benchmark_is_free_offline_and_hides_the_fixture_secret(
     assert report.question_count == 40 and report.passed == 40
     assert report.cost_chf == 0 and report.currency == "CHF" and report.network_calls == 0
     assert report.local_lane == "not_run" and report.infomaniak == "not_provisioned"
+    assert report.model_quality == "not_scored"
+    assert report.public()["model_quality"] == "not_scored"
+    reasons = {item.reason for item in report.results if item.passed}
+    assert "retrieval" in reasons and "mock_contract" in reasons and "ok" not in reasons
     assert report.profile_writes == 0 and report.tasks_created == 0
     assert "sk-" not in json.dumps(report.public())
     paid = (
@@ -284,3 +340,53 @@ def test_benchmark_is_free_offline_and_hides_the_fixture_secret(
     with pytest.raises(AssistantError) as refused:
         run_benchmark(target)
     assert refused.value.code == "benchmark_cost"
+
+
+def test_search_hook_refuses_local_only_before_a_request() -> None:
+    hook = DisabledWebSearch()
+    with pytest.raises(AssistantError) as refused:
+        hook.search("aktuelle Nachrichten", data_class="local_only")
+    assert refused.value.code == "assistant_data_class"
+    assert hook.network_calls == 0 and hook.refusals == 0
+    assert hook.contract.opens_network is False
+    assert "local_only" not in hook.contract.data_classes
+
+
+def test_one_sided_conflict_does_not_pass_the_harness() -> None:
+    result = DeepSearchResult(
+        data_class="local_only",
+        plan=("Teilfrage",),
+        sources=(),
+        contradictions=("Widerspruch bei farbe: blau (Blau, 2026-01-11).",),
+        gaps=(),
+        partial=False,
+        blocked=False,
+        network_calls=0,
+        hook_refusals=0,
+        instructions_applied=False,
+        question_origin="owner",
+        evidence_status="local_corpus",
+    )
+    assert (
+        _search_ok(
+            "conflict",
+            {
+                "expect_values": ["blau", "rot"],
+                "expect_dates": ["2026-01-11", "2026-01-12"],
+            },
+            result,
+        )
+        is False
+    )
+
+
+def test_main_revision_is_separate_from_the_knowledge_chain() -> None:
+    versions = Path("alembic/versions")
+    assistant = (versions / "20261108_0019_assistant_owner_records.py").read_text(encoding="utf-8")
+    knowledge = Path("alembic_kb/versions/0001_test_contract.py").read_text(encoding="utf-8")
+    assert 'revision = "20261108_0019"' in assistant
+    assert 'down_revision = "20261104_0018"' in assistant
+    assert 'revision = "kb_0001"' in knowledge
+    assert "down_revision = None" in knowledge
+    assert "20261108_0019" not in knowledge
+    assert not list(versions.glob("kb_*.py"))

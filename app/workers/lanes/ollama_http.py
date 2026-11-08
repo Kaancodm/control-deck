@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal, TypeVar, cast
 
-from app.workers.live_config import validate_ollama_url
+from app.workers.loopback_url import validate_ollama_url
 
 FailureReason = Literal["cancelled", "timeout", "unavailable", "internal"]
 T = TypeVar("T")

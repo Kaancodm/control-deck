@@ -16,7 +16,7 @@ from app.assistant.errors import AssistantError
 from app.assistant.providers import ModelReply
 from app.assistant.text import MESSAGE_MAX, reject_secrets, require_data_class
 from app.workers.lanes.ollama_http import OllamaHTTPClient, OllamaHTTPError
-from app.workers.live_config import LiveConfigurationError, validate_ollama_url
+from app.workers.loopback_url import LiveConfigurationError, validate_ollama_url
 
 LOOPBACK_PREFIX = "Loopback, Identität nicht belegt."
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")

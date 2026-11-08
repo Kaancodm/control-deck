@@ -127,19 +127,39 @@ Es gibt keinen Löschjob im Betrieb.
 
 ## Isolierte Loopback-Probe
 
-Die Probe `python -m app.assistant.loopback_probe` benutzt dieselbe Klasse
-`OllamaDialogueAdapter`. Sie läuft auf dem Host, auf dem Ollama schon lauscht.
-Sie liest nur `DECK_OLLAMA_URL` und `DECK_ASSISTANT_OLLAMA_MODEL`. Sie setzt
-`DECK_LIVE_ENABLED` nicht, liest keine Datenbankadresse, migriert nicht und
-startet keine Queue. Der Satz ist fest: `Reply with the single token LOOPBACK_PROBE_7`.
-Die Ausgabe nennt Profil, Identität `unverified`, `uncensored_claim`, Aufrufzähler,
-Präfix und einen kurzen Ausschnitt. Ein Treffer belegt kein unzensiertes Modell
+Der Einstieg ist `scripts/loopback_probe_isolated.py`. Er ruft dieselbe Klasse
+`OllamaDialogueAdapter` und denselben `OllamaHTTPClient` auf. Abhängigkeiten:
+Python 3.12, nur die Standardbibliothek. Kein Drittpaket. `uv run` und
+`uv --offline --frozen` lösen das ganze Lockfile auf. Darin hängt FastAPI an
+`opentelemetry-api`, und genau daran ist der Serverlauf vom 2026-11-08 um 05:32
+stehen geblieben, bevor die Probe ausgeführt wurde. Diesen Befehl nicht wiederholen.
+
+Im Checkout, ohne Datenbankvariable und ohne `DECK_LIVE_ENABLED`:
+
+```bash
+env -u PYTHONPATH -u DECK_DATABASE_URL -u DECK_LIVE_ENABLED \
+  DECK_OLLAMA_URL='http://127.0.0.1:PORT' \
+  DECK_ASSISTANT_OLLAMA_MODEL='name:tag' \
+  python3 -S scripts/loopback_probe_isolated.py
+```
+
+`PORT` ist der Port, den readyz für das lokale Ollama schon gezeigt hat.
+`name:tag` ist ein bereits installiertes Modell. `python3 -S` lädt keine
+site-packages. Stehen site-packages auf dem Pfad, endet das Skript mit Code 4
+und öffnet keinen Socket. Code 2 heisst, eine der beiden Variablen fehlt.
+Code 3 schreibt den Adapter-Code auf die Fehlerausgabe, zum Beispiel
+`assistant_model_unconfigured`, und enthält keinen Antworttext. Code 0 schreibt
+ein JSON-Objekt. `runtime` ist `python-stdlib`, `third_party_modules` ist
+eine leere Liste, und `implementation` enthält die sha256 der geladenen
+App-Dateien. Der Satz ist fest: `Reply with the single token LOOPBACK_PROBE_7`.
+Die Identität bleibt `unverified`. Ein Treffer belegt kein unzensiertes Modell
 und keine Ollama-Version. Eine Adresse ausserhalb von Loopback bricht vor dem
 Socket ab. Vom Cloud-Lauf aus wird der Server nicht kontaktiert.
 
 ## Offen
 
-Ein Lauf dieser Probe auf dem Server, die Prüfung der Ollama-Version 0.40.14 für
+Der Modellaufruf dieser Probe auf dem Server bleibt offen. Der Lauf um 05:32
+hat die Probe nicht erreicht. Die Prüfung der Ollama-Version 0.40.14 für
 diesen Dialog und eine allgemeine Websuche bleiben offen. MediaWiki ist nur die
 Enzyklopädie. Ein einzelner Cloud-Lauf mit dem öffentlichen Wort `octet` und
 `srlimit=1` lieferte einen API-Treffer, kein Fixture und kein `FIXTURE_REPLY_7`.

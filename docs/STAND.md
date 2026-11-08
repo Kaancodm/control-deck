@@ -8,7 +8,9 @@ erlaubt die Dialogherkunft `ollama_loopback`. Das ist keine zweite
 Auftragswarteschlange. Der Assistent bleibt standardmässig beim Mock. Ein
 Loopback-Dialog, MediaWiki-Enzyklopädie und SearXNG-Vertrag sind opt-in.
 Fixtureresultate sind keine API-Treffer. Ein einzelner Cloud-Lauf der
-Enzyklopädie mit dem Wort octet lieferte einen API-Treffer. Einzelheiten stehen in
+Enzyklopädie mit dem Wort octet lieferte einen API-Treffer. Die Loopback-Probe
+startet mit Python 3.12 und der Standardbibliothek, ohne das Projekt-Lockfile.
+Einzelheiten stehen in
 [ASSISTENT.md](ASSISTENT.md). Ein lebendes unzensiertes Modell, eine allgemeine
 Websuche, ein Kaan-Transport, eine Kanal-Quittung nach 60 Sekunden und ein
 Zeitlimit-Resultat nach externem Abbruch sind darin nicht enthalten.

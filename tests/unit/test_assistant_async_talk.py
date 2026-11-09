@@ -6,8 +6,15 @@ import json
 import time
 from unittest.mock import patch
 
-from app.assistant.async_turns import get_turn, start_dialogue_turn, stream_sse_events, turn_snapshot
+from app.assistant.async_turns import (
+    get_turn,
+    start_dialogue_turn,
+    stream_sse_events,
+    turn_snapshot,
+)
 from app.assistant.dialogue import DialogueReply
+
+
 class _FakeSession:
     def commit(self) -> None:
         return None

@@ -13,6 +13,12 @@ from sqlalchemy import select
 from starlette.datastructures import FormData
 
 from app.api.deps import DbSession
+from app.assistant.async_turns import (
+    get_turn,
+    start_dialogue_turn,
+    stream_sse_events,
+    turn_snapshot,
+)
 from app.assistant.cards import (
     AssistantCardV1,
     card_document,
@@ -26,12 +32,6 @@ from app.assistant.cards import (
     update_card,
 )
 from app.assistant.deepsearch import parse_corpus, run_deep_search
-from app.assistant.async_turns import (
-    get_turn,
-    start_dialogue_turn,
-    stream_sse_events,
-    turn_snapshot,
-)
 from app.assistant.dialogue import (
     current_profile,
     recent_turns,
@@ -39,13 +39,13 @@ from app.assistant.dialogue import (
     store_turn,
     write_profile,
 )
-from app.db.session import get_session_factory
 from app.assistant.errors import AssistantError
 from app.assistant.orders import describe_search, submit_order
 from app.assistant.providers import activation_status, resolve_search
 from app.assistant.records import AssistantCard, AssistantOrderKey, placeholders_of
 from app.assistant.status import CHANNEL_GAPS, heartbeat_is_current, project_order
 from app.db.models import Event, Task
+from app.db.session import get_session_factory
 from app.db.state_machine import TaskState
 from app.ui.routes import ParsedForm, csrf, owner
 from app.ui.views import page, preview_context, preview_redirect

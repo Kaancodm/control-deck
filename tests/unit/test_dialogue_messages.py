@@ -14,6 +14,19 @@ def test_normalize_history_strips_legacy_notice_and_thinking() -> None:
     assert normalize_history_reply(raw) == "Antwort"
 
 
+@pytest.mark.parametrize(
+    "answer",
+    [
+        LOOPBACK_NOTICE,
+        f"{LOOPBACK_NOTICE}\nDas bleibt Teil der Antwort.",
+        f"{LOOPBACK_NOTICE}  Das bleibt Teil der Antwort.",
+        f"{LOOPBACK_NOTICE}Das bleibt Teil der Antwort.",
+    ],
+)
+def test_normalize_history_keeps_an_answer_outside_the_legacy_layout(answer: str) -> None:
+    assert normalize_history_reply(answer) == answer
+
+
 def test_compose_messages_orders_roles_and_keeps_current_user() -> None:
     messages = compose_dialogue_messages(
         message="Heute",

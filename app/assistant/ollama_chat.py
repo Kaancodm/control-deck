@@ -204,10 +204,15 @@ def strip_think(content: str) -> str:
 
 def normalize_history_reply(text: str) -> str:
     """Prepare stored assistant text for replay (strip legacy notice and thinking blocks)."""
-    stripped = text.strip()
-    if stripped.startswith(LOOPBACK_NOTICE):
-        stripped = stripped[len(LOOPBACK_NOTICE) :].strip()
-    return strip_think(stripped)
+    return strip_think(_without_legacy_notice(text.strip()))
+
+
+def _without_legacy_notice(text: str) -> str:
+    """Remove the notice only from the stored ``<notice> <text>`` layout of earlier versions."""
+    body = text.removeprefix(f"{LOOPBACK_NOTICE} ")
+    if body == text or not body or body[0].isspace():
+        return text
+    return body
 
 
 def _timing_detail(response: ChatResponse, *, elapsed_ms: int) -> dict[str, object]:

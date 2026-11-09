@@ -17,6 +17,7 @@ from app.ui.views import ERROR_MESSAGES
 from app.workers.lanes.ollama import OllamaExecutor
 from app.workers.lanes.ollama_http import (
     BUSY_ATTEMPTS,
+    BUSY_MIN_ATTEMPT_S,
     OllamaHTTPClient,
     OllamaHTTPError,
     busy_delay_s,
@@ -128,6 +129,82 @@ def test_large_retry_after_cannot_outlast_the_caller_budget():
     assert caught.value.reason == "busy"
     assert time.monotonic() - started < 0.9
     assert len(chat_requests(stub)) == 1
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"), [("3600", 3600.0), ("0", 0.0), ("soon", None), (None, None)]
+)
+def test_busy_error_keeps_the_server_retry_hint(header, expected):
+    with OllamaStub(retry_after=header, status_by_path={CHAT: 503}) as stub:
+        with pytest.raises(OllamaHTTPError) as caught:
+            call_chat(fast_client(stub))
+    assert caught.value.reason == "busy" and caught.value.retry_after_s == expected
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_budget_just_above_the_backoff_stays_busy(streaming):
+    chunks: list[str] = []
+    with OllamaStub(retry_after="0", status_by_path={CHAT: 503}) as stub:
+        client = fast_client(stub)
+        with pytest.raises(OllamaHTTPError) as caught:
+            if streaming:
+                call_streaming(client, chunks, timeout_s=BUSY_MIN_ATTEMPT_S - 0.01)
+            else:
+                call_chat(client, timeout_s=BUSY_MIN_ATTEMPT_S - 0.01)
+    assert caught.value.reason == "busy"
+    assert caught.value.status_code == 503 and caught.value.retry_after_s == 0.0
+    assert chunks == []
+    assert len(chat_requests(stub)) == 1
+
+
+def test_backoff_that_eats_the_budget_stays_busy():
+    overrun = staticmethod(lambda _delay, _cancelled: time.sleep(0.85))
+    with OllamaStub(retry_after="0", status_by_path={CHAT: 503}) as stub:
+        with patch.object(OllamaHTTPClient, "_wait_before_retry", overrun):
+            with pytest.raises(OllamaHTTPError) as caught:
+                call_chat(fast_client(stub), timeout_s=1)
+    assert caught.value.reason == "busy"
+    assert caught.value.status_code == 503 and caught.value.retry_after_s == 0.0
+    assert len(chat_requests(stub)) == 1
+
+
+def test_dialogue_budget_boundary_is_busy_not_a_timeout():
+    with OllamaStub(status_by_path={CHAT: 503}) as stub:
+        with pytest.raises(AssistantError) as caught:
+            adapter_for(stub).complete_messages(
+                [{"role": "user", "content": "Hallo"}],
+                data_class="local_only",
+                timeout_s=BUSY_MIN_ATTEMPT_S - 0.01,
+            )
+    assert caught.value.code == MODEL_BUSY_CODE
+
+
+def well_formed_chunk(**extra):
+    message = {"role": "assistant", "content": "leaked"}
+    chunk = {"model": MODEL, "message": message, "done": False, **extra}
+    return json.dumps(chunk).encode() + b"\n"
+
+
+@pytest.mark.parametrize("extra", [{}, {"error": "synthetic provider error marker"}])
+def test_503_body_never_reaches_on_chunk_before_a_recovery(extra):
+    chunks: list[str] = []
+    with OllamaStub(
+        output="recovered",
+        status_sequence_by_path={CHAT: [503, 200]},
+        error_body=well_formed_chunk(**extra),
+    ) as stub:
+        response = call_streaming(fast_client(stub), chunks)
+    assert response.content == "recovered"
+    assert chunks == ["recovered"]
+
+
+def test_503_body_never_reaches_on_chunk_when_retries_run_out():
+    chunks: list[str] = []
+    with OllamaStub(status_by_path={CHAT: 503}, error_body=well_formed_chunk()) as stub:
+        with pytest.raises(OllamaHTTPError) as caught:
+            call_streaming(fast_client(stub), chunks)
+    assert caught.value.reason == "busy"
+    assert chunks == []
 
 
 @pytest.mark.parametrize("header", ["soon", "Wed, 21 Oct 2026 07:28:00 GMT", "-1", "9" * 5000])

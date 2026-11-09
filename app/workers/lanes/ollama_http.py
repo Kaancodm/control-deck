@@ -23,6 +23,8 @@ _BUSY_STATUS = 503
 BUSY_ATTEMPTS = 4
 BUSY_BACKOFF_S = 0.5
 BUSY_BACKOFF_MAX_S = 4.0
+# Below this a retry can only end as a timeout, which would hide that Ollama was full.
+BUSY_MIN_ATTEMPT_S = 0.25
 
 
 class OllamaHTTPError(Exception):
@@ -121,6 +123,10 @@ def busy_delay_s(
     return min(delay, maximum_s)
 
 
+def _busy_error(retry_after_s: float | None) -> OllamaHTTPError:
+    return OllamaHTTPError("busy", _BUSY_STATUS, phase="status", retry_after_s=retry_after_s)
+
+
 class OllamaHTTPClient:
     """Use one close-only connection per request with no proxies or redirects.
 
@@ -199,16 +205,23 @@ class OllamaHTTPClient:
             except OllamaHTTPError as exc:
                 if exc.status_code != _BUSY_STATUS:
                     raise
+                retry_after_s = exc.retry_after_s
                 delay = busy_delay_s(
                     attempt,
-                    exc.retry_after_s,
+                    retry_after_s,
                     backoff_s=self.busy_backoff_s,
                     maximum_s=self.busy_backoff_max_s,
                 )
-                if attempt >= self.busy_attempts or delay >= deadline - time.monotonic():
-                    raise OllamaHTTPError("busy", _BUSY_STATUS, phase="status") from None
+                if (
+                    attempt >= self.busy_attempts
+                    or delay + BUSY_MIN_ATTEMPT_S >= deadline - time.monotonic()
+                ):
+                    raise _busy_error(retry_after_s) from None
             self._wait_before_retry(delay, cancelled)
             budget = deadline - time.monotonic()
+            # The wait itself can overrun, so the check above is not sufficient.
+            if budget < BUSY_MIN_ATTEMPT_S:
+                raise _busy_error(retry_after_s)
             attempt += 1
 
     @staticmethod

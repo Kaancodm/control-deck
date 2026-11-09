@@ -22,6 +22,7 @@ class OllamaStub:
         status_by_path=None,
         status_sequence_by_path=None,
         retry_after=None,
+        error_body=b'{"error":"synthetic provider error marker"}',
         raw_by_path=None,
         show_extra=None,
         show_by_model=None,
@@ -39,6 +40,7 @@ class OllamaStub:
             path: list(codes) for path, codes in (status_sequence_by_path or {}).items()
         }
         self.retry_after = retry_after
+        self.error_body = error_body
         self.raw_by_path = raw_by_path or {}
         self.show_extra = show_extra or {}
         self.show_by_model = show_by_model or {}
@@ -89,7 +91,7 @@ class OllamaStub:
                     self.end_headers()
                     self.close_connection = True
                     if status != 200:
-                        self.wfile.write(b'{"error":"synthetic provider error marker"}')
+                        self.wfile.write(fixture.error_body)
                     elif self.path in fixture.raw_by_path:
                         self.wfile.write(fixture.raw_by_path[self.path])
                     elif self.path == "/api/version":

@@ -88,14 +88,14 @@ def test_loopback_fixture_is_not_a_real_or_uncensored_model(
         assert body["options"]["num_ctx"] == 4096
         roles = [item["role"] for item in body["messages"]]
         assert roles[0] == "system" and "Dialog ohne Werkzeuge" in body["messages"][0]["content"]
-        profile_hits = [
-            item for item in body["messages"] if item["role"] == "system" and "PROFILTOKEN" in item["content"]
-        ]
-        assert profile_hits
-        history_hits = [
-            item for item in body["messages"] if item["role"] == "user" and item["content"] == "FRUEHERSATZ"
-        ]
-        assert history_hits
+        assert any(
+            item["role"] == "system" and "PROFILTOKEN" in item["content"]
+            for item in body["messages"]
+        )
+        assert any(
+            item["role"] == "user" and item["content"] == "FRUEHERSATZ"
+            for item in body["messages"]
+        )
         assert body["messages"][-1]["role"] == "user"
         return 200, "application/x-ndjson", _chat_line("FIXTURE_REPLY_7 uncensored llama3.2:3b")
 

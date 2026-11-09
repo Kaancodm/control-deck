@@ -58,6 +58,8 @@ def task_num_ctx_cap() -> int:
 
 def _effective_task_num_ctx(configured: int) -> int:
     return min(configured, task_num_ctx_cap())
+
+
 _BEHAVIORS = frozenset(
     {
         "ok",

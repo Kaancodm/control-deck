@@ -130,9 +130,7 @@ def reply_to_owner(
             num_ctx=adapter.num_ctx,
             num_predict=adapter.num_predict,
         )
-        produced = adapter.complete_messages(
-            chat_messages, data_class=checked, on_chunk=on_chunk
-        )
+        produced = adapter.complete_messages(chat_messages, data_class=checked, on_chunk=on_chunk)
         if not _loopback_reply_ok(produced, checked):
             raise AssistantError("live_model_disabled")
         if not produced.text.startswith(LOOPBACK_PREFIX):

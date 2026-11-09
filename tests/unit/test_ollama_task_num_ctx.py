@@ -22,8 +22,6 @@ def test_task_num_ctx_defaults_to_4096(monkeypatch: pytest.MonkeyPatch) -> None:
         ("999999", 4096),
     ],
 )
-def test_task_num_ctx_env_parsing(
-    monkeypatch: pytest.MonkeyPatch, raw: str, expected: int
-) -> None:
+def test_task_num_ctx_env_parsing(monkeypatch: pytest.MonkeyPatch, raw: str, expected: int) -> None:
     monkeypatch.setenv("DECK_OLLAMA_TASK_NUM_CTX", raw)
     assert task_num_ctx_cap() == expected

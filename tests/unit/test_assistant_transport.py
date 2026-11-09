@@ -93,8 +93,7 @@ def test_loopback_fixture_is_not_a_real_or_uncensored_model(
             for item in body["messages"]
         )
         assert any(
-            item["role"] == "user" and item["content"] == "FRUEHERSATZ"
-            for item in body["messages"]
+            item["role"] == "user" and item["content"] == "FRUEHERSATZ" for item in body["messages"]
         )
         assert body["messages"][-1]["role"] == "user"
         return 200, "application/x-ndjson", _chat_line("FIXTURE_REPLY_7 uncensored llama3.2:3b")

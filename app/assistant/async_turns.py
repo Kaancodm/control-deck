@@ -86,6 +86,12 @@ def _notify_all() -> None:
     _cond.notify_all()
 
 
+def _expire_stale_queued_locked(now: float) -> None:
+    for key, job in list(_turns.items()):
+        if job.state == "queued" and now - job.created_at > _TURN_TTL_S:
+            _turns.pop(key, None)
+
+
 def _prune_finished_locked(now: float) -> None:
     stale = [
         key
@@ -148,7 +154,9 @@ def start_dialogue_turn(
     turn_id = str(uuid.uuid4())
     job = DialogueTurnJob(turn_id=turn_id)
     with _cond:
-        _prune_finished_locked(time.monotonic())
+        now = time.monotonic()
+        _expire_stale_queued_locked(now)
+        _prune_finished_locked(now)
         queued = sum(1 for entry in _turns.values() if entry.state == "queued")
         if queued >= _MAX_QUEUED:
             raise AssistantError(_QUEUE_FULL_CODE)

@@ -188,6 +188,7 @@ def test_queue_full_rejects_new_turn(monkeypatch: pytest.MonkeyPatch) -> None:
             persist=False,
         )
     assert refused.value.code == async_turns._QUEUE_FULL_CODE
+    _reset_turns(monkeypatch)
 
 
 def test_prune_drops_only_finished_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -211,6 +212,7 @@ def test_prune_drops_only_finished_jobs(monkeypatch: pytest.MonkeyPatch) -> None
         assert "queued-1" in async_turns._turns
         assert "running-1" in async_turns._turns
         assert len(async_turns._turns) <= async_turns._MAX_FINISHED + 2
+    _reset_turns(monkeypatch)
 
 
 def test_secret_chunk_is_rejected_before_stream() -> None:

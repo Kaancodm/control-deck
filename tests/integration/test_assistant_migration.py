@@ -47,7 +47,7 @@ def test_assistant_tables_roundtrip_without_touching_tasks() -> None:
         with engine.connect() as connection:
             assert (
                 connection.scalar(text("SELECT version_num FROM alembic_version"))
-                == "20261108_0062"
+                == "20261108_0063"
             )
             assert connection.scalar(text("SELECT count(*) FROM assistant_profile_versions")) == 0
     finally:
@@ -78,7 +78,7 @@ def test_downgrade_refuses_to_drop_loopback_turns() -> None:
         with engine.connect() as connection:
             assert (
                 connection.scalar(text("SELECT version_num FROM alembic_version"))
-                == "20261108_0062"
+                == "20261108_0063"
             )
             assert (
                 connection.scalar(
@@ -108,6 +108,14 @@ def test_join_downgrade_leaves_both_parents_and_0020_still_upgrades() -> None:
     command.upgrade(config, "head")
     engine = get_engine(for_tests=True)
     try:
+        command.downgrade(config, "-1")
+        with engine.connect() as connection:
+            assert _versions(connection) == {"20261108_0062"}
+            assert connection.scalar(text("SELECT to_regclass('routine_outbox')")) is None
+            assert (
+                connection.scalar(text("SELECT to_regclass('channel_receipts')"))
+                == "channel_receipts"
+            )
         with pytest.raises(CommandError, match="Ambiguous walk"):
             command.downgrade(config, "-1")
         with engine.connect() as connection:
@@ -126,7 +134,7 @@ def test_join_downgrade_leaves_both_parents_and_0020_still_upgrades() -> None:
         command.upgrade(config, "head")
         command.check(config)
         with engine.connect() as connection:
-            assert _versions(connection) == {"20261108_0062"}
+            assert _versions(connection) == {"20261108_0063"}
         command.downgrade(config, "20261104_0018")
         command.upgrade(config, "20261108_0020")
         with engine.connect() as connection:
@@ -135,10 +143,13 @@ def test_join_downgrade_leaves_both_parents_and_0020_still_upgrades() -> None:
         command.upgrade(config, "head")
         command.check(config)
         with engine.connect() as connection:
-            assert _versions(connection) == {"20261108_0062"}
+            assert _versions(connection) == {"20261108_0063"}
             assert (
                 connection.scalar(text("SELECT to_regclass('channel_receipts')"))
                 == "channel_receipts"
+            )
+            assert (
+                connection.scalar(text("SELECT to_regclass('routine_outbox')")) == "routine_outbox"
             )
     finally:
         command.upgrade(config, "head")

@@ -162,6 +162,38 @@ def database_now(session: Session) -> datetime:
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
+def acknowledge_task_receipt(
+    session: Session,
+    *,
+    task_id: uuid.UUID,
+    idempotency_key: str,
+    now: datetime,
+) -> ChannelReceipt:
+    """Explicit delivery ACK for a receipt that already names a real transport.
+
+    This does not approve the task. A missing transport cannot become delivered.
+    A deadline that has elapsed stays elapsed. A repeat returns the same row.
+    """
+    moment = _clock(now)
+    if not isinstance(idempotency_key, str) or not _KEY.fullmatch(idempotency_key):
+        raise ValueError("receipt not found")
+    row = session.scalar(
+        select(ChannelReceipt).where(ChannelReceipt.task_id == task_id).with_for_update()
+    )
+    if row is None or row.idempotency_key != idempotency_key:
+        raise ValueError("receipt not found")
+    if row.status == "delivered":
+        return row
+    if row.status == "deadline_elapsed" or moment > row.deadline_at:
+        raise ValueError("receipt deadline elapsed")
+    if row.status != "accepted" or row.transport == "missing" or not _NAME.fullmatch(row.transport):
+        raise ValueError("missing transport")
+    row.status = "delivered"
+    row.delivered_at = moment
+    session.flush()
+    return row
+
+
 def settle_task_receipt(session: Session, task_id: uuid.UUID) -> None:
     """Persist one task's deadline using the database clock."""
     settle_due_receipts(session, now=database_now(session), limit=1, task_id=task_id)

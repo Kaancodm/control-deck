@@ -18,7 +18,8 @@ Einzelheiten stehen in
 [ASSISTENT.md](ASSISTENT.md). Ein lebendes unzensiertes Modell, eine allgemeine
 Websuche und ein Kaan-Transport sind darin nicht enthalten. Dieser
 Integrationsstand enthaelt die Kanal-Quittung und das Ergebnis nach externem
-Runner-Abbruch. Die GitHub-Entwuerfe bleiben getrennt.
+Runner-Abbruch. Der Folgezweig ergaenzt den ausgeschalteten Routine-Wake aus
+[TRANSPORT.md](TRANSPORT.md). Die GitHub-Entwuerfe bleiben getrennt.
 
 ## Nachtrag: Ollama Live-Adapter als Draft
 

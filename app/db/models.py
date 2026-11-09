@@ -104,6 +104,9 @@ class Task(Base):
     channel_receipt: Mapped[ChannelReceipt | None] = relationship(
         back_populates="task", uselist=False, cascade="all, delete-orphan"
     )
+    routine_wakes: Mapped[list[RoutineOutbox]] = relationship(
+        back_populates="task", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("ix_tasks_status_created_at", "status", "created_at"),
@@ -276,6 +279,68 @@ class ChannelReceipt(Base):
             "(status = 'delivered' AND transport <> 'missing' AND delivered_at IS NOT NULL) "
             "OR (status <> 'delivered' AND delivered_at IS NULL)",
             name="ck_channel_receipts_delivery",
+        ),
+    )
+
+
+class RoutineOutbox(Base):
+    """One completion wake. It is not a task status and not a delivery receipt."""
+
+    __tablename__ = "routine_outbox"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event: Mapped[str] = mapped_column(String(32), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    correlation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, unique=True
+    )
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    task_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    task: Mapped[Task] = relationship(back_populates="routine_wakes")
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "event", name="uq_routine_outbox_task_event"),
+        Index(
+            "ix_routine_outbox_dispatch",
+            "created_at",
+            postgresql_where=text("state IN ('pending', 'start_failed')"),
+        ),
+        CheckConstraint("event = 'task.completed'", name="ck_routine_outbox_event"),
+        CheckConstraint("schema_version = 'deck.wake.v1'", name="ck_routine_outbox_version"),
+        CheckConstraint(
+            "payload_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_routine_outbox_payload_hash",
+        ),
+        CheckConstraint("task_status IN ('review', 'done')", name="ck_routine_outbox_task_status"),
+        CheckConstraint(
+            "state IN ('pending', 'sending', 'accepted', 'start_failed', "
+            "'unknown_start', 'acknowledged')",
+            name="ck_routine_outbox_state",
+        ),
+        CheckConstraint(
+            "attempt_count >= 0 AND attempt_count <= 3",
+            name="ck_routine_outbox_attempts",
+        ),
+        CheckConstraint(
+            "(state IN ('accepted', 'acknowledged') AND accepted_at IS NOT NULL) "
+            "OR (state NOT IN ('accepted', 'acknowledged') AND accepted_at IS NULL)",
+            name="ck_routine_outbox_accepted",
+        ),
+        CheckConstraint(
+            "(state = 'acknowledged' AND acknowledged_at IS NOT NULL) "
+            "OR (state <> 'acknowledged' AND acknowledged_at IS NULL)",
+            name="ck_routine_outbox_acknowledged",
         ),
     )
 

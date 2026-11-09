@@ -62,7 +62,11 @@ def _ensure_worker() -> None:
     with _worker_lock:
         if _worker_started:
             return
-        thread = threading.Thread(target=_worker_loop, daemon=True, name="assistant-dialogue-worker")
+        thread = threading.Thread(
+            target=_worker_loop,
+            daemon=True,
+            name="assistant-dialogue-worker",
+        )
         thread.start()
         _worker_started = True
 

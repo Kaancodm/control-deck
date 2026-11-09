@@ -51,6 +51,22 @@ def test_streaming_sanitizer_hides_thinking_until_closed() -> None:
     assert sanitizer.feed("</think>sicher") == "sicher"
 
 
+def test_streaming_sanitizer_holds_partial_tag_across_chunks() -> None:
+    sanitizer = StreamingReplySanitizer()
+    assert sanitizer.feed("<th") == ""
+    assert sanitizer.feed("ink>...</think>answer") == "answer"
+
+
+def test_streaming_sanitizer_rejects_secret_split_across_chunks() -> None:
+    secret = "sk-TEST-" + "NOT-A-REAL-CREDENTIAL"
+    cut = 11
+    sanitizer = StreamingReplySanitizer()
+    with pytest.raises(AssistantError) as refused:
+        sanitizer.feed(secret[:cut])
+        sanitizer.feed(secret[cut:])
+    assert refused.value.code == "assistant_secret"
+
+
 def test_start_dialogue_turn_finishes_and_snapshot() -> None:
     def fake_reply(*_args: object, **_kwargs: object) -> DialogueReply:
         on_chunk = _kwargs.get("on_chunk")

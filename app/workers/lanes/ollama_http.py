@@ -282,6 +282,7 @@ class OllamaHTTPClient:
         format_json: bool = False,
         num_ctx: int = 4096,
         keep_alive: str = "1m",
+        think: bool | None = None,
     ) -> ChatResponse:
         body: dict[str, object] = {
             "model": model,
@@ -294,6 +295,9 @@ class OllamaHTTPClient:
         }
         if format_json:
             body["format"] = "json"
+        if think is not None:
+            # Ollama's top-level switch for reasoning models such as Qwen3.
+            body["think"] = think
 
         def consume(
             response: http.client.HTTPResponse, progress: Callable[[], None]

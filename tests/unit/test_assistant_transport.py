@@ -82,7 +82,8 @@ def test_loopback_fixture_is_not_a_real_or_uncensored_model(
         assert method == "POST" and path == "/api/chat"
         body = json.loads(raw)
         assert body["model"] == "fixture:localtest:local"
-        assert "tools" not in body and body["keep_alive"] == "0"
+        assert "tools" not in body and body["keep_alive"] == "30m"
+        assert body["think"] is False
         assert body["options"]["temperature"] == 0
         assert "PROFILTOKEN" in body["messages"][0]["content"]
         assert "FRUEHERSATZ" in body["messages"][0]["content"]
@@ -874,3 +875,84 @@ def test_malformed_stream_and_closed_port_stay_distinct() -> None:
     assert failed.value.code == "assistant_model_connect_failed"
     assert failed.value.detail["phase"] == "connect"
     assert str(closed) not in str(failed.value)
+
+
+def test_dialogue_keep_alive_and_timeout_come_from_env() -> None:
+    from app.assistant.ollama_chat import (
+        DIALOGUE_KEEP_ALIVE_DEFAULT,
+        DIALOGUE_TIMEOUT_MAX_S,
+        OllamaDialogueAdapter,
+    )
+
+    base = {
+        "DECK_ASSISTANT_OLLAMA": "1",
+        "DECK_OLLAMA_URL": "http://127.0.0.1:11434",
+        "DECK_ASSISTANT_OLLAMA_MODEL": "fixture:localtest",
+    }
+    default = OllamaDialogueAdapter.from_env(base)
+    assert default.keep_alive == DIALOGUE_KEEP_ALIVE_DEFAULT == "30m"
+    assert default.timeout_s == DIALOGUE_TIMEOUT_S
+    tuned = OllamaDialogueAdapter.from_env(
+        {**base, "DECK_ASSISTANT_OLLAMA_KEEP_ALIVE": "0", "DECK_ASSISTANT_OLLAMA_TIMEOUT_S": "80"}
+    )
+    assert tuned.keep_alive == "0" and tuned.timeout_s == 80.0
+    assert DIALOGUE_TIMEOUT_MAX_S < 90
+    assert (
+        OllamaDialogueAdapter.from_env(
+            {**base, "DECK_ASSISTANT_OLLAMA_KEEP_ALIVE": "24h"}
+        ).keep_alive
+        == "24h"
+    )
+    for key, value in (
+        ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "-1"),
+        ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "30 m"),
+        ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "forever"),
+        ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "25h"),
+        ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "9999h"),
+        ("DECK_ASSISTANT_OLLAMA_TIMEOUT_S", "nan"),
+        ("DECK_ASSISTANT_OLLAMA_TIMEOUT_S", "inf"),
+        ("DECK_ASSISTANT_OLLAMA_TIMEOUT_S", "abc"),
+        ("DECK_ASSISTANT_OLLAMA_TIMEOUT_S", "0"),
+        ("DECK_ASSISTANT_OLLAMA_TIMEOUT_S", str(DIALOGUE_TIMEOUT_MAX_S + 1)),
+    ):
+        with pytest.raises(AssistantError) as caught:
+            OllamaDialogueAdapter.from_env({**base, key: value})
+        assert caught.value.code == "assistant_model_unconfigured"
+
+
+def test_dialogue_strips_a_leaked_reasoning_block() -> None:
+    from app.assistant.ollama_chat import strip_think
+
+    assert strip_think("<think>\nplan\n</think>\n\nBergkristall") == "Bergkristall"
+    assert strip_think("<THINK>x</THINK>Antwort") == "Antwort"
+    assert strip_think("Antwort ohne Block") == "Antwort ohne Block"
+    assert strip_think("<think>abgebrochen ohne Ende") == ""
+    assert strip_think("Begruendung aus dem Template</think>\nBergkristall") == "Bergkristall"
+    assert strip_think("Das Tag <think> steht im Text.") == "Das Tag <think> steht im Text."
+
+
+def test_dialogue_request_disables_thinking_and_keeps_model_warm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.assistant.ollama_chat import OllamaDialogueAdapter
+
+    bodies: list[dict[str, object]] = []
+
+    def script(path: str, raw: bytes, method: str) -> tuple[int, str, bytes]:
+        bodies.append(json.loads(raw))
+        return 200, "application/x-ndjson", _chat_line("<think>geheim</think>Bergkristall")
+
+    server, _seen = _serve(script)
+    try:
+        port = server.server_address[1]
+        adapter = OllamaDialogueAdapter(
+            url=f"http://127.0.0.1:{port}", model="fixture:localtest", keep_alive="15m"
+        )
+        reply = adapter.complete("Codewort?", data_class="local_only")
+        # A caller budget above the configured one is clamped, not rejected.
+        again = adapter.complete("Codewort?", data_class="local_only", timeout_s=85)
+    finally:
+        server.shutdown()
+    assert bodies[0]["think"] is False and bodies[0]["keep_alive"] == "15m"
+    assert reply.text.endswith("Bergkristall") and "geheim" not in reply.text
+    assert again.text == reply.text

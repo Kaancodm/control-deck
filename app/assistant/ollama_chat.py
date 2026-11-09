@@ -24,6 +24,14 @@ LOOPBACK_PREFIX = "Loopback, Identität nicht belegt."
 # The previous dialogue cap was 8s and collapsed every failure into one code.
 # These bounds stay inside a 90s operator shell. There is no second attempt.
 DIALOGUE_TIMEOUT_S = 75.0
+# Owner may raise the read budget on slow CPUs; the ceiling still fits the 90s shell.
+DIALOGUE_TIMEOUT_MAX_S = 85.0
+# Keep the model resident between turns so turn two does not pay a cold load.
+DIALOGUE_KEEP_ALIVE_DEFAULT = "30m"
+_KEEP_ALIVE = re.compile(r"0|[1-9][0-9]{0,3}[sm]|[1-9]h|1[0-9]h|2[0-4]h")
+# Only a leading block is reasoning; a tag later in the answer is content.
+_THINK_BLOCK = re.compile(r"\A\s*<think>.*?(?:</think>|\Z)", re.DOTALL | re.IGNORECASE)
+_THINK_TAIL = re.compile(r"\A.*?</think>", re.DOTALL | re.IGNORECASE)
 DIALOGUE_FIRST_CHUNK_S = 60.0
 DIALOGUE_IDLE_S = 20.0
 # Ollama 0.40.14 types/model/name.go: a namespace has no dots; model and tag may.
@@ -70,21 +78,60 @@ def validate_model_tag(model: str) -> str:
     return model
 
 
+def validate_keep_alive(value: str) -> str:
+    """Accept ``0`` or a bounded Ollama duration such as ``30m`` (at most 24h)."""
+    if not isinstance(value, str) or _KEEP_ALIVE.fullmatch(value) is None:
+        raise AssistantError("assistant_model_unconfigured")
+    return value
+
+
+def validate_timeout(value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise AssistantError("assistant_model_unconfigured")
+    if not 0 < float(value) <= DIALOGUE_TIMEOUT_MAX_S:
+        raise AssistantError("assistant_model_unconfigured")
+    return float(value)
+
+
+def strip_think(content: str) -> str:
+    """Drop a leading reasoning block a model emits despite ``think: false``.
+
+    Some chat templates open ``<think>`` inside the prompt, so the reply then
+    carries only the closing tag.
+    """
+    stripped = _THINK_BLOCK.sub("", content, count=1)
+    if stripped == content and "<think>" not in content.casefold():
+        stripped = _THINK_TAIL.sub("", content, count=1)
+    return stripped.strip()
+
+
 class OllamaDialogueAdapter:
     """One loopback chat call. ``model_identity`` stays ``unverified``."""
 
     profile = "ollama_loopback"
 
-    def __init__(self, *, url: str, model: str, client: OllamaHTTPClient | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        url: str,
+        model: str,
+        client: OllamaHTTPClient | None = None,
+        keep_alive: str = DIALOGUE_KEEP_ALIVE_DEFAULT,
+        timeout_s: float = DIALOGUE_TIMEOUT_S,
+    ) -> None:
         self.url = url
         self.model = validate_model_tag(model)
+        self.keep_alive = validate_keep_alive(keep_alive)
+        self.timeout_s = validate_timeout(timeout_s)
         try:
             validate_ollama_url(url)
         except LiveConfigurationError as exc:
             raise AssistantError("assistant_model_unconfigured") from exc
         self.client = client or OllamaHTTPClient(
             url,
-            first_chunk_timeout_s=DIALOGUE_FIRST_CHUNK_S,
+            first_chunk_timeout_s=min(
+                self.timeout_s, max(DIALOGUE_FIRST_CHUNK_S, self.timeout_s - 10)
+            ),
             idle_timeout_s=DIALOGUE_IDLE_S,
         )
 
@@ -97,7 +144,18 @@ class OllamaDialogueAdapter:
         model = env.get("DECK_ASSISTANT_OLLAMA_MODEL", "").strip()
         if not url or not model:
             raise AssistantError("assistant_model_unconfigured")
-        return cls(url=url, model=model)
+        keep_alive = env.get("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "").strip()
+        raw_timeout = env.get("DECK_ASSISTANT_OLLAMA_TIMEOUT_S", "").strip()
+        try:
+            timeout_s = float(raw_timeout) if raw_timeout else DIALOGUE_TIMEOUT_S
+        except ValueError as exc:
+            raise AssistantError("assistant_model_unconfigured") from exc
+        return cls(
+            url=url,
+            model=model,
+            keep_alive=keep_alive or DIALOGUE_KEEP_ALIVE_DEFAULT,
+            timeout_s=timeout_s,
+        )
 
     def complete(
         self,
@@ -105,16 +163,19 @@ class OllamaDialogueAdapter:
         *,
         data_class: str,
         cancelled: Callable[[], bool] | None = None,
-        timeout_s: float = DIALOGUE_TIMEOUT_S,
+        timeout_s: float | None = None,
     ) -> ModelReply:
         checked = require_data_class(data_class)
         reject_secrets(prompt, source="dialogue_prompt")
         if len(prompt) > MESSAGE_MAX:
             raise AssistantError("assistant_oversize")
+        if timeout_s is None:
+            timeout_s = self.timeout_s
         if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)):
             raise AssistantError("assistant_model_unconfigured")
-        if not 0 < float(timeout_s) <= DIALOGUE_TIMEOUT_S:
+        if not 0 < float(timeout_s) <= DIALOGUE_TIMEOUT_MAX_S:
             raise AssistantError("assistant_model_unconfigured")
+        timeout_s = min(float(timeout_s), self.timeout_s)
         stop = cancelled if cancelled is not None else (lambda: False)
         started = time.monotonic()
         try:
@@ -124,14 +185,15 @@ class OllamaDialogueAdapter:
                 timeout_s=float(timeout_s),
                 cancelled=stop,
                 num_ctx=1024,
-                keep_alive="0",
+                keep_alive=self.keep_alive,
+                think=False,
             )
         except OllamaHTTPError as exc:
             elapsed_ms = int((time.monotonic() - started) * 1000)
             raise AssistantError(
                 _failure_code(exc), detail=_failure_detail(exc, elapsed_ms)
             ) from exc
-        content = response.content.strip()
+        content = strip_think(response.content)
         if not content or "\0" in content:
             raise AssistantError(
                 "assistant_model_malformed",

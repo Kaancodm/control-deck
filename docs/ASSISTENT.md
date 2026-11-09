@@ -50,6 +50,13 @@ unzensiertes Modell.
 
 Der Dialog bleibt ein Mock, solange `DECK_ASSISTANT_OLLAMA` nicht exakt `1` ist.
 Der Runner-Schalter `DECK_LIVE_ENABLED` schaltet den Assistenten nicht ein.
+Der Dialog sendet `think: false`, damit Qwen3 keine lange Denkphase auf der CPU
+rechnet. Ein trotzdem gelieferter `<think>`-Block am Anfang der Antwort wird
+entfernt. `DECK_ASSISTANT_OLLAMA_KEEP_ALIVE` (Standard `30m`, `0` oder hoechstens
+`24h`) haelt das Modell zwischen zwei Runden geladen. `DECK_ASSISTANT_OLLAMA_TIMEOUT_S`
+(Standard 75, hoechstens 85) setzt das Gesamtlimit; es bleibt in der 90-Sekunden-Shell.
+Gemessen am 2026-11-09 auf dem Server: Runde 1 etwa 4 bis 13 Sekunden, Runde 2 mit
+Verlauf etwa 5 Sekunden statt Abbruch nach 75 Sekunden.
 Mit dem Assistenten-Schalter, `DECK_OLLAMA_URL` als HTTP-Loopback mit Port und
 `DECK_ASSISTANT_OLLAMA_MODEL` als `name:tag` oder `namespace/name:tag` geht eine
 Anfrage an den bestehenden Loopback-Client. Der Schrägstrich ist Teil der

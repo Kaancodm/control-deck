@@ -117,7 +117,8 @@ nur einen lokalen HTTP-Stub. Sie konfigurieren weder einen echten Ollama-Dienst 
 laden sie ein Modell. Die Restore-Erinnerung bleibt ein Probelauf ohne `--apply`.
 
 SIGTERM oder SIGINT beendet den aktiven Host-Prozess samt Unterprozessen und stoppt neue
-Claims. Das schreibt **keinen** Owner-Abbruch. Die bestehende Lease läuft aus; der Reaper
+Claims. Der Supervisor endet dabei mit `0`, auch wenn der Host-Prozess durch dasselbe
+Signal schon beendet wurde. Das schreibt **keinen** Owner-Abbruch. Die bestehende Lease läuft aus; der Reaper
 plant den Versuch gemäss Etappe 10 und verbleibendem Budget erneut ein. Nur eine echte
 Owner-Deadline erzeugt `expired`. Der Not-Aus in der Oberfläche bleibt davon getrennt:
 Er setzt den ausdrücklichen Abbruchpfad für aktive Aufgaben.

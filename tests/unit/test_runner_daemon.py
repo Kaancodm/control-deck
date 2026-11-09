@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import signal
+import subprocess
 import sys
 import threading
+import time
+from pathlib import Path
 
 import pytest
 
@@ -110,6 +115,86 @@ def test_stop_cancels_child_without_a_database_mutation(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(daemon, "run_command", child)
     assert daemon.run_loop(Worker.CODEX, environment={}, stop=stop, iterations=2) == 0
+
+
+@pytest.mark.parametrize("live", [False, True])
+@pytest.mark.parametrize("reason", ["process_failed", "process_timeout", "process_output_limit"])
+def test_child_failure_during_a_stop_ends_the_loop_cleanly(monkeypatch, live, reason):
+    stop = threading.Event()
+    calls = []
+
+    def child(command, **kwargs):
+        calls.append(command)
+        stop.set()
+        raise OperationError(reason)
+
+    monkeypatch.setattr(daemon, "run_command", child)
+    environment = {"DECK_LIVE_ENABLED": "1", "DECK_OLLAMA_URL": "http://127.0.0.1:11434"}
+    assert daemon.run_loop(Worker.OLLAMA, environment=environment, stop=stop, live=live) == 0
+    assert len(calls) == 1
+
+
+_SIGNAL_HARNESS = """
+import sys
+from app.workers import daemon
+
+pid_file = sys.argv[1]
+child = "import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
+run_loop = daemon.run_loop
+daemon.run_loop = lambda worker, **kwargs: run_loop(
+    worker, command=(sys.executable, "-c", child, pid_file), **kwargs
+)
+sys.argv = ["daemon", "--worker", "ollama"]
+raise SystemExit(daemon.main())
+"""
+
+
+def _child_pid(path: Path, supervisor: subprocess.Popen[bytes]) -> int:
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and supervisor.poll() is None:
+        if path.exists() and (text := path.read_text()):
+            return int(text)
+        time.sleep(0.01)
+    raise AssertionError("Attempt process did not start")
+
+
+@pytest.mark.parametrize(
+    ("number", "signal_child"),
+    [
+        # KillMode=mixed: only the supervisor is signalled.
+        (signal.SIGTERM, False),
+        # KillMode=control-group: systemd signals the main process, then the rest.
+        (signal.SIGTERM, True),
+        (signal.SIGINT, False),
+    ],
+)
+def test_service_signal_exits_zero_during_an_attempt(tmp_path, number, signal_child):
+    pid_file = tmp_path / "attempt.pid"
+    environment = {
+        "PATH": os.defpath,
+        "DECK_LIVE_ENABLED": "1",
+        "DECK_OLLAMA_URL": "http://127.0.0.1:11434",
+    }
+    supervisor = subprocess.Popen(
+        [sys.executable, "-c", _SIGNAL_HARNESS, str(pid_file)],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        child = _child_pid(pid_file, supervisor)
+        supervisor.send_signal(number)
+        if signal_child:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child, number)
+        stdout, stderr = supervisor.communicate(timeout=20)
+    finally:
+        supervisor.kill()
+        supervisor.wait()
+    assert supervisor.returncode == 0, stderr.decode()
+    assert json.loads(stdout) == {"status": "stopped", "iterations": 0}
+    with pytest.raises(ProcessLookupError):
+        os.kill(child, 0)
 
 
 def test_supervisor_default_matches_the_attempt_maximum(monkeypatch: pytest.MonkeyPatch) -> None:

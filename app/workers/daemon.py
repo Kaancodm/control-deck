@@ -79,7 +79,9 @@ def run_loop(
                 cancelled=stop.is_set,
             )
         except OperationError as error:
-            if error.code == "service_stopping":
+            # A service stop can kill the child first, which reads as a process failure.
+            # The abandoned attempt keeps its lease, so the queue retries it after expiry.
+            if error.code == "service_stopping" or stop.is_set():
                 break
             if live:
                 # Unavailable providers are normal runner outcomes. A failed host

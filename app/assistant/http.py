@@ -26,7 +26,12 @@ from app.assistant.cards import (
     update_card,
 )
 from app.assistant.deepsearch import parse_corpus, run_deep_search
-from app.assistant.async_turns import get_turn, start_dialogue_turn, stream_sse_events, turn_snapshot
+from app.assistant.async_turns import (
+    get_turn,
+    start_dialogue_turn,
+    stream_sse_events,
+    turn_snapshot,
+)
 from app.assistant.dialogue import (
     current_profile,
     recent_turns,

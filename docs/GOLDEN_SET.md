@@ -99,4 +99,6 @@ uv run python -m app.assistant.golden_set score [--gold PFAD] [--pred PFAD | --b
 ```
 
 Ohne Pfad gilt die Repo-Synthetik, ohne `--pred` die Orakel-Baseline. Die
-Konstant-Baseline sagt überall die häufigste Goldroute mit Aktion `none` voraus.
+Konstant-Baseline sagt überall die häufigste Goldroute mit Aktion `none` voraus. Diese
+Route stammt aus den Zeilen ausserhalb des bewerteten Splits: bei `holdout` aus Dev, bei
+`dev` aus Holdout, bei `all` aus allen Zeilen.

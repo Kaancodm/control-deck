@@ -314,9 +314,9 @@ def assign_splits(rows: Sequence[GoldRow], seed: str = SPLIT_SEED) -> dict[str, 
 
     Every route with at least four rows gets two holdout rows, smaller routes get half of
     their rows rounded down. The holdout then grows to 40 percent of all rows (16 of 40) by
-    filling the routes furthest below 40 percent, and each route keeps at least two dev rows
-    where it has them. Below 40 rows the per-route minimum wins, so the holdout share can
-    exceed 40 percent.
+    filling the route with the smallest holdout share, and each route keeps at least two dev
+    rows where it has them. Below 40 rows the per-route minimum wins, so the holdout share
+    can exceed 40 percent.
     """
     by_route: dict[str, list[GoldRow]] = {}
     for row in rows:
@@ -329,8 +329,8 @@ def assign_splits(rows: Sequence[GoldRow], seed: str = SPLIT_SEED) -> dict[str, 
         open_routes = [route for route in ROUTES if holdout.get(route, 0) < capacity.get(route, 0)]
         if not open_routes:
             break
-        # max() keeps the first candidate on a tie, so ROUTES order breaks ties.
-        chosen = max(open_routes, key=lambda route: 2 * sizes[route] - 5 * holdout[route])
+        # min() keeps the first candidate on a tie, so ROUTES order breaks ties.
+        chosen = min(open_routes, key=lambda route: holdout[route] / sizes[route])
         holdout[chosen] += 1
     assignment: dict[str, str] = {}
     for route, group in by_route.items():
@@ -377,12 +377,27 @@ def oracle_predictions(rows: Sequence[GoldRow]) -> tuple[Prediction, ...]:
 
 
 def constant_predictions(
-    rows: Sequence[GoldRow], *, route: str | None = None, action: str = "none"
+    rows: Sequence[GoldRow],
+    *,
+    route: str | None = None,
+    action: str = "none",
+    fit_rows: Sequence[GoldRow] | None = None,
 ) -> tuple[Prediction, ...]:
-    """Predict one route everywhere; by default the most frequent gold route."""
-    counts = Counter(row.expected_route for row in rows)
+    """Predict one route everywhere; by default the most frequent gold route of ``fit_rows``."""
+    counts = Counter(row.expected_route for row in (rows if fit_rows is None else fit_rows))
     constant = route or max(ROUTES, key=lambda candidate: counts[candidate])
     return tuple(Prediction(id=row.id, route=constant, action=action) for row in rows)
+
+
+def constant_fit_rows(gold: GoldSet, split: str) -> tuple[GoldRow, ...]:
+    """Return the rows a constant baseline learns from: all, or those outside the scored split."""
+    if split == "all":
+        return gold.rows
+    splits = effective_splits(gold)
+    fit_rows = tuple(row for row in gold.rows if splits[row.id] != split)
+    if not fit_rows:
+        raise AssistantError("golden_split", detail={"reason": "empty_fit"})
+    return fit_rows
 
 
 def false_trigger_reasons(row: GoldRow, prediction: Prediction) -> tuple[str, ...]:
@@ -507,22 +522,31 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
     gold = load_gold(args.gold)
     if args.pred is not None:
         return score(gold, load_predictions(args.pred), split=args.split).public()
-    build = oracle_predictions if args.baseline == "oracle" else constant_predictions
-    return score(gold, build(gold.rows), split=args.split, label=args.baseline).public()
+    if args.baseline == "oracle":
+        predictions = oracle_predictions(gold.rows)
+    else:
+        fit_rows = constant_fit_rows(gold, args.split)
+        predictions = constant_predictions(gold.rows, fit_rows=fit_rows)
+    return score(gold, predictions, split=args.split, label=args.baseline).public()
 
 
 def _read(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as error:
-        raise AssistantError("golden_file") from error
+    except (OSError, UnicodeDecodeError):
+        pass
+    # Raised outside the handler: the decode error holds the file bytes, and "from None"
+    # would still keep it on __context__.
+    raise AssistantError("golden_file")
 
 
 def _parse_json(text: str) -> object:
     try:
         return json.loads(text)
-    except json.JSONDecodeError as error:
-        raise AssistantError("golden_file") from error
+    except json.JSONDecodeError:
+        pass
+    # Raised outside the handler: JSONDecodeError.doc holds the raw text.
+    raise AssistantError("golden_file")
 
 
 def _document_value(key: str, value: str) -> object:

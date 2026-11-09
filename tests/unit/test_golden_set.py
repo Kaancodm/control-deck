@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -271,6 +272,25 @@ def test_split_of_forty_rows_is_24_16_and_stratified(sizes: dict[str, int]) -> N
         assert size - holdout >= min(2, (size + 1) // 2)
 
 
+def _holdout_counts(rows: list[GoldRow], assignment: dict[str, str]) -> dict[str, int]:
+    return dict(Counter(row.expected_route for row in rows if assignment[row.id] == "holdout"))
+
+
+def test_split_fills_by_holdout_share_not_by_absolute_shortfall() -> None:
+    sizes = dict(zip(ROUTES, (30, 10, 4, 4, 4, 4, 4, 4), strict=True))
+    rows = _rows_for(sizes)
+    counts = _holdout_counts(rows, assign_splits(rows))
+    # Filling by absolute shortfall (0.4 * size - holdout) would end at chat 11, status 3.
+    assert counts == {**dict.fromkeys(ROUTES, 2), "chat": 10, "status": 4}
+    assert sum(counts.values()) == 26
+
+
+def test_split_breaks_share_ties_by_route_order_not_row_order() -> None:
+    rows = _rows_for({"search_local": 8, "status": 8, "clarify": 1})
+    counts = _holdout_counts(rows, assign_splits(rows))
+    assert counts == {"status": 4, "search_local": 3}
+
+
 def test_synthetic_split_is_frozen_with_one_row_per_route_on_each_side() -> None:
     gold = load_gold()
     assignment = assign_splits(gold.rows)
@@ -312,6 +332,41 @@ def test_constant_baseline_scores_the_majority_route_only() -> None:
     # "none" oversteps only the two rows whose allowed action is "refuse".
     assert {item.id for item in report.false_triggers} == {"g02", "g12"}
     assert report.clarification_scored == 0 and report.params_rows_not_scored > 0
+
+
+@pytest.mark.parametrize(
+    ("split", "fitted_route"),
+    [("holdout", "status"), ("dev", "chat"), ("all", "search_local")],
+)
+def test_cli_constant_baseline_fits_on_the_rows_it_does_not_score(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, split: str, fitted_route: str
+) -> None:
+    routes = {
+        "dev": ("status", "status", "status", "search_local", "search_local"),
+        "holdout": ("chat", "chat", "chat", "search_local", "search_local"),
+    }
+    rows = [
+        _row(f"{side}-{index}", route, split=side)
+        for side, side_routes in routes.items()
+        for index, route in enumerate(side_routes)
+    ]
+    target = tmp_path / "gold.json"
+    target.write_text(json.dumps(_document(*rows)), encoding="utf-8")
+    assert main(["score", "--gold", str(target), "--baseline", "constant", "--split", split]) == 0
+    confusion = json.loads(capsys.readouterr().out)["confusion"]
+    predicted = {route for row in confusion.values() for route, count in row.items() if count}
+    assert predicted == {fitted_route}
+
+
+def test_cli_constant_baseline_refuses_a_split_without_rows_to_fit_on(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    target = tmp_path / "gold.json"
+    target.write_text(json.dumps(_document(_row(split="holdout"))), encoding="utf-8")
+    argv = ["score", "--gold", str(target), "--baseline", "constant", "--split", "holdout"]
+    assert main(argv) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["error"] == "golden_split" and output["detail"] == {"reason": "empty_fit"}
 
 
 def test_metrics_match_a_hand_computed_example() -> None:
@@ -469,6 +524,22 @@ def test_predictions_load_from_array_and_json_lines(tmp_path: Path) -> None:
     with pytest.raises(AssistantError) as refused:
         load_predictions(broken)
     assert refused.value.code == "golden_file"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b'{"raw_input": "GeheimerRohsatz', b"\xff GeheimerRohsatz"],
+    ids=["invalid_json", "invalid_utf8"],
+)
+def test_file_errors_do_not_chain_the_exception_holding_the_raw_text(
+    tmp_path: Path, content: bytes
+) -> None:
+    target = tmp_path / "broken.json"
+    target.write_bytes(content)
+    with pytest.raises(AssistantError) as refused:
+        load_gold(target)
+    assert refused.value.code == "golden_file"
+    assert refused.value.__cause__ is None and refused.value.__context__ is None
 
 
 def test_public_report_holds_no_row_text() -> None:

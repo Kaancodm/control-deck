@@ -137,6 +137,31 @@ def _temperature_env(environment: Mapping[str, str]) -> float:
     return value
 
 
+class StreamingReplySanitizer:
+    """Release only filtered assistant text (no thinking blocks, no secrets)."""
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._released = ""
+
+    def _visible(self, buffer: str) -> str:
+        lowered = buffer.casefold()
+        open_idx = lowered.find("<think>")
+        if open_idx >= 0 and "</think>" not in lowered:
+            return strip_think(buffer[:open_idx])
+        return strip_think(buffer)
+
+    def feed(self, chunk: str) -> str:
+        self._buffer += chunk
+        visible = self._visible(self._buffer)
+        delta = visible[len(self._released) :]
+        if not delta:
+            return ""
+        reject_secrets(delta, source="dialogue_reply")
+        self._released = visible
+        return delta
+
+
 def strip_think(content: str) -> str:
     """Drop a leading reasoning block a model emits despite ``think: false``.
 

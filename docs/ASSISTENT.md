@@ -150,6 +150,9 @@ wird vor dem Lauf abgewiesen. Der Benchmark selbst ruft weder Ollama noch das We
 auf. Ein vorhandenes lokales Modell wird dort nicht als unzensiert bezeichnet.
 Infomaniak ist `not_provisioned`. Latenz p50/p95 beschreibt nur diesen Mocklauf.
 
+Das Golden Set für Routing-Entscheide ist ein eigener Harness, siehe
+[GOLDEN_SET.md](GOLDEN_SET.md).
+
 ## Migration
 
 `20261108_0019` hängt an `20261104_0018`. Tabellen: Profilversionen, Karten,

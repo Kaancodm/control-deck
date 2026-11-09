@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import queue
 import threading
 import time
 import uuid
@@ -15,9 +17,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.assistant.dialogue import DialogueReply, reply_to_owner, store_turn
 from app.assistant.errors import AssistantError
 
+_log = logging.getLogger(__name__)
+
 TurnState = Literal["queued", "running", "done", "error"]
-_MAX_TURNS = 64
+_MAX_FINISHED = 64
+_MAX_QUEUED = 16
 _TURN_TTL_S = 600.0
+_QUEUE_FULL_CODE = "assistant_model_unavailable"
 
 
 @dataclass
@@ -30,15 +36,53 @@ class DialogueTurnJob:
     partial: str = ""
     created_at: float = field(default_factory=time.monotonic)
     updated_at: float = field(default_factory=time.monotonic)
-    _waiters: list[threading.Condition] = field(default_factory=list, repr=False)
 
 
 _lock = threading.Lock()
+_cond = threading.Condition(_lock)
 _turns: dict[str, DialogueTurnJob] = {}
-_worker_gate = threading.Semaphore(1)
+_work_queue: queue.Queue[_DialogueWorkItem | None] = queue.Queue()
+_worker_lock = threading.Lock()
+_worker_started = False
 
 
-def _prune_locked(now: float) -> None:
+@dataclass(frozen=True)
+class _DialogueWorkItem:
+    job: DialogueTurnJob
+    session_factory: sessionmaker[Session]
+    message: str
+    data_class: str
+    profile_notes: str | None
+    history: tuple[tuple[str, str], ...]
+    persist: bool
+
+
+def _ensure_worker() -> None:
+    global _worker_started
+    with _worker_lock:
+        if _worker_started:
+            return
+        thread = threading.Thread(target=_worker_loop, daemon=True, name="assistant-dialogue-worker")
+        thread.start()
+        _worker_started = True
+
+
+def _worker_loop() -> None:
+    while True:
+        item = _work_queue.get()
+        if item is None:
+            return
+        try:
+            _run_turn(item)
+        finally:
+            _work_queue.task_done()
+
+
+def _notify_all() -> None:
+    _cond.notify_all()
+
+
+def _prune_finished_locked(now: float) -> None:
     stale = [
         key
         for key, job in _turns.items()
@@ -46,14 +90,18 @@ def _prune_locked(now: float) -> None:
     ]
     for key in stale:
         _turns.pop(key, None)
-    if len(_turns) > _MAX_TURNS:
-        ordered = sorted(_turns.items(), key=lambda item: item[1].created_at)
-        for key, _job in ordered[: len(_turns) - _MAX_TURNS]:
+    finished = [key for key, job in _turns.items() if job.state in {"done", "error"}]
+    if len(finished) > _MAX_FINISHED:
+        ordered = sorted(
+            ((key, _turns[key]) for key in finished),
+            key=lambda item: item[1].created_at,
+        )
+        for key, _job in ordered[: len(finished) - _MAX_FINISHED]:
             _turns.pop(key, None)
 
 
 def get_turn(turn_id: str) -> DialogueTurnJob | None:
-    with _lock:
+    with _cond:
         return _turns.get(turn_id)
 
 
@@ -78,6 +126,12 @@ def turn_snapshot(job: DialogueTurnJob) -> dict[str, object]:
     return payload
 
 
+def _set_job_error(job: DialogueTurnJob, code: str) -> None:
+    job.state = "error"
+    job.error_code = code
+    job.updated_at = time.monotonic()
+
+
 def start_dialogue_turn(
     session_factory: sessionmaker[Session],
     *,
@@ -89,66 +143,74 @@ def start_dialogue_turn(
 ) -> str:
     turn_id = str(uuid.uuid4())
     job = DialogueTurnJob(turn_id=turn_id)
-    with _lock:
-        _prune_locked(time.monotonic())
+    with _cond:
+        _prune_finished_locked(time.monotonic())
+        queued = sum(1 for entry in _turns.values() if entry.state == "queued")
+        if queued >= _MAX_QUEUED:
+            raise AssistantError(_QUEUE_FULL_CODE)
         _turns[turn_id] = job
-
-    def _execute() -> None:
-        _worker_gate.acquire()
-        try:
-            _set_state(job, "running")
-            session = session_factory()
-            try:
-
-                def on_chunk(text: str) -> None:
-                    with _lock:
-                        job.partial += text
-                        job.updated_at = time.monotonic()
-                        for waiter in job._waiters:
-                            waiter.notify_all()
-
-                reply = reply_to_owner(
-                    message,
-                    data_class=data_class,
-                    profile_notes=profile_notes,
-                    history=history,
-                    on_chunk=on_chunk,
-                )
-                if persist:
-                    reply = store_turn(session, reply, owner_text=message.strip())
-                    session.commit()
-                else:
-                    session.rollback()
-                with _lock:
-                    job.reply = reply
-                    job.answer = reply.answer
-                    job.state = "done"
-                    job.updated_at = time.monotonic()
-                    for waiter in job._waiters:
-                        waiter.notify_all()
-            except AssistantError as exc:
-                session.rollback()
-                with _lock:
-                    job.state = "error"
-                    job.error_code = exc.code
-                    job.updated_at = time.monotonic()
-                    for waiter in job._waiters:
-                        waiter.notify_all()
-            finally:
-                session.close()
-        finally:
-            _worker_gate.release()
-
-    threading.Thread(target=_execute, daemon=True, name="assistant-dialogue-turn").start()
+        _notify_all()
+    _ensure_worker()
+    _work_queue.put(
+        _DialogueWorkItem(
+            job=job,
+            session_factory=session_factory,
+            message=message,
+            data_class=data_class,
+            profile_notes=profile_notes,
+            history=tuple(history),
+            persist=persist,
+        )
+    )
     return turn_id
 
 
-def _set_state(job: DialogueTurnJob, state: TurnState) -> None:
-    with _lock:
-        job.state = state
+def _run_turn(item: _DialogueWorkItem) -> None:
+    job = item.job
+    with _cond:
+        job.state = "running"
         job.updated_at = time.monotonic()
-        for waiter in job._waiters:
-            waiter.notify_all()
+        _notify_all()
+    session = item.session_factory()
+    try:
+
+        def on_chunk(text: str) -> None:
+            with _cond:
+                job.partial += text
+                job.updated_at = time.monotonic()
+                _notify_all()
+
+        reply = reply_to_owner(
+            item.message,
+            data_class=item.data_class,
+            profile_notes=item.profile_notes,
+            history=item.history,
+            on_chunk=on_chunk,
+        )
+        if item.persist:
+            reply = store_turn(session, reply, owner_text=item.message.strip())
+            session.commit()
+        else:
+            session.rollback()
+        with _cond:
+            job.reply = reply
+            job.answer = reply.answer
+            job.state = "done"
+            job.updated_at = time.monotonic()
+            _notify_all()
+    except AssistantError as exc:
+        session.rollback()
+        with _cond:
+            _set_job_error(job, exc.code)
+            _notify_all()
+    except Exception:
+        session.rollback()
+        _log.exception("assistant_dialogue_turn_failed")
+        with _cond:
+            _set_job_error(job, "assistant_model_unavailable")
+            _notify_all()
+    finally:
+        session.close()
 
 
 def stream_sse_events(
@@ -164,11 +226,11 @@ def stream_sse_events(
         if time.monotonic() - started > poll_timeout_s:
             yield _format_sse("failed", {"error": "assistant_model_read_timeout"})
             return
-        job = get_turn(turn_id)
-        if job is None:
-            yield _format_sse("failed", {"error": "assistant_input"})
-            return
-        with _lock:
+        with _cond:
+            job = _turns.get(turn_id)
+            if job is None:
+                yield _format_sse("failed", {"error": "assistant_input"})
+                return
             state = job.state
             partial = job.partial
             snapshot = turn_snapshot(job) if state in {"done", "error"} else None
@@ -186,19 +248,9 @@ def stream_sse_events(
         if state == "error" and snapshot is not None:
             yield _format_sse("failed", snapshot)
             return
-        waiter = threading.Condition()
-        with _lock:
-            job = get_turn(turn_id)
-            if job is not None:
-                job._waiters.append(waiter)
-        try:
-            with waiter:
-                waiter.wait(timeout=1.0)
-        finally:
-            with _lock:
-                job = get_turn(turn_id)
-                if job is not None and waiter in job._waiters:
-                    job._waiters.remove(waiter)
+        with _cond:
+            if not _cond.wait(timeout=1.0):
+                continue
 
 
 def _format_sse(event: str, payload: dict[str, object]) -> str:

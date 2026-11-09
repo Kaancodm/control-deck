@@ -8,10 +8,33 @@
   }
 
   const STORAGE_KEY = "deck_assistant_turn_id";
+  const submitButton = form.querySelector("button[type=submit], button:not([type])");
+  let activeSource = null;
+  let turnInFlight = false;
 
   function setStatus(text) {
     statusEl.textContent = text;
     statusEl.hidden = !text;
+  }
+
+  function setSubmitEnabled(enabled) {
+    if (submitButton) {
+      submitButton.disabled = !enabled;
+    }
+  }
+
+  function closeActiveSource() {
+    if (activeSource) {
+      activeSource.close();
+      activeSource = null;
+    }
+  }
+
+  function finishTurn() {
+    turnInFlight = false;
+    setSubmitEnabled(true);
+    closeActiveSource();
+    sessionStorage.removeItem(STORAGE_KEY);
   }
 
   function renderMeta(payload) {
@@ -38,6 +61,9 @@
   }
 
   function beginTurn() {
+    closeActiveSource();
+    turnInFlight = true;
+    setSubmitEnabled(false);
     outputEl.textContent = "";
     outputEl.hidden = true;
     if (metaEl) {
@@ -63,33 +89,36 @@
     try {
       const snapshot = await pollStatus(turnId);
       if (snapshot.partial) {
-        appendText(snapshot.partial);
+        outputEl.textContent = snapshot.partial;
+        outputEl.hidden = false;
       }
       if (snapshot.state === "done" && snapshot.answer) {
         outputEl.textContent = snapshot.answer;
         outputEl.hidden = false;
         renderMeta(snapshot);
         setStatus("");
-        sessionStorage.removeItem(STORAGE_KEY);
+        finishTurn();
         return;
       }
       if (snapshot.state === "error") {
         setStatus("Fehler: " + (snapshot.error || "assistant_model_unavailable"));
-        sessionStorage.removeItem(STORAGE_KEY);
+        finishTurn();
         return;
       }
       subscribeStream(turnId);
     } catch (_err) {
-      sessionStorage.removeItem(STORAGE_KEY);
+      finishTurn();
     }
   }
 
   function subscribeStream(turnId) {
     sessionStorage.setItem(STORAGE_KEY, turnId);
+    closeActiveSource();
     if (typeof EventSource !== "undefined") {
       const source = new EventSource(
         "/ui/assistant/talk/" + encodeURIComponent(turnId) + "/stream"
       );
+      activeSource = source;
       source.addEventListener("status", function (event) {
         try {
           const data = JSON.parse(event.data);
@@ -121,11 +150,10 @@
           }
           renderMeta(data);
           setStatus("");
-          sessionStorage.removeItem(STORAGE_KEY);
         } catch (_err) {
           setStatus("Antwort unvollständig.");
         }
-        source.close();
+        finishTurn();
       });
       source.addEventListener("failed", function (event) {
         try {
@@ -134,11 +162,10 @@
         } catch (_err) {
           setStatus("Verbindung unterbrochen.");
         }
-        source.close();
-        sessionStorage.removeItem(STORAGE_KEY);
+        finishTurn();
       });
       source.onerror = function () {
-        source.close();
+        closeActiveSource();
         fallbackPoll(turnId);
       };
       return;
@@ -147,9 +174,9 @@
   }
 
   async function fallbackPoll(turnId) {
-  sessionStorage.setItem(STORAGE_KEY, turnId);
+    sessionStorage.setItem(STORAGE_KEY, turnId);
     const deadline = Date.now() + 85000;
-    while (Date.now() < deadline) {
+    while (Date.now() < deadline && turnInFlight) {
       try {
         const snapshot = await pollStatus(turnId);
         if (snapshot.partial && outputEl.textContent.length < snapshot.partial.length) {
@@ -161,35 +188,37 @@
           outputEl.hidden = false;
           renderMeta(snapshot);
           setStatus("");
-          sessionStorage.removeItem(STORAGE_KEY);
+          finishTurn();
           return;
         }
         if (snapshot.state === "error") {
           setStatus("Fehler: " + (snapshot.error || "assistant_model_unavailable"));
-          sessionStorage.removeItem(STORAGE_KEY);
+          finishTurn();
           return;
         }
       } catch (_err) {
         setStatus("Verbindung unterbrochen.");
+        finishTurn();
         return;
       }
       await new Promise(function (resolve) {
         setTimeout(resolve, 900);
       });
     }
-    setStatus("Zeitlimit erreicht.");
-    sessionStorage.removeItem(STORAGE_KEY);
+    if (turnInFlight) {
+      setStatus("Zeitlimit erreicht.");
+      finishTurn();
+    }
   }
 
   form.addEventListener("submit", async function (event) {
     event.preventDefault();
-    const body = new FormData(form);
-    body.set("stream", "yes");
-    const button = form.querySelector("button[type=submit], button:not([type])");
-    if (button) {
-      button.disabled = true;
+    if (turnInFlight) {
+      return;
     }
     beginTurn();
+    const body = new FormData(form);
+    body.set("stream", "yes");
     try {
       const response = await fetch(form.action, {
         method: "POST",
@@ -199,20 +228,19 @@
       });
       if (!response.ok) {
         setStatus("Anfrage abgewiesen.");
+        finishTurn();
         return;
       }
       const payload = await response.json();
       if (!payload.turn_id) {
         setStatus("Ungültige Antwort.");
+        finishTurn();
         return;
       }
       subscribeStream(payload.turn_id);
     } catch (_err) {
       setStatus("Netzwerkfehler.");
-    } finally {
-      if (button) {
-        button.disabled = false;
-      }
+      finishTurn();
     }
   });
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 import time
@@ -36,6 +37,30 @@ SUPPORTED_OLLAMA_VERSION = "0.40.14"
 ADAPTER_VERSION = "1"
 _FALLBACK_NUM_CTX = 4096
 _CONTEXT_RESERVE = 1024
+_TASK_NUM_CTX_DEFAULT = 4096
+_TASK_NUM_CTX_MIN = 512
+_TASK_NUM_CTX_MAX = 32768
+
+
+def task_num_ctx_cap() -> int:
+    """Upper bound for live task ``num_ctx``. Prevents OOM from huge model metadata."""
+    raw = os.environ.get("DECK_OLLAMA_TASK_NUM_CTX", "").strip()
+    if not raw:
+        return _TASK_NUM_CTX_DEFAULT
+    try:
+        value = int(raw)
+    except ValueError:
+        return _TASK_NUM_CTX_DEFAULT
+    if not _TASK_NUM_CTX_MIN <= value <= _TASK_NUM_CTX_MAX:
+        return _TASK_NUM_CTX_DEFAULT
+    return value
+
+
+def _metadata_num_ctx(metadata_value: int) -> int:
+    """Cap only values inferred from model metadata or the fallback, not lane config."""
+    return min(metadata_value, task_num_ctx_cap())
+
+
 _BEHAVIORS = frozenset(
     {
         "ok",
@@ -299,9 +324,11 @@ class OllamaExecutor:
                     reason = "model_capability_unsupported"
                     continue
                 # Lane configuration wins; metadata and the safe fallback are secondary.
-                context_limits.append(
-                    (model, self.num_ctx if self.num_ctx is not None else _model_context(info))
-                )
+                if self.num_ctx is not None:
+                    limit = self.num_ctx
+                else:
+                    limit = _metadata_num_ctx(_model_context(info))
+                context_limits.append((model, limit))
                 available.append(model)
         except OllamaHTTPError as exc:
             return OllamaAvailability("unavailable", f"inventory_{exc.reason}")

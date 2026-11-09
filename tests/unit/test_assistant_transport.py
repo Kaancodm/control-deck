@@ -84,10 +84,18 @@ def test_loopback_fixture_is_not_a_real_or_uncensored_model(
         assert body["model"] == "fixture:localtest:local"
         assert "tools" not in body and body["keep_alive"] == "30m"
         assert body["think"] is False
-        assert body["options"]["temperature"] == 0
-        assert "PROFILTOKEN" in body["messages"][0]["content"]
-        assert "FRUEHERSATZ" in body["messages"][0]["content"]
-        assert "Dialog ohne Werkzeuge" in body["messages"][0]["content"]
+        assert body["options"]["temperature"] == 0.6
+        assert body["options"]["num_ctx"] == 4096
+        roles = [item["role"] for item in body["messages"]]
+        assert roles[0] == "system" and "Dialog ohne Werkzeuge" in body["messages"][0]["content"]
+        assert any(
+            item["role"] == "system" and "PROFILTOKEN" in item["content"]
+            for item in body["messages"]
+        )
+        assert any(
+            item["role"] == "user" and item["content"] == "FRUEHERSATZ" for item in body["messages"]
+        )
+        assert body["messages"][-1]["role"] == "user"
         return 200, "application/x-ndjson", _chat_line("FIXTURE_REPLY_7 uncensored llama3.2:3b")
 
     def fail_runner(*_args: object, **_kwargs: object) -> None:

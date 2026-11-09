@@ -8,16 +8,20 @@ installed-model attestation.
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from app.assistant.errors import AssistantError
 from app.assistant.providers import ModelReply
 from app.assistant.text import MESSAGE_MAX, reject_secrets, require_data_class
-from app.workers.lanes.ollama_http import OllamaHTTPClient, OllamaHTTPError
+from app.workers.lanes.ollama_http import ChatResponse, OllamaHTTPClient, OllamaHTTPError
 from app.workers.loopback_url import LiveConfigurationError, validate_ollama_url
+
+_log = logging.getLogger(__name__)
 
 LOOPBACK_PREFIX = "Loopback, Identität nicht belegt."
 # One already-installed CPU model can spend the first several seconds loading.
@@ -28,6 +32,13 @@ DIALOGUE_TIMEOUT_S = 75.0
 DIALOGUE_TIMEOUT_MAX_S = 85.0
 # Keep the model resident between turns so turn two does not pay a cold load.
 DIALOGUE_KEEP_ALIVE_DEFAULT = "30m"
+DIALOGUE_NUM_CTX_DEFAULT = 4096
+DIALOGUE_NUM_CTX_MIN = 1024
+DIALOGUE_NUM_CTX_MAX = 8192
+DIALOGUE_NUM_PREDICT_DEFAULT = 400
+DIALOGUE_NUM_PREDICT_MIN = 16
+DIALOGUE_NUM_PREDICT_MAX = 4096
+DIALOGUE_TEMPERATURE_DEFAULT = 0.6
 _KEEP_ALIVE = re.compile(r"0|[1-9][0-9]{0,3}[sm]|[1-9]h|1[0-9]h|2[0-4]h")
 # Only a leading block is reasoning; a tag later in the answer is content.
 _THINK_BLOCK = re.compile(r"\A\s*<think>.*?(?:</think>|\Z)", re.DOTALL | re.IGNORECASE)
@@ -93,6 +104,39 @@ def validate_timeout(value: float) -> float:
     return float(value)
 
 
+def _bounded_int_env(
+    environment: Mapping[str, str],
+    key: str,
+    default: int,
+    *,
+    min_value: int,
+    max_value: int,
+) -> int:
+    raw = environment.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise AssistantError("assistant_model_unconfigured") from exc
+    if not min_value <= value <= max_value:
+        raise AssistantError("assistant_model_unconfigured")
+    return value
+
+
+def _temperature_env(environment: Mapping[str, str]) -> float:
+    raw = environment.get("DECK_ASSISTANT_OLLAMA_TEMPERATURE", "").strip()
+    if not raw:
+        return DIALOGUE_TEMPERATURE_DEFAULT
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise AssistantError("assistant_model_unconfigured") from exc
+    if not 0 <= value <= 2:
+        raise AssistantError("assistant_model_unconfigured")
+    return value
+
+
 def strip_think(content: str) -> str:
     """Drop a leading reasoning block a model emits despite ``think: false``.
 
@@ -103,6 +147,36 @@ def strip_think(content: str) -> str:
     if stripped == content and "<think>" not in content.casefold():
         stripped = _THINK_TAIL.sub("", content, count=1)
     return stripped.strip()
+
+
+def normalize_history_reply(text: str) -> str:
+    """Prepare stored assistant text for replay (strip prefix and thinking blocks)."""
+    stripped = text.strip()
+    if stripped.startswith(LOOPBACK_PREFIX):
+        stripped = stripped[len(LOOPBACK_PREFIX) :].strip()
+    return strip_think(stripped)
+
+
+def _timing_detail(response: ChatResponse, *, elapsed_ms: int) -> dict[str, object]:
+    detail: dict[str, object] = {"elapsed_ms": max(0, min(elapsed_ms, 120_000))}
+    for key in (
+        "prompt_eval_count",
+        "eval_count",
+        "load_duration",
+        "prompt_eval_duration",
+        "eval_duration",
+        "total_duration",
+    ):
+        value = getattr(response, key)
+        if value is not None:
+            detail[key] = value
+    detail["done_reason"] = response.done_reason
+    return detail
+
+
+def _log_dialogue_turn(detail: Mapping[str, object]) -> None:
+    payload = {"event": "assistant_ollama_dialogue_turn", **dict(detail)}
+    _log.info("%s", json.dumps(payload, sort_keys=True))
 
 
 class OllamaDialogueAdapter:
@@ -118,11 +192,28 @@ class OllamaDialogueAdapter:
         client: OllamaHTTPClient | None = None,
         keep_alive: str = DIALOGUE_KEEP_ALIVE_DEFAULT,
         timeout_s: float = DIALOGUE_TIMEOUT_S,
+        num_ctx: int = DIALOGUE_NUM_CTX_DEFAULT,
+        num_predict: int = DIALOGUE_NUM_PREDICT_DEFAULT,
+        temperature: float = DIALOGUE_TEMPERATURE_DEFAULT,
     ) -> None:
         self.url = url
         self.model = validate_model_tag(model)
         self.keep_alive = validate_keep_alive(keep_alive)
         self.timeout_s = validate_timeout(timeout_s)
+        if type(num_ctx) is not int or not DIALOGUE_NUM_CTX_MIN <= num_ctx <= DIALOGUE_NUM_CTX_MAX:
+            raise AssistantError("assistant_model_unconfigured")
+        if (
+            type(num_predict) is not int
+            or not DIALOGUE_NUM_PREDICT_MIN <= num_predict <= DIALOGUE_NUM_PREDICT_MAX
+        ):
+            raise AssistantError("assistant_model_unconfigured")
+        if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
+            raise AssistantError("assistant_model_unconfigured")
+        if not 0 <= float(temperature) <= 2:
+            raise AssistantError("assistant_model_unconfigured")
+        self.num_ctx = num_ctx
+        self.num_predict = num_predict
+        self.temperature = float(temperature)
         try:
             validate_ollama_url(url)
         except LiveConfigurationError as exc:
@@ -150,11 +241,29 @@ class OllamaDialogueAdapter:
             timeout_s = float(raw_timeout) if raw_timeout else DIALOGUE_TIMEOUT_S
         except ValueError as exc:
             raise AssistantError("assistant_model_unconfigured") from exc
+        num_ctx = _bounded_int_env(
+            env,
+            "DECK_ASSISTANT_OLLAMA_NUM_CTX",
+            DIALOGUE_NUM_CTX_DEFAULT,
+            min_value=DIALOGUE_NUM_CTX_MIN,
+            max_value=DIALOGUE_NUM_CTX_MAX,
+        )
+        num_predict = _bounded_int_env(
+            env,
+            "DECK_ASSISTANT_OLLAMA_NUM_PREDICT",
+            DIALOGUE_NUM_PREDICT_DEFAULT,
+            min_value=DIALOGUE_NUM_PREDICT_MIN,
+            max_value=DIALOGUE_NUM_PREDICT_MAX,
+        )
+        temperature = _temperature_env(env)
         return cls(
             url=url,
             model=model,
             keep_alive=keep_alive or DIALOGUE_KEEP_ALIVE_DEFAULT,
             timeout_s=timeout_s,
+            num_ctx=num_ctx,
+            num_predict=num_predict,
+            temperature=temperature,
         )
 
     def complete(
@@ -165,10 +274,30 @@ class OllamaDialogueAdapter:
         cancelled: Callable[[], bool] | None = None,
         timeout_s: float | None = None,
     ) -> ModelReply:
+        messages = [{"role": "user", "content": prompt}]
+        return self.complete_messages(
+            messages, data_class=data_class, cancelled=cancelled, timeout_s=timeout_s
+        )
+
+    def complete_messages(
+        self,
+        messages: Sequence[Mapping[str, str]],
+        *,
+        data_class: str,
+        cancelled: Callable[[], bool] | None = None,
+        timeout_s: float | None = None,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> ModelReply:
         checked = require_data_class(data_class)
-        reject_secrets(prompt, source="dialogue_prompt")
-        if len(prompt) > MESSAGE_MAX:
-            raise AssistantError("assistant_oversize")
+        normalized: list[dict[str, object]] = []
+        for item in messages:
+            role = item.get("role")
+            content = item.get("content")
+            if role not in {"system", "user", "assistant"} or not isinstance(content, str):
+                raise AssistantError("assistant_input")
+            normalized.append({"role": role, "content": content})
+            reject_secrets(content, source="dialogue_prompt")
+        reject_secrets(json.dumps(normalized, ensure_ascii=False), source="dialogue_prompt")
         if timeout_s is None:
             timeout_s = self.timeout_s
         if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)):
@@ -179,20 +308,31 @@ class OllamaDialogueAdapter:
         stop = cancelled if cancelled is not None else (lambda: False)
         started = time.monotonic()
         try:
-            response = self.client.chat(
-                model=f"{self.model}:local",
-                payload_text=prompt,
-                timeout_s=float(timeout_s),
-                cancelled=stop,
-                num_ctx=1024,
-                keep_alive=self.keep_alive,
-                think=False,
-            )
+            if on_chunk is None:
+                response = self.client.chat(
+                    model=f"{self.model}:local",
+                    messages=normalized,
+                    timeout_s=float(timeout_s),
+                    cancelled=stop,
+                    num_ctx=self.num_ctx,
+                    num_predict=self.num_predict,
+                    temperature=self.temperature,
+                    keep_alive=self.keep_alive,
+                    think=False,
+                )
+            else:
+                response = self._chat_streaming(
+                    normalized,
+                    timeout_s=float(timeout_s),
+                    cancelled=stop,
+                    on_chunk=on_chunk,
+                )
         except OllamaHTTPError as exc:
             elapsed_ms = int((time.monotonic() - started) * 1000)
             raise AssistantError(
                 _failure_code(exc), detail=_failure_detail(exc, elapsed_ms)
             ) from exc
+        elapsed_ms = int((time.monotonic() - started) * 1000)
         content = strip_think(response.content)
         if not content or "\0" in content:
             raise AssistantError(
@@ -200,6 +340,8 @@ class OllamaDialogueAdapter:
                 detail={"class": "malformed", "phase": "body", "reason": "internal"},
             )
         reject_secrets(content, source="dialogue_reply")
+        timing = _timing_detail(response, elapsed_ms=elapsed_ms)
+        _log_dialogue_turn(timing)
         text = f"{LOOPBACK_PREFIX} {content[:2000]}"
         if len(text) > MESSAGE_MAX:
             text = text[:MESSAGE_MAX]
@@ -213,6 +355,28 @@ class OllamaDialogueAdapter:
             uncensored_claim=False,
             loopback_calls=1,
             model_identity="unverified",
+            detail=timing,
+        )
+
+    def _chat_streaming(
+        self,
+        messages: list[dict[str, object]],
+        *,
+        timeout_s: float,
+        cancelled: Callable[[], bool],
+        on_chunk: Callable[[str], None],
+    ) -> ChatResponse:
+        return self.client.chat_with_chunks(
+            model=f"{self.model}:local",
+            messages=messages,
+            timeout_s=timeout_s,
+            cancelled=cancelled,
+            num_ctx=self.num_ctx,
+            num_predict=self.num_predict,
+            temperature=self.temperature,
+            keep_alive=self.keep_alive,
+            think=False,
+            on_chunk=on_chunk,
         )
 
 

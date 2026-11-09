@@ -57,6 +57,7 @@ class ModelReply:
     uncensored_claim: bool = False
     loopback_calls: int = 0
     model_identity: str = "not_applicable"
+    detail: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)

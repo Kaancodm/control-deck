@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from app.assistant.errors import AssistantError
-from app.assistant.ollama_chat import LOOPBACK_PREFIX, OllamaDialogueAdapter
+from app.assistant.ollama_chat import OllamaDialogueAdapter
 
 SYNTHETIC_PROMPT = "Reply with the single token LOOPBACK_PROBE_7"
 _ROOT = Path(__file__).resolve().parents[2]
@@ -71,7 +71,6 @@ def probe(url: str, model: str) -> dict[str, object]:
             "live": produced.live,
             "network_calls": produced.network_calls,
             "loopback_calls": produced.loopback_calls,
-            "prefix_ok": produced.text.startswith(LOOPBACK_PREFIX),
             "configured_model": model,
             "answer_sha256": hashlib.sha256(produced.text.encode("utf-8")).hexdigest(),
             "answer_preview": preview,
@@ -82,6 +81,7 @@ def probe(url: str, model: str) -> dict[str, object]:
 
 _DETAIL_CLASS = {
     "cancelled",
+    "busy",
     "model_missing",
     "http_status",
     "connect_timeout",
@@ -91,7 +91,7 @@ _DETAIL_CLASS = {
     "unavailable",
 }
 _DETAIL_PHASE = {"connect", "headers", "body", "status", "unknown"}
-_DETAIL_REASON = {"cancelled", "timeout", "unavailable", "internal"}
+_DETAIL_REASON = {"cancelled", "timeout", "unavailable", "internal", "busy"}
 
 
 def public_detail(detail: object) -> dict[str, object]:

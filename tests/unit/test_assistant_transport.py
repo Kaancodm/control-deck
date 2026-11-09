@@ -18,7 +18,7 @@ from app.assistant.ollama_chat import (
     DIALOGUE_FIRST_CHUNK_S,
     DIALOGUE_IDLE_S,
     DIALOGUE_TIMEOUT_S,
-    LOOPBACK_PREFIX,
+    LOOPBACK_NOTICE,
     OllamaDialogueAdapter,
     validate_model_tag,
 )
@@ -121,9 +121,9 @@ def test_loopback_fixture_is_not_a_real_or_uncensored_model(
     assert reply.origin == "ollama_loopback"
     assert reply.evidence_status == "loopback_unverified"
     assert reply.profile_written is False
-    assert reply.answer.startswith(LOOPBACK_PREFIX)
-    assert "FIXTURE_REPLY_7" in reply.answer
-    assert "unzensiert" not in LOOPBACK_PREFIX.casefold()
+    assert reply.answer == "FIXTURE_REPLY_7 uncensored llama3.2:3b"
+    assert reply.evidence_label == LOOPBACK_NOTICE
+    assert "unzensiert" not in LOOPBACK_NOTICE.casefold()
 
 
 def test_default_and_runner_flag_do_not_open_the_fixture(
@@ -231,7 +231,8 @@ def test_namespaced_model_tag_is_json_data_on_the_fixed_chat_path() -> None:
         produced = adapter.complete("Hallo", data_class="local_only")
     finally:
         server.shutdown()
-    assert produced.text.startswith(LOOPBACK_PREFIX)
+    assert produced.text == "FIXTURE_REPLY_7"
+    assert produced.model_identity == "unverified"
     assert len(seen) == 1
     path, raw = seen[0]
     assert path == "/api/chat"
@@ -675,9 +676,9 @@ def test_loopback_probe_uses_the_same_adapter_and_stays_on_the_fixture(
         server.shutdown()
     assert report["model_identity"] == "unverified"
     assert report["uncensored_claim"] is False
-    assert report["prefix_ok"] is True
+    assert "prefix_ok" not in report
     assert report["loopback_calls"] == 1 and report["network_calls"] == 0
-    assert "FIXTURE_REPLY_7" in str(report["answer_preview"])
+    assert report["answer_preview"] == "FIXTURE_REPLY_7"
     assert remote.value.code == "assistant_model_unconfigured"
 
 
@@ -961,5 +962,5 @@ def test_dialogue_request_disables_thinking_and_keeps_model_warm(
     finally:
         server.shutdown()
     assert bodies[0]["think"] is False and bodies[0]["keep_alive"] == "15m"
-    assert reply.text.endswith("Bergkristall") and "geheim" not in reply.text
+    assert reply.text == "Bergkristall"
     assert again.text == reply.text

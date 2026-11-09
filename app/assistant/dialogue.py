@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.assistant.errors import AssistantError
 from app.assistant.ollama_chat import (
-    LOOPBACK_PREFIX,
+    LOOPBACK_NOTICE,
     OllamaDialogueAdapter,
     normalize_history_reply,
 )
@@ -36,6 +36,13 @@ class DialogueReply:
     data_class: str
     persisted: bool
     profile_written: bool
+
+    @property
+    def evidence_label(self) -> str:
+        """Status-line text; the unverified-identity note stays out of ``answer``."""
+        if self.evidence_status == "loopback_unverified":
+            return LOOPBACK_NOTICE
+        return self.evidence_status
 
 
 def estimate_dialogue_tokens(text: str) -> int:
@@ -133,8 +140,6 @@ def reply_to_owner(
         produced = adapter.complete_messages(chat_messages, data_class=checked, on_chunk=on_chunk)
         if not _loopback_reply_ok(produced, checked):
             raise AssistantError("live_model_disabled")
-        if not produced.text.startswith(LOOPBACK_PREFIX):
-            raise AssistantError("assistant_model_unavailable")
         return _reply(produced, origin="ollama_loopback", evidence_status="loopback_unverified")
     raise AssistantError("live_model_disabled")
 

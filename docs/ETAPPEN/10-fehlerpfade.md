@@ -19,7 +19,10 @@ und `result.v1`; `data_class` bleibt ein Pflichtfeld ohne Default.
 ## Fehlervertrag
 
 Jeder erfolgreiche Claim erhoeht `attempt` genau einmal. Adapter bearbeiten einen Versuch
-und melden dessen Ergebnis; sie starten keine versteckten Wiederholungen.
+und melden dessen Ergebnis; sie starten keine versteckten Wiederholungen. Einzige Ausnahme
+ist ein HTTP 503 der vollen Ollama-Warteschlange: Ollama hat diese Anfrage vor jeder Inferenz
+abgewiesen, darum sendet der Transport sie innerhalb desselben `attempt` und desselben
+Zeitbudgets begrenzt erneut (hoechstens vier Anfragen). Danach meldet die Lane `rate_limited`.
 
 | Ereignis | Reaktion |
 |----------|----------|

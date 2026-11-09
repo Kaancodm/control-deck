@@ -12,6 +12,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 from starlette.responses import RedirectResponse, Response
 
+from app.assistant.errors import MODEL_BUSY_CODE, MODEL_BUSY_TEXT
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE, token_digest
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).with_name("templates"))
@@ -192,6 +193,7 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
         "Das Loopback-Modell hat das Zeitlimit erreicht.",
         "Ein kalter Start hat einen Versuch. Es gibt keinen zweiten.",
     ),
+    MODEL_BUSY_CODE: MODEL_BUSY_TEXT,
     "assistant_model_http": (
         "Der Loopback-Dienst lieferte einen HTTP-Status ausser 200.",
         "Der Status steht in der Probe, der Inhalt nicht.",

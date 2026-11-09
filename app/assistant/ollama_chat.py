@@ -15,19 +15,22 @@ import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 
-from app.assistant.errors import AssistantError
+from app.assistant.errors import MODEL_BUSY_CODE, AssistantError
 from app.assistant.providers import ModelReply
-from app.assistant.text import MESSAGE_MAX, reject_secrets, require_data_class
+from app.assistant.text import reject_secrets, require_data_class
 from app.workers.lanes.ollama_http import ChatResponse, OllamaHTTPClient, OllamaHTTPError
 from app.workers.lanes.ollama_keep_alive import KeepAliveSetting, parse_keep_alive_value
 from app.workers.loopback_url import LiveConfigurationError, validate_ollama_url
 
 _log = logging.getLogger(__name__)
 
-LOOPBACK_PREFIX = "Loopback, Identität nicht belegt."
+# Provenance note for the status line of a reply; never part of the reply text.
+# Rows stored by earlier versions still start with it, so replay removes it.
+LOOPBACK_NOTICE = "Loopback, Identität nicht belegt."
 # One already-installed CPU model can spend the first several seconds loading.
 # The previous dialogue cap was 8s and collapsed every failure into one code.
-# These bounds stay inside a 90s operator shell. There is no second attempt.
+# These bounds stay inside a 90s operator shell. Only a queue-full 503 is sent
+# again, inside the same budget; a timeout has no second attempt.
 DIALOGUE_TIMEOUT_S = 75.0
 # Owner may raise the read budget on slow CPUs; the ceiling still fits the 90s shell.
 DIALOGUE_TIMEOUT_MAX_S = 85.0
@@ -50,7 +53,7 @@ DIALOGUE_IDLE_S = 20.0
 _NAMESPACE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,79}\Z")
 _NAME_PART = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}\Z")
 _PHASES = {"connect", "headers", "body", "status", "unknown"}
-_REASONS = {"cancelled", "timeout", "unavailable", "internal"}
+_REASONS = {"cancelled", "timeout", "unavailable", "internal", "busy"}
 
 
 def validate_model_tag(model: str) -> str:
@@ -200,11 +203,16 @@ def strip_think(content: str) -> str:
 
 
 def normalize_history_reply(text: str) -> str:
-    """Prepare stored assistant text for replay (strip prefix and thinking blocks)."""
-    stripped = text.strip()
-    if stripped.startswith(LOOPBACK_PREFIX):
-        stripped = stripped[len(LOOPBACK_PREFIX) :].strip()
-    return strip_think(stripped)
+    """Prepare stored assistant text for replay (strip legacy notice and thinking blocks)."""
+    return strip_think(_without_legacy_notice(text.strip()))
+
+
+def _without_legacy_notice(text: str) -> str:
+    """Remove the notice only from the stored ``<notice> <text>`` layout of earlier versions."""
+    body = text.removeprefix(f"{LOOPBACK_NOTICE} ")
+    if body == text or not body or body[0].isspace():
+        return text
+    return body
 
 
 def _timing_detail(response: ChatResponse, *, elapsed_ms: int) -> dict[str, object]:
@@ -414,11 +422,8 @@ class OllamaDialogueAdapter:
         reject_secrets(content, source="dialogue_reply")
         timing = _timing_detail(response, elapsed_ms=elapsed_ms)
         _log_dialogue_turn(timing)
-        text = f"{LOOPBACK_PREFIX} {content[:2000]}"
-        if len(text) > MESSAGE_MAX:
-            text = text[:MESSAGE_MAX]
         return ModelReply(
-            text=text,
+            text=content[:2000],
             profile=self.profile,
             data_class=checked,
             profile_written=False,
@@ -455,6 +460,8 @@ class OllamaDialogueAdapter:
 def _failure_code(exc: OllamaHTTPError) -> str:
     if exc.reason == "cancelled":
         return "assistant_cancelled"
+    if exc.reason == "busy":
+        return MODEL_BUSY_CODE
     if exc.status_code == 404:
         return "assistant_model_missing"
     if exc.status_code is not None:
@@ -472,6 +479,7 @@ def _failure_code(exc: OllamaHTTPError) -> str:
 
 _FAILURE_CLASS = {
     "assistant_cancelled": "cancelled",
+    MODEL_BUSY_CODE: "busy",
     "assistant_model_missing": "model_missing",
     "assistant_model_http": "http_status",
     "assistant_model_connect_timeout": "connect_timeout",

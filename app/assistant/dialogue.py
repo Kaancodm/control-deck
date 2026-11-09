@@ -64,12 +64,12 @@ def compose_dialogue_messages(
             raise AssistantError("assistant_input")
         reject_secrets(owner_text, source="dialogue_history")
         reject_secrets(reply_text, source="dialogue_history")
-        owner = " ".join(owner_text.split())
+        owner = owner_text.strip()
         assistant = normalize_history_reply(reply_text)
         if not owner or not assistant:
             continue
         turns.append((owner, assistant))
-    current_user = " ".join(message.split())
+    current_user = message
     reject_secrets(current_user, source="dialogue")
     budget = num_ctx - num_predict - _TEMPLATE_RESERVE
     if budget < 128:

@@ -56,3 +56,14 @@ def test_oversized_budget_configuration_is_rejected() -> None:
 def test_estimate_tokens_uses_len_over_three_point_five() -> None:
     text = "a" * 35
     assert estimate_dialogue_tokens(text) == 10
+
+
+def test_current_user_message_keeps_line_breaks() -> None:
+    messages = compose_dialogue_messages(
+        message="Zeile1\nZeile2",
+        profile_notes=None,
+        history=(),
+        num_ctx=4096,
+        num_predict=400,
+    )
+    assert messages[-1]["content"] == "Zeile1\nZeile2"

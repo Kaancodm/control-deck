@@ -56,8 +56,9 @@ def task_num_ctx_cap() -> int:
     return value
 
 
-def _effective_task_num_ctx(configured: int) -> int:
-    return min(configured, task_num_ctx_cap())
+def _metadata_num_ctx(metadata_value: int) -> int:
+    """Cap only values inferred from model metadata or the fallback, not lane config."""
+    return min(metadata_value, task_num_ctx_cap())
 
 
 _BEHAVIORS = frozenset(
@@ -323,8 +324,11 @@ class OllamaExecutor:
                     reason = "model_capability_unsupported"
                     continue
                 # Lane configuration wins; metadata and the safe fallback are secondary.
-                limit = self.num_ctx if self.num_ctx is not None else _model_context(info)
-                context_limits.append((model, _effective_task_num_ctx(limit)))
+                if self.num_ctx is not None:
+                    limit = self.num_ctx
+                else:
+                    limit = _metadata_num_ctx(_model_context(info))
+                context_limits.append((model, limit))
                 available.append(model)
         except OllamaHTTPError as exc:
             return OllamaAvailability("unavailable", f"inventory_{exc.reason}")

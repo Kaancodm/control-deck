@@ -81,6 +81,7 @@ def probe(url: str, model: str) -> dict[str, object]:
 
 _DETAIL_CLASS = {
     "cancelled",
+    "busy",
     "model_missing",
     "http_status",
     "connect_timeout",
@@ -90,7 +91,7 @@ _DETAIL_CLASS = {
     "unavailable",
 }
 _DETAIL_PHASE = {"connect", "headers", "body", "status", "unknown"}
-_DETAIL_REASON = {"cancelled", "timeout", "unavailable", "internal"}
+_DETAIL_REASON = {"cancelled", "timeout", "unavailable", "internal", "busy"}
 
 
 def public_detail(detail: object) -> dict[str, object]:

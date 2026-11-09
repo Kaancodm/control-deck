@@ -15,19 +15,31 @@ from typing import Literal, TypeVar, cast
 
 from app.workers.loopback_url import validate_ollama_url
 
-FailureReason = Literal["cancelled", "timeout", "unavailable", "internal"]
+FailureReason = Literal["cancelled", "timeout", "unavailable", "internal", "busy"]
 T = TypeVar("T")
+
+# Ollama answers 503 at once when OLLAMA_MAX_QUEUE is full, before any inference starts.
+_BUSY_STATUS = 503
+BUSY_ATTEMPTS = 4
+BUSY_BACKOFF_S = 0.5
+BUSY_BACKOFF_MAX_S = 4.0
 
 
 class OllamaHTTPError(Exception):
     """Only safe categories cross the adapter boundary, never server error text."""
 
     def __init__(
-        self, reason: FailureReason, status_code: int | None = None, *, phase: str = "unknown"
+        self,
+        reason: FailureReason,
+        status_code: int | None = None,
+        *,
+        phase: str = "unknown",
+        retry_after_s: float | None = None,
     ) -> None:
         self.reason = reason
         self.status_code = status_code
         self.phase = phase
+        self.retry_after_s = retry_after_s
         super().__init__(f"Ollama HTTP request failed ({reason})")
 
 
@@ -87,8 +99,34 @@ def _duration_ns(value: object) -> int | None:
     return value
 
 
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Read a delta-seconds header; an HTTP date or junk falls back to the backoff."""
+    if value is None:
+        return None
+    text = value.strip()
+    if not text.isascii() or not text.isdecimal() or len(text) > 9:
+        return None
+    return float(text)
+
+
+def busy_delay_s(
+    attempt: int,
+    retry_after_s: float | None,
+    *,
+    backoff_s: float = BUSY_BACKOFF_S,
+    maximum_s: float = BUSY_BACKOFF_MAX_S,
+) -> float:
+    """Honor the server's hint or double the backoff, never exceeding the cap."""
+    delay = retry_after_s if retry_after_s is not None else backoff_s * 2 ** (attempt - 1)
+    return min(delay, maximum_s)
+
+
 class OllamaHTTPClient:
-    """Use one close-only connection per request with no proxies, redirects or retries."""
+    """Use one close-only connection per request with no proxies or redirects.
+
+    Only a queue-full 503 is sent again: Ollama refused it before inference, so no
+    chunk was delivered and the model did no work. Retries share the caller's timeout.
+    """
 
     def __init__(
         self,
@@ -100,9 +138,19 @@ class OllamaHTTPClient:
         max_output_bytes: int = 4 * 1024 * 1024,
         max_line_bytes: int = 64 * 1024,
         max_stream_bytes: int = 8 * 1024 * 1024,
+        busy_attempts: int = BUSY_ATTEMPTS,
+        busy_backoff_s: float = BUSY_BACKOFF_S,
+        busy_backoff_max_s: float = BUSY_BACKOFF_MAX_S,
     ) -> None:
         self.endpoint = validate_ollama_url(url)
-        for duration in (first_chunk_timeout_s, idle_timeout_s):
+        if type(busy_attempts) is not int or not 1 <= busy_attempts <= 8:
+            raise ValueError("Invalid busy retry limit")
+        for duration in (
+            first_chunk_timeout_s,
+            idle_timeout_s,
+            busy_backoff_s,
+            busy_backoff_max_s,
+        ):
             if (
                 isinstance(duration, bool)
                 or not isinstance(duration, (float, int))
@@ -119,8 +167,59 @@ class OllamaHTTPClient:
         self.max_output_bytes = max_output_bytes
         self.max_line_bytes = max_line_bytes
         self.max_stream_bytes = max_stream_bytes
+        self.busy_attempts = busy_attempts
+        self.busy_backoff_s = busy_backoff_s
+        self.busy_backoff_max_s = busy_backoff_max_s
 
     def _request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, object] | None,
+        *,
+        timeout_s: float,
+        cancelled: Callable[[], bool],
+        consume: Callable[[http.client.HTTPResponse, Callable[[], None]], T],
+        streaming: bool = False,
+    ) -> T:
+        deadline = time.monotonic() + timeout_s
+        budget = timeout_s
+        attempt = 1
+        while True:
+            try:
+                return self._attempt(
+                    method,
+                    path,
+                    body,
+                    timeout_s=budget,
+                    cancelled=cancelled,
+                    consume=consume,
+                    streaming=streaming,
+                )
+            except OllamaHTTPError as exc:
+                if exc.status_code != _BUSY_STATUS:
+                    raise
+                delay = busy_delay_s(
+                    attempt,
+                    exc.retry_after_s,
+                    backoff_s=self.busy_backoff_s,
+                    maximum_s=self.busy_backoff_max_s,
+                )
+                if attempt >= self.busy_attempts or delay >= deadline - time.monotonic():
+                    raise OllamaHTTPError("busy", _BUSY_STATUS, phase="status") from None
+            self._wait_before_retry(delay, cancelled)
+            budget = deadline - time.monotonic()
+            attempt += 1
+
+    @staticmethod
+    def _wait_before_retry(delay_s: float, cancelled: Callable[[], bool]) -> None:
+        until = time.monotonic() + delay_s
+        while (left := until - time.monotonic()) > 0:
+            if cancelled():
+                raise OllamaHTTPError("cancelled")
+            time.sleep(min(0.025, left))
+
+    def _attempt(
         self,
         method: str,
         path: str,
@@ -178,7 +277,12 @@ class OllamaHTTPClient:
                 response = connection.getresponse()
                 try:
                     if response.status != 200:
-                        raise OllamaHTTPError("unavailable", response.status, phase="status")
+                        raise OllamaHTTPError(
+                            "unavailable",
+                            response.status,
+                            phase="status",
+                            retry_after_s=_retry_after_seconds(response.getheader("Retry-After")),
+                        )
                     if response.getheader("Content-Encoding", "identity") != "identity":
                         raise OllamaHTTPError("internal", phase="headers")
                     phase[0] = "body"

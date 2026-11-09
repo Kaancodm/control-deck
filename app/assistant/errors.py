@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+MODEL_BUSY_CODE = "assistant_model_busy"
+MODEL_BUSY_TEXT = ("Ollama ausgelastet.", "Die Warteschlange ist voll. Kurz warten und neu senden.")
+
 
 class AssistantError(Exception):
     """Expected assistant failure identified by a fixed code.

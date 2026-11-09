@@ -15,7 +15,7 @@ from typing import Literal
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.assistant.dialogue import DialogueReply, reply_to_owner, store_turn
-from app.assistant.errors import AssistantError
+from app.assistant.errors import MODEL_BUSY_CODE, MODEL_BUSY_TEXT, AssistantError
 
 _log = logging.getLogger(__name__)
 
@@ -134,6 +134,8 @@ def turn_snapshot(job: DialogueTurnJob) -> dict[str, object]:
         )
     if job.error_code is not None:
         payload["error"] = job.error_code
+        if job.error_code == MODEL_BUSY_CODE:
+            payload["message"] = " ".join(MODEL_BUSY_TEXT)
     return payload
 
 

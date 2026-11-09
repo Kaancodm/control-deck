@@ -68,6 +68,11 @@ oder `-1` fuer dauerhaft geladen, `server` ohne Feld im Request) haelt das
 Modell zwischen zwei Runden geladen. Die Task-Lane nutzt `DECK_OLLAMA_KEEP_ALIVE`
 (Standard `1m`, gleiche Werte). `DECK_ASSISTANT_OLLAMA_TIMEOUT_S`
 (Standard 75, hoechstens 85) setzt das Gesamtlimit; es bleibt in der 90-Sekunden-Shell.
+Antwortet Ollama mit 503, weil die Warteschlange voll ist, sendet der Client die Anfrage
+innerhalb dieses Limits bis zu viermal (Abstand 0,5, 1 und 2 Sekunden oder `Retry-After`,
+hoechstens 4 Sekunden). Danach erscheint `assistant_model_busy` mit dem Text
+"Ollama ausgelastet.". Ein 503 kommt vor dem ersten Teiltext, im Streaming entsteht
+deshalb nichts doppelt.
 Gemessen am 2026-11-09 auf dem Server: Runde 1 etwa 4 bis 13 Sekunden, Runde 2 mit
 Verlauf etwa 5 Sekunden statt Abbruch nach 75 Sekunden.
 Der Dialog in der Web-UI sendet asynchron (`stream=yes`): POST liefert sofort eine

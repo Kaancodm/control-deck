@@ -55,6 +55,10 @@
     metaEl.hidden = parts.length === 0;
   }
 
+  function errorText(payload) {
+    return payload.message || "Fehler: " + (payload.error || "assistant_model_unavailable");
+  }
+
   function appendText(text) {
     outputEl.hidden = false;
     outputEl.textContent += text;
@@ -101,7 +105,7 @@
         return;
       }
       if (snapshot.state === "error") {
-        setStatus("Fehler: " + (snapshot.error || "assistant_model_unavailable"));
+        setStatus(errorText(snapshot));
         finishTurn();
         return;
       }
@@ -158,7 +162,7 @@
       source.addEventListener("failed", function (event) {
         try {
           const data = JSON.parse(event.data);
-          setStatus("Fehler: " + (data.error || "assistant_model_unavailable"));
+          setStatus(errorText(data));
         } catch (_err) {
           setStatus("Verbindung unterbrochen.");
         }
@@ -192,7 +196,7 @@
           return;
         }
         if (snapshot.state === "error") {
-          setStatus("Fehler: " + (snapshot.error || "assistant_model_unavailable"));
+          setStatus(errorText(snapshot));
           finishTurn();
           return;
         }

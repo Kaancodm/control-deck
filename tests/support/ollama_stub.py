@@ -20,6 +20,8 @@ class OllamaStub:
         initial_delay_s=0,
         header_delay_s=0,
         status_by_path=None,
+        status_sequence_by_path=None,
+        retry_after=None,
         raw_by_path=None,
         show_extra=None,
         show_by_model=None,
@@ -33,6 +35,10 @@ class OllamaStub:
         self.initial_delay_s = initial_delay_s
         self.header_delay_s = header_delay_s
         self.status_by_path = status_by_path or {}
+        self.status_sequence_by_path = {
+            path: list(codes) for path, codes in (status_sequence_by_path or {}).items()
+        }
+        self.retry_after = retry_after
         self.raw_by_path = raw_by_path or {}
         self.show_extra = show_extra or {}
         self.show_by_model = show_by_model or {}
@@ -71,10 +77,15 @@ class OllamaStub:
                         fixture.chat_started.set()
                     if fixture._stop.wait(fixture.header_delay_s):
                         return
-                    status = fixture.status_by_path.get(self.path, 200)
+                    sequence = fixture.status_sequence_by_path.get(self.path)
+                    status = (
+                        sequence.pop(0) if sequence else fixture.status_by_path.get(self.path, 200)
+                    )
                     self.send_response(status)
                     self.send_header("Content-Type", "application/x-ndjson")
                     self.send_header("Connection", "close")
+                    if status == 503 and fixture.retry_after is not None:
+                        self.send_header("Retry-After", fixture.retry_after)
                     self.end_headers()
                     self.close_connection = True
                     if status != 200:

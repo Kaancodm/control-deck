@@ -15,7 +15,7 @@ import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 
-from app.assistant.errors import AssistantError
+from app.assistant.errors import MODEL_BUSY_CODE, AssistantError
 from app.assistant.providers import ModelReply
 from app.assistant.text import reject_secrets, require_data_class
 from app.workers.lanes.ollama_http import ChatResponse, OllamaHTTPClient, OllamaHTTPError
@@ -29,7 +29,8 @@ _log = logging.getLogger(__name__)
 LOOPBACK_NOTICE = "Loopback, Identität nicht belegt."
 # One already-installed CPU model can spend the first several seconds loading.
 # The previous dialogue cap was 8s and collapsed every failure into one code.
-# These bounds stay inside a 90s operator shell. There is no second attempt.
+# These bounds stay inside a 90s operator shell. Only a queue-full 503 is sent
+# again, inside the same budget; a timeout has no second attempt.
 DIALOGUE_TIMEOUT_S = 75.0
 # Owner may raise the read budget on slow CPUs; the ceiling still fits the 90s shell.
 DIALOGUE_TIMEOUT_MAX_S = 85.0
@@ -52,7 +53,7 @@ DIALOGUE_IDLE_S = 20.0
 _NAMESPACE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,79}\Z")
 _NAME_PART = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}\Z")
 _PHASES = {"connect", "headers", "body", "status", "unknown"}
-_REASONS = {"cancelled", "timeout", "unavailable", "internal"}
+_REASONS = {"cancelled", "timeout", "unavailable", "internal", "busy"}
 
 
 def validate_model_tag(model: str) -> str:
@@ -454,6 +455,8 @@ class OllamaDialogueAdapter:
 def _failure_code(exc: OllamaHTTPError) -> str:
     if exc.reason == "cancelled":
         return "assistant_cancelled"
+    if exc.reason == "busy":
+        return MODEL_BUSY_CODE
     if exc.status_code == 404:
         return "assistant_model_missing"
     if exc.status_code is not None:
@@ -471,6 +474,7 @@ def _failure_code(exc: OllamaHTTPError) -> str:
 
 _FAILURE_CLASS = {
     "assistant_cancelled": "cancelled",
+    MODEL_BUSY_CODE: "busy",
     "assistant_model_missing": "model_missing",
     "assistant_model_http": "http_status",
     "assistant_model_connect_timeout": "connect_timeout",

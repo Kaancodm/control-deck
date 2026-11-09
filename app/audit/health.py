@@ -40,6 +40,7 @@ _KNOWN_REASONS = frozenset(code.value for code in ErrorCode) | {
     "inventory_timeout",
     "inventory_cancelled",
     "inventory_internal",
+    "inventory_busy",
     "probe_pending",
     "attempt_recorded",
 }

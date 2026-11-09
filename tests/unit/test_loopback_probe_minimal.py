@@ -29,6 +29,7 @@ REQUIRED = (
     "app/workers/__init__.py",
     "app/workers/lanes/__init__.py",
     "app/workers/lanes/ollama_http.py",
+    "app/workers/lanes/ollama_keep_alive.py",
     "app/workers/loopback_url.py",
 )
 FORBIDDEN = (

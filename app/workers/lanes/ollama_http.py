@@ -296,7 +296,7 @@ class OllamaHTTPClient:
         num_ctx: int = 4096,
         num_predict: int | None = None,
         temperature: float = 0,
-        keep_alive: str = "1m",
+        keep_alive: str | int | None = "1m",
         think: bool | None = None,
     ) -> ChatResponse:
         if messages is None:
@@ -319,8 +319,9 @@ class OllamaHTTPClient:
             "truncate": False,
             "shift": False,
             "options": options,
-            "keep_alive": keep_alive,
         }
+        if keep_alive is not None:
+            body["keep_alive"] = keep_alive
         if format_json:
             body["format"] = "json"
         if think is not None:
@@ -413,7 +414,7 @@ class OllamaHTTPClient:
         num_ctx: int = 4096,
         num_predict: int | None = None,
         temperature: float = 0,
-        keep_alive: str = "1m",
+        keep_alive: str | int | None = "1m",
         think: bool | None = None,
         on_chunk: Callable[[str], None],
     ) -> ChatResponse:
@@ -433,8 +434,9 @@ class OllamaHTTPClient:
             "truncate": False,
             "shift": False,
             "options": options,
-            "keep_alive": keep_alive,
         }
+        if keep_alive is not None:
+            body["keep_alive"] = keep_alive
         if think is not None:
             body["think"] = think
 

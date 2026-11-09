@@ -30,6 +30,7 @@ from app.core.schemas import (
 )
 from app.workers.contracts import AttemptContext
 from app.workers.lanes.ollama_http import OllamaHTTPClient, OllamaHTTPError
+from app.workers.lanes.ollama_keep_alive import lane_keep_alive_from_env
 from app.workers.process import ProcessResult, run_process
 
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
@@ -453,7 +454,7 @@ class OllamaExecutor:
                     cancelled=context.cancel_requested,
                     format_json=context.json_format,
                     num_ctx=num_ctx,
-                    keep_alive="1m",
+                    keep_alive=lane_keep_alive_from_env().wire,
                 )
             except OllamaHTTPError as exc:
                 if exc.status_code is not None:

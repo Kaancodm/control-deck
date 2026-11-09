@@ -67,6 +67,10 @@ Jede Dialogrunde schreibt eine strukturierte Logzeile mit Dauer- und Tokenfelder
 (Standard 75, hoechstens 85) setzt das Gesamtlimit; es bleibt in der 90-Sekunden-Shell.
 Gemessen am 2026-11-09 auf dem Server: Runde 1 etwa 4 bis 13 Sekunden, Runde 2 mit
 Verlauf etwa 5 Sekunden statt Abbruch nach 75 Sekunden.
+Der Dialog in der Web-UI sendet asynchron (`stream=yes`): POST liefert sofort eine
+Turn-ID, Fortschritt und Antwort kommen per Server-Sent Events mit Fetch-Polling
+als Fallback; ein Tab-Wechsel holt den Turn erneut. Es laeuft hoechstens ein
+Modellaufruf gleichzeitig.
 Mit dem Assistenten-Schalter, `DECK_OLLAMA_URL` als HTTP-Loopback mit Port und
 `DECK_ASSISTANT_OLLAMA_MODEL` als `name:tag` oder `namespace/name:tag` geht eine
 Anfrage an den bestehenden Loopback-Client. Der Schrägstrich ist Teil der

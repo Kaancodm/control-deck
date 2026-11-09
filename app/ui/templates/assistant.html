@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Assistent · Control Deck{% endblock %}
-{% block head_extra %}<link rel="stylesheet" href="/ui/static/assistant.css">{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="/ui/static/assistant.css"><script src="/ui/static/assistant_talk.js" defer></script>{% endblock %}
 {% block content %}
 <div class="assistant-page">
   <h1>Persönlicher Assistent</h1>
@@ -30,7 +30,10 @@
     </article>
     {% endfor %}
     {% endif %}
-    <form action="/ui/assistant/talk" method="post" class="form-stack">
+    <p id="talk-live-status" class="notice" role="status" hidden></p>
+    <p id="talk-live-meta" class="hint" hidden></p>
+    <pre id="talk-live-output" hidden></pre>
+    <form id="assistant-talk-form" action="/ui/assistant/talk" method="post" class="form-stack">
       {% include 'partials/csrf.html' %}
       <label for="message">Nachricht</label>
       <textarea id="message" name="message" required maxlength="4000" rows="4"></textarea>

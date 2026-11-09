@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import pytest
 import uvicorn
 from argon2 import PasswordHasher
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from sqlalchemy.orm import sessionmaker
 
 from app.api.app import create_app
@@ -99,9 +99,14 @@ def test_emulated_assistant_layout(browser_app, width, javascript):
         )
         assert fits
         button.click()
-        assert "kein Live-Modell" in page.locator("main").inner_text()
-        assert "Nicht gespeichert" in page.locator("main").inner_text()
-        assert "nicht gebaut" in page.locator("main").inner_text()
+        main = page.locator("main")
+        expect(main).to_contain_text("kein Live-Modell", timeout=20_000)
+        if javascript:
+            expect(main).to_contain_text("Nicht gespeichert", timeout=20_000)
+            expect(main).to_contain_text("nicht gebaut", timeout=20_000)
+        else:
+            expect(main).to_contain_text("Nicht gespeichert", timeout=5_000)
+            expect(main).to_contain_text("nicht gebaut", timeout=5_000)
         assert external == []
         browser.close()
 

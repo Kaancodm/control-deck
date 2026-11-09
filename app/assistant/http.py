@@ -8,11 +8,17 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from starlette.datastructures import FormData
 
 from app.api.deps import DbSession
+from app.assistant.async_turns import (
+    get_turn,
+    start_dialogue_turn,
+    stream_sse_events,
+    turn_snapshot,
+)
 from app.assistant.cards import (
     AssistantCardV1,
     card_document,
@@ -39,6 +45,7 @@ from app.assistant.providers import activation_status, resolve_search
 from app.assistant.records import AssistantCard, AssistantOrderKey, placeholders_of
 from app.assistant.status import CHANNEL_GAPS, heartbeat_is_current, project_order
 from app.db.models import Event, Task
+from app.db.session import get_background_session_factory
 from app.db.state_machine import TaskState
 from app.ui.routes import ParsedForm, csrf, owner
 from app.ui.views import page, preview_context, preview_redirect
@@ -100,35 +107,78 @@ def assistant_page(request: Request, session: DbSession) -> Response:
     return _page(request, session)
 
 
+def _talk_inputs(
+    session: DbSession, data: FormData
+) -> tuple[str, str, str | None, tuple[tuple[str, str], ...], bool]:
+    data_class = _text(data, "data_class")
+    message = _text(data, "message")
+    notes = None
+    if _text(data, "include_profile") == "yes":
+        profile = current_profile(session)
+        notes = profile.notes if profile is not None else None
+    history: tuple[tuple[str, str], ...] = ()
+    if _text(data, "include_history") == "yes":
+        history = tuple(
+            (turn.owner_text, turn.reply_text)
+            for turn in recent_turns(session, limit=8)
+            if turn.data_class == data_class
+        )
+    persist = _text(data, "persist") == "yes"
+    return message, data_class, notes, history, persist
+
+
 @router.post("/talk")
 def talk(request: Request, session: DbSession, data: ParsedForm) -> Response:
     owner(request, session)
     csrf(request, session, data)
     try:
-        data_class = _text(data, "data_class")
-        notes = None
-        if _text(data, "include_profile") == "yes":
-            profile = current_profile(session)
-            notes = profile.notes if profile is not None else None
-        history: tuple[tuple[str, str], ...] = ()
-        if _text(data, "include_history") == "yes":
-            history = tuple(
-                (turn.owner_text, turn.reply_text)
-                for turn in recent_turns(session, limit=8)
-                if turn.data_class == data_class
+        message, data_class, notes, history, persist = _talk_inputs(session, data)
+        if _text(data, "stream") == "yes":
+            turn_id = start_dialogue_turn(
+                get_background_session_factory(),
+                message=message,
+                data_class=data_class,
+                profile_notes=notes,
+                history=history,
+                persist=persist,
+            )
+            return JSONResponse(
+                {"turn_id": turn_id, "stream_url": f"/ui/assistant/talk/{turn_id}/stream"},
+                status_code=202,
             )
         reply = reply_to_owner(
-            _text(data, "message"),
+            message,
             data_class=data_class,
             profile_notes=notes,
             history=history,
         )
-        if _text(data, "persist") == "yes":
-            store_turn(session, reply, owner_text=_text(data, "message").strip())
+        if persist:
+            store_turn(session, reply, owner_text=message.strip())
             return RedirectResponse("/ui/assistant", status_code=303)
     except AssistantError as exc:
         return _fail(request, session, exc)
     return preview_redirect(request, "/ui/assistant", reply=reply)
+
+
+@router.get("/talk/{turn_id}")
+def talk_status(turn_id: str, request: Request, session: DbSession) -> Response:
+    owner(request, session)
+    job = get_turn(turn_id)
+    if job is None:
+        return JSONResponse({"error": "assistant_input"}, status_code=404)
+    return JSONResponse(turn_snapshot(job))
+
+
+@router.get("/talk/{turn_id}/stream")
+def talk_stream(turn_id: str, request: Request, session: DbSession) -> Response:
+    owner(request, session)
+    if get_turn(turn_id) is None:
+        return JSONResponse({"error": "assistant_input"}, status_code=404)
+    return StreamingResponse(
+        stream_sse_events(turn_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/profile")

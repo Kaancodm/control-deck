@@ -137,6 +137,53 @@ def _temperature_env(environment: Mapping[str, str]) -> float:
     return value
 
 
+class StreamingReplySanitizer:
+    """Release only filtered assistant text (no thinking blocks, no secrets)."""
+
+    _SECRET_WINDOW = 128
+    _TAG_PREFIXES = ("<think>", "</think>")
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._released = ""
+
+    def _incomplete_tag_suffix(self, text: str) -> int:
+        lowered = text.casefold()
+        hold = 0
+        for tag in self._TAG_PREFIXES:
+            folded = tag.casefold()
+            for length in range(min(len(text), len(folded) - 1), 0, -1):
+                if lowered.endswith(folded[:length]):
+                    hold = max(hold, length)
+        last_lt = lowered.rfind("<")
+        if last_lt >= 0 and ">" not in lowered[last_lt:]:
+            hold = max(hold, len(text) - last_lt)
+        return hold
+
+    def _visible(self, buffer: str) -> str:
+        lowered = buffer.casefold()
+        open_idx = lowered.find("<think>")
+        if open_idx >= 0 and "</think>" not in lowered:
+            return strip_think(buffer[:open_idx])
+        return strip_think(buffer)
+
+    def feed(self, chunk: str) -> str:
+        if chunk:
+            reject_secrets(
+                self._buffer[-self._SECRET_WINDOW :] + chunk,
+                source="dialogue_reply",
+            )
+        self._buffer += chunk
+        hold = self._incomplete_tag_suffix(self._buffer)
+        safe = self._buffer[:-hold] if hold else self._buffer
+        visible = self._visible(safe)
+        delta = visible[len(self._released) :]
+        if not delta:
+            return ""
+        self._released = visible
+        return delta
+
+
 def strip_think(content: str) -> str:
     """Drop a leading reasoning block a model emits despite ``think: false``.
 
@@ -321,11 +368,18 @@ class OllamaDialogueAdapter:
                     think=False,
                 )
             else:
+                sanitizer = StreamingReplySanitizer()
+
+                def emit(chunk: str) -> None:
+                    safe = sanitizer.feed(chunk)
+                    if safe:
+                        on_chunk(safe)
+
                 response = self._chat_streaming(
                     normalized,
                     timeout_s=float(timeout_s),
                     cancelled=stop,
-                    on_chunk=on_chunk,
+                    on_chunk=emit,
                 )
         except OllamaHTTPError as exc:
             elapsed_ms = int((time.monotonic() - started) * 1000)

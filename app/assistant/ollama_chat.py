@@ -19,6 +19,7 @@ from app.assistant.errors import AssistantError
 from app.assistant.providers import ModelReply
 from app.assistant.text import MESSAGE_MAX, reject_secrets, require_data_class
 from app.workers.lanes.ollama_http import ChatResponse, OllamaHTTPClient, OllamaHTTPError
+from app.workers.lanes.ollama_keep_alive import KeepAliveSetting, parse_keep_alive_value
 from app.workers.loopback_url import LiveConfigurationError, validate_ollama_url
 
 _log = logging.getLogger(__name__)
@@ -39,7 +40,6 @@ DIALOGUE_NUM_PREDICT_DEFAULT = 400
 DIALOGUE_NUM_PREDICT_MIN = 16
 DIALOGUE_NUM_PREDICT_MAX = 4096
 DIALOGUE_TEMPERATURE_DEFAULT = 0.6
-_KEEP_ALIVE = re.compile(r"0|[1-9][0-9]{0,3}[sm]|[1-9]h|1[0-9]h|2[0-4]h")
 # Only a leading block is reasoning; a tag later in the answer is content.
 _THINK_BLOCK = re.compile(r"\A\s*<think>.*?(?:</think>|\Z)", re.DOTALL | re.IGNORECASE)
 _THINK_TAIL = re.compile(r"\A.*?</think>", re.DOTALL | re.IGNORECASE)
@@ -89,11 +89,14 @@ def validate_model_tag(model: str) -> str:
     return model
 
 
-def validate_keep_alive(value: str) -> str:
-    """Accept ``0`` or a bounded Ollama duration such as ``30m`` (at most 24h)."""
-    if not isinstance(value, str) or _KEEP_ALIVE.fullmatch(value) is None:
+def validate_keep_alive(value: str) -> KeepAliveSetting:
+    """Accept bounded durations, keep-forever (``-1`` / ``-1m``), or ``server`` (omit field)."""
+    if not isinstance(value, str):
         raise AssistantError("assistant_model_unconfigured")
-    return value
+    try:
+        return parse_keep_alive_value(value)
+    except ValueError as exc:
+        raise AssistantError("assistant_model_unconfigured") from exc
 
 
 def validate_timeout(value: float) -> float:
@@ -237,7 +240,7 @@ class OllamaDialogueAdapter:
         url: str,
         model: str,
         client: OllamaHTTPClient | None = None,
-        keep_alive: str = DIALOGUE_KEEP_ALIVE_DEFAULT,
+        keep_alive: str | KeepAliveSetting = DIALOGUE_KEEP_ALIVE_DEFAULT,
         timeout_s: float = DIALOGUE_TIMEOUT_S,
         num_ctx: int = DIALOGUE_NUM_CTX_DEFAULT,
         num_predict: int = DIALOGUE_NUM_PREDICT_DEFAULT,
@@ -245,7 +248,12 @@ class OllamaDialogueAdapter:
     ) -> None:
         self.url = url
         self.model = validate_model_tag(model)
-        self.keep_alive = validate_keep_alive(keep_alive)
+        resolved = (
+            keep_alive
+            if isinstance(keep_alive, KeepAliveSetting)
+            else validate_keep_alive(keep_alive)
+        )
+        self._keep_alive = resolved
         self.timeout_s = validate_timeout(timeout_s)
         if type(num_ctx) is not int or not DIALOGUE_NUM_CTX_MIN <= num_ctx <= DIALOGUE_NUM_CTX_MAX:
             raise AssistantError("assistant_model_unconfigured")
@@ -272,6 +280,15 @@ class OllamaDialogueAdapter:
             ),
             idle_timeout_s=DIALOGUE_IDLE_S,
         )
+
+    @property
+    def keep_alive(self) -> str | int:
+        """Configured keep-alive token (``server`` omits the field on the wire)."""
+        if self._keep_alive.omit:
+            return "server"
+        wire = self._keep_alive.wire
+        assert wire is not None
+        return wire
 
     @classmethod
     def from_env(cls, environment: Mapping[str, str] | None = None) -> OllamaDialogueAdapter:
@@ -303,10 +320,11 @@ class OllamaDialogueAdapter:
             max_value=DIALOGUE_NUM_PREDICT_MAX,
         )
         temperature = _temperature_env(env)
+        keep_alive_setting = validate_keep_alive(keep_alive or DIALOGUE_KEEP_ALIVE_DEFAULT)
         return cls(
             url=url,
             model=model,
-            keep_alive=keep_alive or DIALOGUE_KEEP_ALIVE_DEFAULT,
+            keep_alive=keep_alive_setting,
             timeout_s=timeout_s,
             num_ctx=num_ctx,
             num_predict=num_predict,
@@ -364,7 +382,7 @@ class OllamaDialogueAdapter:
                     num_ctx=self.num_ctx,
                     num_predict=self.num_predict,
                     temperature=self.temperature,
-                    keep_alive=self.keep_alive,
+                    keep_alive=self._keep_alive.wire,
                     think=False,
                 )
             else:
@@ -428,7 +446,7 @@ class OllamaDialogueAdapter:
             num_ctx=self.num_ctx,
             num_predict=self.num_predict,
             temperature=self.temperature,
-            keep_alive=self.keep_alive,
+            keep_alive=self._keep_alive.wire,
             think=False,
             on_chunk=on_chunk,
         )

@@ -62,8 +62,10 @@ geschaetztes Tokenbudget (`Laenge/3,5`) nicht in `num_ctx` minus `num_predict` p
 Die Task-Lane cappt `num_ctx` mit `DECK_OLLAMA_TASK_NUM_CTX` (Standard 4096, 512 bis 32768),
 damit grosse Modell-Metadaten keinen OOM erzeugen. Der Runner bleibt bei Temperatur 0.
 Jede Dialogrunde schreibt eine strukturierte Logzeile mit Dauer- und Tokenfeldern, ohne Prompt.
-`DECK_ASSISTANT_OLLAMA_KEEP_ALIVE` (Standard `30m`, `0` oder hoechstens
-`24h`) haelt das Modell zwischen zwei Runden geladen. `DECK_ASSISTANT_OLLAMA_TIMEOUT_S`
+`DECK_ASSISTANT_OLLAMA_KEEP_ALIVE` (Standard `30m`, `0`, Dauer bis `24h`, `-1m`
+oder `-1` fuer dauerhaft geladen, `server` ohne Feld im Request) haelt das
+Modell zwischen zwei Runden geladen. Die Task-Lane nutzt `DECK_OLLAMA_KEEP_ALIVE`
+(Standard `1m`, gleiche Werte). `DECK_ASSISTANT_OLLAMA_TIMEOUT_S`
 (Standard 75, hoechstens 85) setzt das Gesamtlimit; es bleibt in der 90-Sekunden-Shell.
 Gemessen am 2026-11-09 auf dem Server: Runde 1 etwa 4 bis 13 Sekunden, Runde 2 mit
 Verlauf etwa 5 Sekunden statt Abbruch nach 75 Sekunden.

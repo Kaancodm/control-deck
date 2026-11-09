@@ -912,7 +912,6 @@ def test_dialogue_keep_alive_and_timeout_come_from_env() -> None:
         == "24h"
     )
     for key, value in (
-        ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "-1"),
         ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "30 m"),
         ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "forever"),
         ("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "25h"),

@@ -52,7 +52,17 @@ Der Dialog bleibt ein Mock, solange `DECK_ASSISTANT_OLLAMA` nicht exakt `1` ist.
 Der Runner-Schalter `DECK_LIVE_ENABLED` schaltet den Assistenten nicht ein.
 Der Dialog sendet `think: false`, damit Qwen3 keine lange Denkphase auf der CPU
 rechnet. Ein trotzdem gelieferter `<think>`-Block am Anfang der Antwort wird
-entfernt. `DECK_ASSISTANT_OLLAMA_KEEP_ALIVE` (Standard `30m`, `0` oder hoechstens
+entfernt; gespeicherte Antworten verlieren beim Replay zusaetzlich das Loopback-Praefix.
+Der Prompt ist ein Nachrichtenarray (Systemvertrag, Profil, abwechselnde Owner- und
+Assistentenrollen, aktuelle Nachricht). Aeltere Runden fallen zuerst, wenn ein
+geschaetztes Tokenbudget (`Laenge/3,5`) nicht in `num_ctx` minus `num_predict` passt.
+`DECK_ASSISTANT_OLLAMA_NUM_CTX` (Standard 4096, 1024 bis 8192),
+`DECK_ASSISTANT_OLLAMA_NUM_PREDICT` (Standard 400, 16 bis 4096) und
+`DECK_ASSISTANT_OLLAMA_TEMPERATURE` (Standard 0,6, 0 bis 2) steuern den Dialog.
+Die Task-Lane cappt `num_ctx` mit `DECK_OLLAMA_TASK_NUM_CTX` (Standard 4096, 512 bis 32768),
+damit grosse Modell-Metadaten keinen OOM erzeugen. Der Runner bleibt bei Temperatur 0.
+Jede Dialogrunde schreibt eine strukturierte Logzeile mit Dauer- und Tokenfeldern, ohne Prompt.
+`DECK_ASSISTANT_OLLAMA_KEEP_ALIVE` (Standard `30m`, `0` oder hoechstens
 `24h`) haelt das Modell zwischen zwei Runden geladen. `DECK_ASSISTANT_OLLAMA_TIMEOUT_S`
 (Standard 75, hoechstens 85) setzt das Gesamtlimit; es bleibt in der 90-Sekunden-Shell.
 Gemessen am 2026-11-09 auf dem Server: Runde 1 etwa 4 bis 13 Sekunden, Runde 2 mit

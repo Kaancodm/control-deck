@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.assistant.errors import AssistantError
-from app.assistant.ollama_chat import LOOPBACK_PREFIX, OllamaDialogueAdapter
+from app.assistant.ollama_chat import (
+    LOOPBACK_PREFIX,
+    OllamaDialogueAdapter,
+    normalize_history_reply,
+)
 from app.assistant.providers import MockModel, ModelAdapter, ModelReply, resolve_model
 from app.assistant.records import AssistantProfileVersion, AssistantTurn
 from app.assistant.text import MESSAGE_MAX, NOTES_MAX, bounded, reject_secrets, require_data_class
@@ -19,6 +24,8 @@ _RULES = (
     "keine Freigabe und keine Aktion."
 )
 _ORIGINS = frozenset({"mock", "ollama_loopback"})
+_TOKEN_DIVISOR = 3.5
+_TEMPLATE_RESERVE = 64
 
 
 @dataclass(frozen=True)
@@ -31,33 +38,69 @@ class DialogueReply:
     profile_written: bool
 
 
-def compose_dialogue_prompt(
+def estimate_dialogue_tokens(text: str) -> int:
+    return max(1, int(math.ceil(len(text) / _TOKEN_DIVISOR)))
+
+
+def compose_dialogue_messages(
     *,
     message: str,
     profile_notes: str | None,
     history: Sequence[tuple[str, str]],
-) -> str:
-    """Build one bounded prompt. Profile and history are included only when supplied."""
-    parts = [_RULES, ""]
+    num_ctx: int,
+    num_predict: int,
+) -> list[dict[str, str]]:
+    """Build chat messages with a deterministic token budget (drops oldest turns first)."""
+    messages: list[dict[str, str]] = [{"role": "system", "content": _RULES}]
     if profile_notes and profile_notes.strip():
         notes = profile_notes.strip()
         reject_secrets(notes, source="dialogue_profile")
         if len(notes) > 800:
             notes = notes[:800]
-        parts.extend(["Profil, nur Kontext:", notes, ""])
-    for owner_text, reply_text in tuple(history)[-4:]:
+        messages.append({"role": "system", "content": f"Profil, nur Kontext:\n{notes}"})
+    turns: list[tuple[str, str]] = []
+    for owner_text, reply_text in tuple(history):
         if not isinstance(owner_text, str) or not isinstance(reply_text, str):
             raise AssistantError("assistant_input")
         reject_secrets(owner_text, source="dialogue_history")
         reject_secrets(reply_text, source="dialogue_history")
-        parts.append("Owner: " + " ".join(owner_text.split())[:300])
-        parts.append("Antwort: " + " ".join(reply_text.split())[:300])
-    parts.append("Owner: " + message)
-    prompt = "\n".join(parts)
-    if len(prompt) > MESSAGE_MAX:
-        raise AssistantError("assistant_oversize")
-    reject_secrets(prompt, source="dialogue_prompt")
-    return prompt
+        owner = " ".join(owner_text.split())
+        assistant = normalize_history_reply(reply_text)
+        if not owner or not assistant:
+            continue
+        turns.append((owner, assistant))
+    current_user = " ".join(message.split())
+    reject_secrets(current_user, source="dialogue")
+    budget = num_ctx - num_predict - _TEMPLATE_RESERVE
+    if budget < 128:
+        raise AssistantError("assistant_model_unconfigured")
+
+    def token_total(parts: Sequence[dict[str, str]]) -> int:
+        return sum(estimate_dialogue_tokens(item["content"]) for item in parts)
+
+    while turns:
+        trial = [
+            *messages,
+            *(
+                entry
+                for pair in turns
+                for entry in (
+                    {"role": "user", "content": pair[0]},
+                    {"role": "assistant", "content": pair[1]},
+                )
+            ),
+            {"role": "user", "content": current_user},
+        ]
+        if token_total(trial) <= budget:
+            break
+        turns.pop(0)
+    built = list(messages)
+    for owner, assistant in turns:
+        built.append({"role": "user", "content": owner})
+        built.append({"role": "assistant", "content": assistant})
+    built.append({"role": "user", "content": current_user})
+    reject_secrets(" ".join(item["content"] for item in built), source="dialogue_prompt")
+    return built
 
 
 def reply_to_owner(
@@ -67,6 +110,7 @@ def reply_to_owner(
     model: ModelAdapter | None = None,
     profile_notes: str | None = None,
     history: Sequence[tuple[str, str]] = (),
+    on_chunk: Callable[[str], None] | None = None,
 ) -> DialogueReply:
     """Answer in dialogue. The mock ignores context. Loopback sends only an opted-in prompt."""
     cleaned = bounded(message, limit=MESSAGE_MAX)
@@ -79,10 +123,16 @@ def reply_to_owner(
             raise AssistantError("live_model_disabled")
         return _reply(produced, origin="mock", evidence_status="mock")
     if type(adapter) is OllamaDialogueAdapter:
-        prompt = compose_dialogue_prompt(
-            message=cleaned, profile_notes=profile_notes, history=history
+        chat_messages = compose_dialogue_messages(
+            message=cleaned,
+            profile_notes=profile_notes,
+            history=history,
+            num_ctx=adapter.num_ctx,
+            num_predict=adapter.num_predict,
         )
-        produced = adapter.complete(prompt, data_class=checked)
+        produced = adapter.complete_messages(
+            chat_messages, data_class=checked, on_chunk=on_chunk
+        )
         if not _loopback_reply_ok(produced, checked):
             raise AssistantError("live_model_disabled")
         if not produced.text.startswith(LOOPBACK_PREFIX):

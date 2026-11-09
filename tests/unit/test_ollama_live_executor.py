@@ -352,7 +352,7 @@ def test_direct_live_runner_does_not_treat_unavailable_provider_as_config_failur
     ("configured", "model_info", "expected"),
     [
         (2048, {"fixture.context_length": 8192}, 2048),
-        (None, {"fixture.context_length": 8192}, 8192),
+        (None, {"fixture.context_length": 8192}, 4096),
         (
             None,
             {

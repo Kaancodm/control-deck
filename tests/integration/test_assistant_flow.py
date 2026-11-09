@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -118,6 +119,40 @@ def test_dialogue_does_not_create_or_approve_a_task(
     )
     assert forged.status_code == 403
     assert ui_client.get("/ui/assistant/approve").status_code == 404
+
+
+def test_streaming_talk_works_with_test_database_only(
+    ui_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Background turns must not require DECK_DATABASE_URL (CI sets only the test URL)."""
+    monkeypatch.delenv("DECK_DATABASE_URL", raising=False)
+    home = login(ui_client)
+    parsed = Inputs(home.text)
+    response = ui_client.post(
+        "/ui/assistant/talk",
+        data={
+            "csrf": parsed.csrf,
+            "message": "Wie geht es dir heute Morgen",
+            "data_class": "local_only",
+            "stream": "yes",
+        },
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 202
+    turn_id = response.json()["turn_id"]
+    deadline = time.monotonic() + 30.0
+    snapshot: dict[str, object] = {}
+    while time.monotonic() < deadline:
+        snapshot = ui_client.get(f"/ui/assistant/talk/{turn_id}").json()
+        if snapshot["state"] == "done":
+            break
+        if snapshot["state"] == "error":
+            pytest.fail(str(snapshot.get("error")))
+        time.sleep(0.05)
+    else:
+        pytest.fail("streaming dialogue turn did not finish")
+    assert snapshot.get("persisted") is False
+    assert snapshot.get("answer")
 
 
 def test_persistence_and_profile_are_owner_controlled(

@@ -45,7 +45,7 @@ from app.assistant.providers import activation_status, resolve_search
 from app.assistant.records import AssistantCard, AssistantOrderKey, placeholders_of
 from app.assistant.status import CHANNEL_GAPS, heartbeat_is_current, project_order
 from app.db.models import Event, Task
-from app.db.session import get_session_factory
+from app.db.session import get_background_session_factory
 from app.db.state_machine import TaskState
 from app.ui.routes import ParsedForm, csrf, owner
 from app.ui.views import page, preview_context, preview_redirect
@@ -135,7 +135,7 @@ def talk(request: Request, session: DbSession, data: ParsedForm) -> Response:
         message, data_class, notes, history, persist = _talk_inputs(session, data)
         if _text(data, "stream") == "yes":
             turn_id = start_dialogue_turn(
-                get_session_factory(),
+                get_background_session_factory(),
                 message=message,
                 data_class=data_class,
                 profile_notes=notes,

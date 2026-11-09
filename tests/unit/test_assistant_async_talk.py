@@ -198,7 +198,8 @@ def test_prune_drops_only_finished_jobs(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_secret_chunk_is_rejected_before_stream() -> None:
+    secret = "sk-TEST-" + "NOT-A-REAL-CREDENTIAL"
     sanitizer = StreamingReplySanitizer()
     with pytest.raises(AssistantError) as refused:
-        sanitizer.feed("prefix sk-testsecretmarker")
+        sanitizer.feed(f"prefix {secret}")
     assert refused.value.code == "assistant_secret"

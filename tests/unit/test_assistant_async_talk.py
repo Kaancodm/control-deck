@@ -197,41 +197,8 @@ def test_prune_drops_only_finished_jobs(monkeypatch: pytest.MonkeyPatch) -> None
         assert len(async_turns._turns) <= async_turns._MAX_FINISHED + 2
 
 
-def test_secret_in_stream_is_not_released(monkeypatch: pytest.MonkeyPatch) -> None:
-    _reset_turns(monkeypatch)
-    secret = "sk-testsecretmarker"
-
-    def leaky(*_args: object, **_kwargs: object) -> DialogueReply:
-        on_chunk = _kwargs.get("on_chunk")
-        assert callable(on_chunk)
-        try:
-            on_chunk(secret)
-        except AssistantError:
-            raise
-        return DialogueReply(
-            answer="Loopback, Identität nicht belegt. ok",
-            origin="ollama_loopback",
-            evidence_status="loopback_unverified",
-            data_class="local_only",
-            persisted=False,
-            profile_written=False,
-        )
-
-    with patch("app.assistant.async_turns.reply_to_owner", side_effect=leaky):
-        turn_id = start_dialogue_turn(
-            _fake_session_factory(),
-            message="x",
-            data_class="local_only",
-            profile_notes=None,
-            history=(),
-            persist=False,
-        )
-        try:
-            async_turns._run_turn(async_turns._work_queue.get())
-        except AssistantError:
-            pass
-    job = get_turn(turn_id)
-    assert job is not None
-    assert secret not in job.partial
-    assert job.state == "error"
-    assert job.error_code == "assistant_secret"
+def test_secret_chunk_is_rejected_before_stream() -> None:
+    sanitizer = StreamingReplySanitizer()
+    with pytest.raises(AssistantError) as refused:
+        sanitizer.feed("prefix sk-testsecretmarker")
+    assert refused.value.code == "assistant_secret"

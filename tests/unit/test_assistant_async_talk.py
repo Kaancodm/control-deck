@@ -17,7 +17,7 @@ from app.assistant.async_turns import (
 )
 from app.assistant.dialogue import DialogueReply
 from app.assistant.errors import AssistantError
-from app.assistant.ollama_chat import StreamingReplySanitizer
+from app.assistant.ollama_chat import LOOPBACK_NOTICE, StreamingReplySanitizer
 
 
 class _FakeSession:
@@ -73,7 +73,7 @@ def test_start_dialogue_turn_finishes_and_snapshot() -> None:
         if callable(on_chunk):
             on_chunk("Teil")
         return DialogueReply(
-            answer="Loopback, Identität nicht belegt. ok",
+            answer="ok",
             origin="ollama_loopback",
             evidence_status="loopback_unverified",
             data_class="local_only",
@@ -97,6 +97,10 @@ def test_start_dialogue_turn_finishes_and_snapshot() -> None:
     assert job is not None
     assert job.state == "done"
     assert job.partial == "Teil"
+    snapshot = async_turns.turn_snapshot(job)
+    assert snapshot["answer"] == "ok"
+    assert snapshot["evidence_status"] == "loopback_unverified"
+    assert snapshot["evidence_label"] == LOOPBACK_NOTICE
 
 
 def test_stream_sse_events_receives_chunks_without_hanging(
@@ -111,7 +115,7 @@ def test_stream_sse_events_receives_chunks_without_hanging(
         time.sleep(0.15)
         on_chunk("Beta")
         return DialogueReply(
-            answer="Loopback, Identität nicht belegt. AlphaBeta",
+            answer="AlphaBeta",
             origin="ollama_loopback",
             evidence_status="loopback_unverified",
             data_class="local_only",

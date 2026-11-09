@@ -45,8 +45,8 @@
     if (payload.persisted !== undefined) {
       parts.push(payload.persisted ? "Gespeichert, vom Owner gewählt" : "Nicht gespeichert");
     }
-    if (payload.evidence_status) {
-      parts.push(payload.evidence_status);
+    if (payload.evidence_label || payload.evidence_status) {
+      parts.push(payload.evidence_label || payload.evidence_status);
     }
     if (payload.data_class) {
       parts.push(payload.data_class);

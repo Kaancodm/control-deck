@@ -17,14 +17,16 @@ from collections.abc import Callable, Mapping, Sequence
 
 from app.assistant.errors import AssistantError
 from app.assistant.providers import ModelReply
-from app.assistant.text import MESSAGE_MAX, reject_secrets, require_data_class
+from app.assistant.text import reject_secrets, require_data_class
 from app.workers.lanes.ollama_http import ChatResponse, OllamaHTTPClient, OllamaHTTPError
 from app.workers.lanes.ollama_keep_alive import KeepAliveSetting, parse_keep_alive_value
 from app.workers.loopback_url import LiveConfigurationError, validate_ollama_url
 
 _log = logging.getLogger(__name__)
 
-LOOPBACK_PREFIX = "Loopback, Identität nicht belegt."
+# Provenance note for the status line of a reply; never part of the reply text.
+# Rows stored by earlier versions still start with it, so replay removes it.
+LOOPBACK_NOTICE = "Loopback, Identität nicht belegt."
 # One already-installed CPU model can spend the first several seconds loading.
 # The previous dialogue cap was 8s and collapsed every failure into one code.
 # These bounds stay inside a 90s operator shell. There is no second attempt.
@@ -200,10 +202,10 @@ def strip_think(content: str) -> str:
 
 
 def normalize_history_reply(text: str) -> str:
-    """Prepare stored assistant text for replay (strip prefix and thinking blocks)."""
+    """Prepare stored assistant text for replay (strip legacy notice and thinking blocks)."""
     stripped = text.strip()
-    if stripped.startswith(LOOPBACK_PREFIX):
-        stripped = stripped[len(LOOPBACK_PREFIX) :].strip()
+    if stripped.startswith(LOOPBACK_NOTICE):
+        stripped = stripped[len(LOOPBACK_NOTICE) :].strip()
     return strip_think(stripped)
 
 
@@ -414,11 +416,8 @@ class OllamaDialogueAdapter:
         reject_secrets(content, source="dialogue_reply")
         timing = _timing_detail(response, elapsed_ms=elapsed_ms)
         _log_dialogue_turn(timing)
-        text = f"{LOOPBACK_PREFIX} {content[:2000]}"
-        if len(text) > MESSAGE_MAX:
-            text = text[:MESSAGE_MAX]
         return ModelReply(
-            text=text,
+            text=content[:2000],
             profile=self.profile,
             data_class=checked,
             profile_written=False,

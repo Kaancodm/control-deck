@@ -52,7 +52,8 @@ Der Dialog bleibt ein Mock, solange `DECK_ASSISTANT_OLLAMA` nicht exakt `1` ist.
 Der Runner-Schalter `DECK_LIVE_ENABLED` schaltet den Assistenten nicht ein.
 Der Dialog sendet `think: false`, damit Qwen3 keine lange Denkphase auf der CPU
 rechnet. Ein trotzdem gelieferter `<think>`-Block am Anfang der Antwort wird
-entfernt; gespeicherte Antworten verlieren beim Replay zusaetzlich das Loopback-Praefix.
+entfernt; aeltere gespeicherte Antworten verlieren beim Replay zusaetzlich das fruehere
+Loopback-Praefix.
 Der Prompt ist ein Nachrichtenarray (Systemvertrag, Profil, abwechselnde Owner- und
 Assistentenrollen, aktuelle Nachricht). Aeltere Runden fallen zuerst, wenn ein
 geschaetztes Tokenbudget (`Laenge/3,5`) nicht in `num_ctx` minus `num_predict` passt.
@@ -79,8 +80,9 @@ Anfrage an den bestehenden Loopback-Client. Der Schrägstrich ist Teil der
 Modellkennung im JSON-Feld `model`. Eine Kennung wird nicht nach Sprache
 angenommen oder abgelehnt. Englisch ist dabei kein Fehler an sich. Ob eine
 Antwort genuegt, haengt vom Auftrag ab. Der Pfad bleibt `/api/chat`. Ein Host, ein
-Schema, ein zweiter Schrägstrich oder `..` ist keine Kennung. Die Antwort
-trägt `ollama_loopback` und den Hinweis, dass die Identität unbelegt ist. Ein Fixture ist kein installiertes Modell und kein
+Schema, ein zweiter Schrägstrich oder `..` ist keine Kennung. Der Antworttext
+bleibt unverändert. Die Metadaten tragen `ollama_loopback` und `loopback_unverified`;
+die Statuszeile nennt einmal pro Antwort, dass die Identität unbelegt ist. Ein Fixture ist kein installiertes Modell und kein
 Uncensored-Nachweis. Profil und gespeicherte Sätze derselben Datenklasse gehen
 nur mit ins Prompt, wenn das jeweilige Kästchen gesetzt ist. Der Mock ignoriert
 beide Kästchen. Es gibt keinen Modell-Download und keinen Aufruf von `/api/pull`.
@@ -203,7 +205,8 @@ Sekunden. Die Antwort begann mit dem Loopback-Präfix und enthielt
 `LOOPBACK_PROBE_7`. `runtime` war `python-stdlib`, `third_party_modules` war
 leer, `prefix_ok` wahr, die Identität `unverified`, `uncensored_claim` falsch,
 und `implementation` nannte 16 Dateien. Danach war kein Modell geladen und die
-Produktion unverändert. Das ist die isolierte Probe, kein Lauf des Decks von
+Produktion unverändert. Präfix und `prefix_ok` gehören zu diesem damaligen Stand;
+heute belegt `model_identity` die unbelegte Identität. Das ist die isolierte Probe, kein Lauf des Decks von
 der Freigabe bis zum Review. Der Lauf um 05:32 hat die Probe nicht erreicht.
 Der Lauf um 05:42 endete am damaligen 8-Sekunden-Limit.
 

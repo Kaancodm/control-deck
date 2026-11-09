@@ -127,6 +127,7 @@ def turn_snapshot(job: DialogueTurnJob) -> dict[str, object]:
                 "answer": job.reply.answer,
                 "origin": job.reply.origin,
                 "evidence_status": job.reply.evidence_status,
+                "evidence_label": job.reply.evidence_label,
                 "data_class": job.reply.data_class,
                 "persisted": job.reply.persisted,
             }

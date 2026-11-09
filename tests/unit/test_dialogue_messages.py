@@ -6,11 +6,11 @@ import pytest
 
 from app.assistant.dialogue import compose_dialogue_messages, estimate_dialogue_tokens
 from app.assistant.errors import AssistantError
-from app.assistant.ollama_chat import LOOPBACK_PREFIX, normalize_history_reply
+from app.assistant.ollama_chat import LOOPBACK_NOTICE, normalize_history_reply
 
 
-def test_normalize_history_strips_prefix_and_thinking() -> None:
-    raw = f"{LOOPBACK_PREFIX} <think>x</think> Antwort"
+def test_normalize_history_strips_legacy_notice_and_thinking() -> None:
+    raw = f"{LOOPBACK_NOTICE} <think>x</think> Antwort"
     assert normalize_history_reply(raw) == "Antwort"
 
 
@@ -18,7 +18,7 @@ def test_compose_messages_orders_roles_and_keeps_current_user() -> None:
     messages = compose_dialogue_messages(
         message="Heute",
         profile_notes="Profilnotiz",
-        history=(("Alt", f"{LOOPBACK_PREFIX} früher"),),
+        history=(("Alt", f"{LOOPBACK_NOTICE} früher"),),
         num_ctx=4096,
         num_predict=400,
     )

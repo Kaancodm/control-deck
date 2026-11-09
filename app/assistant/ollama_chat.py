@@ -346,11 +346,18 @@ class OllamaDialogueAdapter:
                     think=False,
                 )
             else:
+                sanitizer = StreamingReplySanitizer()
+
+                def emit(chunk: str) -> None:
+                    safe = sanitizer.feed(chunk)
+                    if safe:
+                        on_chunk(safe)
+
                 response = self._chat_streaming(
                     normalized,
                     timeout_s=float(timeout_s),
                     cancelled=stop,
-                    on_chunk=on_chunk,
+                    on_chunk=emit,
                 )
         except OllamaHTTPError as exc:
             elapsed_ms = int((time.monotonic() - started) * 1000)

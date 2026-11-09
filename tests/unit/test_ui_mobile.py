@@ -82,6 +82,7 @@ def test_phone_header_shows_three_main_links_one_logout_and_a_menu() -> None:
     assert [href for href, nesting in outline.links if nesting == ("Menü",)] == [
         "/ui/lanes",
         "/ui/chat",
+        "/ui/assistant",
         "/ui/audit",
     ]
     assert [text for text, nesting in outline.buttons if not nesting] == ["Abmelden"]

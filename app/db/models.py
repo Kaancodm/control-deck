@@ -24,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.assistant import records as _assistant_records  # noqa: F401 — register assistant metadata
 from app.core.schemas import DataClass
 from app.db.base import Base
 from app.db.state_machine import TaskState
@@ -98,6 +99,9 @@ class Task(Base):
     )
     events: Mapped[list[Event]] = relationship(back_populates="task", cascade="all, delete-orphan")
     lease: Mapped[Lease | None] = relationship(
+        back_populates="task", uselist=False, cascade="all, delete-orphan"
+    )
+    channel_receipt: Mapped[ChannelReceipt | None] = relationship(
         back_populates="task", uselist=False, cascade="all, delete-orphan"
     )
 
@@ -223,6 +227,57 @@ class Lease(Base):
     task: Mapped[Task] = relationship(back_populates="lease")
 
     __table_args__ = (Index("ix_leases_expires_at", "expires_at"),)
+
+
+class ChannelReceipt(Base):
+    """One durable acceptance record per task. It is not ``task.start``."""
+
+    __tablename__ = "channel_receipts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    transport: Mapped[str] = mapped_column(String(32), nullable=False)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    task: Mapped[Task] = relationship(back_populates="channel_receipt")
+
+    __table_args__ = (
+        Index(
+            "ix_channel_receipts_deadline",
+            "deadline_at",
+            postgresql_where=text("status = 'accepted'"),
+        ),
+        CheckConstraint(
+            "status IN ('accepted', 'delivered', 'deadline_elapsed')",
+            name="ck_channel_receipts_status",
+        ),
+        CheckConstraint(
+            "transport = 'missing' OR transport ~ '^[a-z][a-z0-9_]{0,31}$'",
+            name="ck_channel_receipts_transport",
+        ),
+        CheckConstraint(
+            "idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9:_-]{0,79}$'",
+            name="ck_channel_receipts_idempotency_key",
+        ),
+        CheckConstraint(
+            "deadline_at = accepted_at + interval '60 seconds'",
+            name="ck_channel_receipts_deadline",
+        ),
+        CheckConstraint(
+            "(status = 'delivered' AND transport <> 'missing' AND delivered_at IS NOT NULL) "
+            "OR (status <> 'delivered' AND delivered_at IS NULL)",
+            name="ck_channel_receipts_delivery",
+        ),
+    )
 
 
 class RedactionMap(Base):

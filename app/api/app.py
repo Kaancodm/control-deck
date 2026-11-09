@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.errors import register_exception_handlers
 from app.api.routes import control, health, knowledge, tasks, worker
 from app.api.security import ConfiguredHttpBoundary
+from app.assistant.http import router as assistant_router
 from app.db.ui_auth import SessionCapacityError
 from app.services.tasks import OwnerTaskError
 from app.ui.auth import AuthConfigurationError
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(control.router, prefix="/api/v1")
     app.include_router(knowledge_ui_router)
     app.include_router(ui_router)
+    app.include_router(assistant_router)
     app.mount(
         "/ui/static",
         StaticFiles(directory=Path(__file__).parents[1] / "ui" / "static"),

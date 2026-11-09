@@ -2,6 +2,7 @@
 {% block title %}{{ task.payload.title }} · Control Deck{% endblock %}
 {% block content %}
 <div class="page-heading"><div><span class="hint">Task-Zustand</span> {% include 'partials/status.html' %}<h1>{{ task.payload.title }}</h1></div><a href="/ui/tasks">Alle Aufträge</a></div>
+{% include 'partials/progress.html' %}
 {% set result = task.results|sort(attribute='attempt')|last %}
 {% include 'partials/result_status.html' %}
 {% if task.status.value == 'review' %}<p class="hint">Das Ergebnis wartet auf deine Freigabe; der Auftrag ist noch nicht erledigt.</p>{% endif %}

@@ -26,11 +26,12 @@
   --page-width: 76rem;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); line-height: 1.5; }
+html { font-size: 100%; -webkit-text-size-adjust: 100%; }
+body { margin: 0; overflow-x: hidden; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); line-height: 1.5; }
 a { color: var(--color-accent); text-underline-offset: .2em; overflow-wrap: anywhere; }
-button, input, select, textarea { font: inherit; }
+button, input, select, textarea { font: inherit; font-size: 16px; touch-action: manipulation; }
 button, .button, input, select, textarea, summary { min-height: var(--control-size); }
-button, .button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--radius); padding: var(--space-2) var(--space-4); background: var(--color-action); color: var(--color-action-text); font-weight: 650; text-decoration: none; cursor: pointer; }
+button, .button { display: inline-flex; align-items: center; justify-content: center; max-width: 100%; border: 1px solid transparent; border-radius: var(--radius); padding: var(--space-2) var(--space-4); background: var(--color-action); color: var(--color-action-text); font-weight: 650; text-align: center; white-space: normal; text-decoration: none; cursor: pointer; touch-action: manipulation; }
 button.quiet, .button.quiet { background: var(--color-raised); color: var(--color-text); border-color: var(--color-line); }
 button.danger { background: var(--color-danger); }
 input, select, textarea { display: block; width: 100%; min-width: 0; max-width: 100%; padding: var(--space-2); border: 1px solid var(--color-line); border-radius: var(--radius); background: var(--color-bg); color: var(--color-text); }
@@ -48,7 +49,7 @@ mark { background: var(--color-warning); color: var(--color-action-text); }
 fieldset { min-width: 0; border: 1px solid var(--color-line); border-radius: var(--radius); }
 details { margin-block: var(--space-4); }
 summary { cursor: pointer; padding-block: var(--space-2); }
-.app-shell { max-width: var(--page-width); margin-inline: auto; padding: var(--space-4); }
+.app-shell { max-width: var(--page-width); margin-inline: auto; padding: max(var(--space-4), env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right)) max(var(--space-4), env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left)); }
 .app-header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); border-bottom: 1px solid var(--color-line); padding-block: var(--space-3) var(--space-5); }
 .brand { font-size: 1.25rem; font-weight: 750; text-decoration: none; }
 nav { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
@@ -106,7 +107,11 @@ footer { border-top: 1px solid var(--color-line); padding-block: var(--space-5);
 .menu > summary::-webkit-details-marker { display: none; }
 .menu > summary::after { content: " ▾"; }
 .menu[open] > summary::after { content: " ▴"; }
-.menu-panel { position: absolute; right: 0; left: auto; top: calc(100% + var(--space-2)); z-index: 10; min-width: 14rem; display: grid; gap: var(--space-3); padding: var(--space-3); background: var(--color-panel); border: 1px solid var(--color-line); border-radius: var(--radius); box-shadow: var(--shadow-panel); }
+.menu-panel { position: absolute; right: 0; left: auto; top: calc(100% + var(--space-2)); z-index: 10; width: min(14rem, calc(100vw - 2rem)); display: grid; gap: var(--space-3); padding: var(--space-3); background: var(--color-panel); border: 1px solid var(--color-line); border-radius: var(--radius); box-shadow: var(--shadow-panel); }
+.progress-band ol { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.progress-band li { display: grid; gap: .15rem; min-width: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--color-raised); }
+.progress-band li span { color: var(--color-muted); font-size: .8rem; font-weight: 650; }
+.progress-band li strong { overflow-wrap: anywhere; font-weight: 650; }
 .menu-panel nav { flex-direction: column; gap: 0; }
 .menu-panel nav a { padding-inline: var(--space-2); }
 .menu-panel form button { width: 100%; margin: 0; }

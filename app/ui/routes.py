@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.datastructures import FormData, UploadFile
@@ -26,8 +27,10 @@ from app.audit.presentation import (
 )
 from app.audit.repository import list_audit
 from app.audit.service import read_lane_health
+from app.channels.receipt import channel_facts, settle_task_receipt
 from app.core.schemas import DataClass, TaskV1, Worker
 from app.db.failures import list_failed_tasks
+from app.db.models import ChannelReceipt, Task
 from app.db.settings import read_settings, update_settings
 from app.db.state_machine import InvalidTaskTransitionError, TaskState
 from app.db.ui_auth import (
@@ -67,6 +70,7 @@ from app.ui.chat import ChatError, ChatRequest, UnavailableChat, ask_local
 from app.ui.files import MAX_FILE_BYTES, UiFileError, Upload, read_payload, store_uploads
 from app.ui.forms import FormError, form_from_draft, task_from_form, validate_draft
 from app.ui.middleware import MAX_BODY_BYTES
+from app.ui.progress import AttemptProgress, attempt_progress
 from app.ui.views import page, preview_context, preview_redirect
 
 router = APIRouter(prefix="/ui", include_in_schema=False)
@@ -357,6 +361,48 @@ def create_task(request: Request, session: DbSession, data: ParsedForm) -> Respo
         return page(request, "task_form.html", values={}, error=code, status=422)
 
 
+def _attempt_progress(task: Task, session: Session) -> AttemptProgress:
+    """Read stored events and the channel receipt. Worker start is a separate line."""
+    settle_task_receipt(session, task.id)
+    receipt = session.scalar(select(ChannelReceipt).where(ChannelReceipt.task_id == task.id))
+    channel_status, channel_transport = channel_facts(receipt)
+    result = max(task.results, key=lambda row: row.attempt, default=None)
+    result_status = None
+    error_code = None
+    profile = None
+    if result is not None:
+        stored = result.payload.get("status")
+        result_status = stored if isinstance(stored, str) else None
+        profile = result.execution_profile
+        raw_error = result.payload.get("error")
+        if isinstance(raw_error, dict):
+            code = raw_error.get("code")
+            error_code = code if isinstance(code, str) else None
+    fallback = task.status == TaskState.QUEUED and any(
+        isinstance(event.detail, dict) and event.detail.get("retry_action") == "fallback"
+        for event in task.events
+    )
+    started: list[int] = []
+    for event in task.events:
+        if event.event_type != "task.start" or not isinstance(event.detail, dict):
+            continue
+        attempt = event.detail.get("attempt")
+        if type(attempt) is int:
+            started.append(attempt)
+    return attempt_progress(
+        status=task.status.value,
+        current_attempt=task.attempt,
+        started_attempts=tuple(started),
+        result_attempt=None if result is None else result.attempt,
+        result_status=result_status,
+        error_code=error_code,
+        execution_profile=profile,
+        fallback_pending=fallback,
+        channel_status=channel_status,
+        channel_transport=channel_transport,
+    )
+
+
 @router.get("/tasks/{task_id}")
 def detail(request: Request, task_id: UUID, session: DbSession) -> Response:
     owner(request, session)
@@ -378,6 +424,7 @@ def detail(request: Request, task_id: UUID, session: DbSession) -> Response:
         request,
         "task_detail.html",
         task=task,
+        progress=_attempt_progress(task, session),
         outputs=outputs,
         contexts=contexts,
         context_unavailable=context_unavailable,

@@ -41,7 +41,8 @@ Wichtige Pfade:
 - `queued` → `leased` → `running` → `review` → `done`
 - Ohne Review-Pflicht und ohne `human`-Regel: `running` → `done`
 - Owner-Ablehnung: `review` → `failed`; Owner-Abbruch aus `review` → `cancelled`
-- Retry oder Lease-Ablauf: zurück nach `queued` (`retry`, `lease_expired`), ohne Freigabe nach `awaiting_approval`, bei erschöpften Versuchen nach `failed`
+- Retry oder Lease-Ablauf: zurück nach `queued` (`retry`, `lease_expired`), ohne Freigabe nach `awaiting_approval`, bei erschöpften Versuchen nach `failed`. Fehlt beim Lease-Ablauf ein Ergebnis, schreibt der Reaper genau eines mit `worker_unavailable`. Ein schon gespeichertes `timeout` wird nicht umetikettiert.
+- `channel_receipts` speichert je Auftrag höchstens eine Annahme in die Warteschlange. Sie ist nicht `task.start`. Der Transport `missing` wird nie als zugestellt gespeichert. Die Frist ist 60 Sekunden ab `accepted_at` und kann mit einer übergebenen Uhr geprüft werden.
 - Eine abgelaufene Owner-Deadline führt aus `awaiting_approval`, `queued`, `leased`, `running` oder `review` nach `expired`
 
 ## Routing-Laufzeitdaten
@@ -162,6 +163,15 @@ Downgrade (nur Dev/Test):
 ```bash
 uv run alembic downgrade base
 ```
+
+Die Hauptkette hat genau einen Kopf, `20261108_0062`. Er verbindet
+`20261108_0020` und `20261108_0061`, beide nach `20261104_0018`. Ein Upgrade
+von `20261104_0018`, von einer Datenbank auf `20261108_0020` und eine leere
+Datenbank enden auf diesem Kopf. `alembic downgrade -1` ist an der Verbindung
+mehrdeutig und läuft nicht. `alembic downgrade 20261108_0020` entfernt nur
+die Verbindung und laesst beide Eltern samt ihren Tabellen stehen. Die
+Wissens-Kette `alembic_kb` mit `kb_0001` bleibt eine eigene Script-Location
+und eine eigene Versionstabelle.
 
 ## Tests
 

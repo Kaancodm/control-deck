@@ -158,6 +158,63 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
         "Inbetriebnahme gemäss Betriebshandbuch.",
     ),
     "preview_unavailable": ("Die Vorschau ist abgelaufen.", "Chat-Entwurf erneut übernehmen."),
+    "assistant_input": ("Die Eingabe ist ungültig.", "Text kürzen oder die Felder prüfen."),
+    "assistant_secret": ("Ein Geheimnis wurde erkannt.", "Den Wert entfernen und erneut senden."),
+    "assistant_data_class": (
+        "Die Datenklasse fehlt oder ist unbekannt.",
+        "Eine erlaubte Klasse wählen.",
+    ),
+    "assistant_card": ("Die Karte ist ungültig.", "Vorlage, Platzhalter und Grösse prüfen."),
+    "assistant_oversize": ("Die Eingabe ist zu gross.", "Text kürzen und erneut senden."),
+    "profile_owner_only": (
+        "Das Profil bleibt beim Owner.",
+        "Nur die Profilseite speichert Notizen.",
+    ),
+    "live_model_disabled": ("Das Live-Modell ist aus.", "Der Mock ist kein lebendes Modell."),
+    "live_search_disabled": ("Die Live-Suche ist aus.", "local_only bleibt ohne Netzabruf."),
+    "assistant_model_unconfigured": (
+        "Das Loopback-Modell ist unvollständig.",
+        "URL und Modellname mit Tag setzen.",
+    ),
+    "assistant_model_unavailable": (
+        "Das Loopback-Modell antwortet nicht.",
+        "Der Mock bleibt der Standard.",
+    ),
+    "assistant_model_connect_timeout": (
+        "Die Loopback-Verbindung hat das Zeitlimit erreicht.",
+        "Der Dienst antwortet nicht auf den Verbindungsaufbau.",
+    ),
+    "assistant_model_connect_failed": (
+        "Die Loopback-Verbindung wurde abgewiesen.",
+        "Der Dienst lauscht auf dieser Adresse nicht.",
+    ),
+    "assistant_model_read_timeout": (
+        "Das Loopback-Modell hat das Zeitlimit erreicht.",
+        "Ein kalter Start hat einen Versuch. Es gibt keinen zweiten.",
+    ),
+    "assistant_model_http": (
+        "Der Loopback-Dienst lieferte einen HTTP-Status ausser 200.",
+        "Der Status steht in der Probe, der Inhalt nicht.",
+    ),
+    "assistant_model_missing": (
+        "Der Loopback-Dienst kennt dieses Modell nicht.",
+        "Ein installiertes name:tag verwenden. Kein Download.",
+    ),
+    "assistant_model_malformed": (
+        "Die Loopback-Antwort hat den Vertrag nicht erfüllt.",
+        "Der Inhalt wird nicht angezeigt.",
+    ),
+    "assistant_web_unconfigured": (
+        "Die Websuche ist nicht konfiguriert.",
+        "Allowlist und Suchadresse fehlen.",
+    ),
+    "assistant_web_blocked": (
+        "Die Adresse ist nicht freigegeben.",
+        "Nur die Allowlist, ohne private Netze.",
+    ),
+    "assistant_web_rejected": ("Der Abruf wurde abgewiesen.", "Inhalt, Zeit oder Grösse prüfen."),
+    "assistant_cancelled": ("Der Abruf wurde abgebrochen.", "Erneut senden."),
+    "order_missing": ("Dieser Assistenten-Auftrag fehlt.", "Zur Assistentenseite zurück."),
     "temporarily_unavailable": (
         "Der Dienst ist vorübergehend nicht verfügbar.",
         "Kurz warten und neu laden.",

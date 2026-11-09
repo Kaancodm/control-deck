@@ -67,7 +67,7 @@ def browser_app(db_session, monkeypatch, tmp_path):
         assert not thread.is_alive()
 
 
-@pytest.mark.parametrize("width,javascript", [(390, True), (1024, False)])
+@pytest.mark.parametrize("width,javascript", [(320, True), (1024, False)])
 def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, width, javascript):
     base, password, factory = browser_app
     with sync_playwright() as playwright:
@@ -121,6 +121,13 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         assert outcome.action == "completed"
         page.reload()
         page.get_by_text("simulation-ok", exact=True).wait_for()
+        band = page.get_by_role("region", name="Auftragsweg")
+        assert band.is_visible()
+        assert "Ergebnis da" in band.inner_text()
+        assert "Worker gestartet" in band.inner_text()
+        assert "Angenommen, Transport fehlt" in band.inner_text()
+        assert "Zugestellt" not in band.inner_text()
+        assert "Simulation, kein Anbieter-Nachweis" in band.inner_text()
         page.get_by_label("Ergebnis geprüft", exact=True).check()
         page.get_by_role("button", name="Ergebnis freigeben", exact=True).click()
         page.get_by_text("✓ Erledigt", exact=True).wait_for()
@@ -136,6 +143,11 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
             page.goto(base + path)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), path
             assert page.get_by_role("heading", level=1).count() == 1
+            if width == 320 and path == "/ui/tasks/new":
+                size = page.evaluate(
+                    "parseFloat(getComputedStyle(document.querySelector('#title')).fontSize)"
+                )
+                assert size >= 16
         page.goto(base + "/ui/chat")
         page.get_by_label("Nachricht", exact=True).fill("DRAFT Produce synthetic text.")
         page.get_by_role("button", name="Senden", exact=True).click()

@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Auftrag · Assistent{% endblock %}
+{% block head_extra %}<link rel="stylesheet" href="/ui/static/assistant.css">{% endblock %}
+{% block content %}
+<div class="assistant-page">
+  <h1>{{ task.payload.title }}</h1>
+  <p class="notice">Mock, kein Live-Modell. Die Start-Freigabe bleibt auf der bestehenden Auftragsseite.</p>
+  <section class="panel" aria-label="Status">
+    <h2>{{ view.label }}</h2>
+    <p>Datenklasse {{ task.data_class.value }} · Zustand {{ task.status.value }}</p>
+    <ul>{% for gap in gaps %}<li>{{ gap }}</li>{% endfor %}</ul>
+    <p>{{ channel.name }}: {{ channel.state }}. {{ channel.detail }}</p>
+  </section>
+  <section class="panel" aria-label="Bestaetigung">
+    <h2>Bestätigung der Anwendung</h2>
+    <dl>
+      {% for key in ['confirmation_role', 'confirmation_goal', 'confirmation_rules', 'confirmation_limits', 'confirmation_result', 'confirmation_path'] %}
+      <dt>{{ key }}</dt><dd>{{ labels.get(key, '') }}</dd>
+      {% endfor %}
+    </dl>
+  </section>
+  <pre>{{ task.payload.instructions }}</pre>
+  <p><a class="button" href="/ui/tasks/{{ task.id }}">Zur bestehenden Auftragsseite</a></p>
+  <p><a href="/ui/assistant">Zurück zum Assistenten</a></p>
+</div>
+{% endblock %}

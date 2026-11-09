@@ -56,5 +56,12 @@ def db_session(migrated_database: None) -> Generator[Session, None, None]:
             session.execute(text("TRUNCATE ui_login_clients"))
         if session.scalar(text("SELECT to_regclass('auth_events')")) is not None:
             session.execute(text("TRUNCATE auth_events"))
+        if session.scalar(text("SELECT to_regclass('assistant_cards')")) is not None:
+            session.execute(
+                text(
+                    "TRUNCATE assistant_turns, assistant_card_versions, assistant_cards, "
+                    "assistant_profile_versions, assistant_order_keys"
+                )
+            )
         session.commit()
         session.close()

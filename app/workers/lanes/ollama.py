@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.core.schemas import (
+    ATTEMPT_TIMEOUT_MAX_S,
     ErrorCode,
     RedactionInfo,
     ResultCheck,
@@ -122,7 +123,7 @@ class OllamaExecutor:
         url: str | None = None,
         simulation: OllamaSimulation | None = None,
         num_ctx: int | None = None,
-        timeout_s: float = 600,
+        timeout_s: float = ATTEMPT_TIMEOUT_MAX_S,
         max_stdout_bytes: int = 4 * 1024 * 1024,
         max_stderr_bytes: int = 64 * 1024,
     ) -> None:

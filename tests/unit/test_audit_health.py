@@ -409,6 +409,7 @@ def test_only_live_success_resets_a_mixed_origin_failure_series():
         "inventory_cancelled",
         "inventory_timeout",
         "inventory_internal",
+        "inventory_busy",
         "rootless_required",
         "cli_version_unsupported",
     ],

@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import signal
+import subprocess
 import sys
 import threading
+import time
+from pathlib import Path
 
 import pytest
 
 from app.core.schemas import ATTEMPT_TIMEOUT_MAX_S, Worker
-from app.operations.errors import OperationError
+from app.operations.errors import OperationError, ProcessExitError
 from app.workers import daemon
+
+LIVE_ENVIRONMENT = {"DECK_LIVE_ENABLED": "1", "DECK_OLLAMA_URL": "http://127.0.0.1:11434"}
+
+
+def attempt_records(caplog: pytest.LogCaptureFixture) -> list[dict[str, object]]:
+    return [
+        json.loads(item.getMessage()) for item in caplog.records if item.name == daemon._log.name
+    ]
 
 
 def test_live_service_profile_stays_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -84,7 +97,9 @@ def test_main_selects_profile_and_simulation_ignores_live_configuration(
 
 
 @pytest.mark.parametrize("reason", ["process_failed", "process_timeout", "process_output_limit"])
-def test_live_host_process_failure_exits_one_for_supervisor_restart(monkeypatch, capsys, reason):
+def test_live_host_process_failure_exits_one_for_supervisor_restart(
+    monkeypatch, capsys, caplog, reason
+):
     calls = []
     monkeypatch.setenv("DECK_LIVE_ENABLED", "true")
     monkeypatch.setenv("DECK_OLLAMA_URL", "http://127.0.0.1:11434")
@@ -98,6 +113,9 @@ def test_live_host_process_failure_exits_one_for_supervisor_restart(monkeypatch,
     assert daemon.main() == 1
     assert len(calls) == 1
     assert json.loads(capsys.readouterr().out) == {"status": "failed", "reason": reason}
+    assert [(item["reason"], item["during_stop"]) for item in attempt_records(caplog)] == [
+        (reason, False)
+    ]
 
 
 def test_stop_cancels_child_without_a_database_mutation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,6 +128,150 @@ def test_stop_cancels_child_without_a_database_mutation(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(daemon, "run_command", child)
     assert daemon.run_loop(Worker.CODEX, environment={}, stop=stop, iterations=2) == 0
+
+
+@pytest.mark.parametrize("live", [False, True])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        OperationError("process_failed"),
+        OperationError("process_timeout"),
+        OperationError("process_output_limit"),
+        ProcessExitError(1),
+        ProcessExitError(-signal.SIGKILL),
+    ],
+    ids=["os-error", "timeout", "output-limit", "exit-1", "sigkill"],
+)
+def test_finished_attempt_during_a_stop_is_recorded_then_ends(monkeypatch, caplog, live, failure):
+    stop = threading.Event()
+    calls = []
+
+    def child(command, **kwargs):
+        calls.append(command)
+        stop.set()
+        raise failure
+
+    monkeypatch.setattr(daemon, "run_command", child)
+    assert daemon.run_loop(Worker.OLLAMA, environment=LIVE_ENVIRONMENT, stop=stop, live=live) == 1
+    assert len(calls) == 1
+    assert attempt_records(caplog) == [
+        {
+            "event": "runner_attempt_failed",
+            "worker": "ollama",
+            "reason": failure.code,
+            "during_stop": True,
+        }
+    ]
+
+
+@pytest.mark.parametrize("live", [False, True])
+@pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGINT])
+def test_child_killed_by_the_stop_signal_is_a_clean_stop(monkeypatch, caplog, live, number):
+    stop = threading.Event()
+
+    def child(command, **kwargs):
+        stop.set()
+        raise ProcessExitError(-number)
+
+    monkeypatch.setattr(daemon, "run_command", child)
+    assert daemon.run_loop(Worker.OLLAMA, environment=LIVE_ENVIRONMENT, stop=stop, live=live) == 0
+    assert attempt_records(caplog) == []
+
+
+def test_signal_death_without_a_stop_stays_a_failure(monkeypatch, caplog):
+    def child(command, **kwargs):
+        raise ProcessExitError(-signal.SIGTERM)
+
+    monkeypatch.setattr(daemon, "run_command", child)
+    with pytest.raises(ProcessExitError):
+        daemon.run_loop(
+            Worker.OLLAMA, environment=LIVE_ENVIRONMENT, stop=threading.Event(), live=True
+        )
+    assert [record["during_stop"] for record in attempt_records(caplog)] == [False]
+
+
+@pytest.mark.parametrize("reason", ["process_timeout", "process_output_limit"])
+def test_shutdown_exits_zero_after_recording_a_finished_attempt(
+    monkeypatch, capsys, caplog, reason
+):
+    monkeypatch.setenv("DECK_LIVE_ENABLED", "true")
+    monkeypatch.setenv("DECK_OLLAMA_URL", "http://127.0.0.1:11434")
+    monkeypatch.setattr(sys, "argv", ["daemon", "--worker", "ollama"])
+
+    def child(command, **kwargs):
+        signal.raise_signal(signal.SIGTERM)
+        raise OperationError(reason)
+
+    monkeypatch.setattr(daemon, "run_command", child)
+    assert daemon.main() == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "stopped", "iterations": 1}
+    assert [(item["reason"], item["during_stop"]) for item in attempt_records(caplog)] == [
+        (reason, True)
+    ]
+
+
+_SIGNAL_HARNESS = """
+import sys
+from app.workers import daemon
+
+pid_file = sys.argv[1]
+child = "import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(60)"
+run_loop = daemon.run_loop
+daemon.run_loop = lambda worker, **kwargs: run_loop(
+    worker, command=(sys.executable, "-c", child, pid_file), **kwargs
+)
+sys.argv = ["daemon", "--worker", "ollama"]
+raise SystemExit(daemon.main())
+"""
+
+
+def _child_pid(path: Path, supervisor: subprocess.Popen[bytes]) -> int:
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and supervisor.poll() is None:
+        if path.exists() and (text := path.read_text()):
+            return int(text)
+        time.sleep(0.01)
+    raise AssertionError("Attempt process did not start")
+
+
+@pytest.mark.parametrize(
+    ("number", "signal_child"),
+    [
+        # KillMode=mixed: only the supervisor is signalled.
+        (signal.SIGTERM, False),
+        # KillMode=control-group: systemd signals the main process, then the rest.
+        (signal.SIGTERM, True),
+        (signal.SIGINT, False),
+    ],
+)
+def test_service_signal_exits_zero_during_an_attempt(tmp_path, number, signal_child):
+    pid_file = tmp_path / "attempt.pid"
+    environment = {
+        "PATH": os.defpath,
+        "DECK_LIVE_ENABLED": "1",
+        "DECK_OLLAMA_URL": "http://127.0.0.1:11434",
+    }
+    supervisor = subprocess.Popen(
+        [sys.executable, "-c", _SIGNAL_HARNESS, str(pid_file)],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        child = _child_pid(pid_file, supervisor)
+        supervisor.send_signal(number)
+        if signal_child:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child, number)
+        stdout, stderr = supervisor.communicate(timeout=20)
+    finally:
+        if supervisor.poll() is None:
+            supervisor.kill()
+            supervisor.wait()
+    assert supervisor.returncode == 0, stderr.decode()
+    assert json.loads(stdout) == {"status": "stopped", "iterations": 0}
+    with pytest.raises(ProcessLookupError):
+        os.kill(child, 0)
 
 
 def test_supervisor_default_matches_the_attempt_maximum(monkeypatch: pytest.MonkeyPatch) -> None:

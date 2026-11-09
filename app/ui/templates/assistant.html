@@ -17,7 +17,7 @@
   <section class="panel" aria-label="Dialog">
     <h2>Dialog</h2>
     {% if reply %}
-    <p><strong>{% if reply.persisted %}Gespeichert, vom Owner gewählt{% else %}Nicht gespeichert{% endif %}</strong> · {{ reply.evidence_status }} · {{ reply.data_class }}</p>
+    <p><strong>{% if reply.persisted %}Gespeichert, vom Owner gewählt{% else %}Nicht gespeichert{% endif %}</strong> · {{ reply.evidence_label }} · {{ reply.data_class }}</p>
     <pre>{{ reply.answer }}</pre>
     {% endif %}
     {% if turns %}

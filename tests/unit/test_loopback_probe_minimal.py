@@ -113,7 +113,7 @@ def test_isolated_probe_uses_the_same_adapter_without_third_party_modules() -> N
     report = json.loads(completed.stdout)
     assert report["runtime"] == "python-stdlib"
     assert report["third_party_modules"] == []
-    assert report["prefix_ok"] is True
+    assert "prefix_ok" not in report
     assert report["uncensored_claim"] is False
     assert report["model_identity"] == "unverified"
     assert report["loopback_calls"] == 1 and report["network_calls"] == 0

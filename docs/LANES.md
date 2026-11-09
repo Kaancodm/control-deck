@@ -142,6 +142,11 @@ oder mehrdeutige Metadaten erhöhen den Fallback nicht. Prüfung und Chat verwen
 Wert. Die Schätzung lautet `ceil(UTF-8-Bytes / 3) + 1024` für Vorlage und Ausgabe.
 Gleichheit mit `num_ctx` ist erlaubt; ein Token darüber ergibt vor dem Chat-Request
 `context_limit_exceeded`. Serverfehler bleiben Fehler ohne Teilausgabe oder Adapter-Retry.
+Einzige Ausnahme ist HTTP 503 bei voller Ollama-Warteschlange (`OLLAMA_MAX_QUEUE`): Ollama
+weist den Request vor der Inferenz ab. Der Client sendet ihn innerhalb desselben Zeitbudgets
+höchstens viermal, mit 0,5, 1 und 2 Sekunden Abstand oder gemäss `Retry-After`, gedeckelt
+auf 4 Sekunden. Der `attempt` zählt dabei nicht weiter. Bleibt der Dienst ausgelastet,
+meldet der Versuch `rate_limited`; die Queue plant ihn nach den Regeln aus Etappe 10 neu ein.
 
 Die Verfügbarkeit wird pro konfiguriertem Modell geprüft. Ein fehlendes oder ungeeignetes
 Modell sperrt keine anderen einzeln bestätigten Modelle. Die Queue überspringt Aufgaben

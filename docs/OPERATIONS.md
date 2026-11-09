@@ -96,7 +96,7 @@ Das Flag und die URL gehören nie in die API-Umgebungsdatei. Proxy-Variablen und
 | Andere Lane bei Flag an | `78`, `live_lane_not_supported` | Live nur für Ollama |
 | Fehlende oder ungültige URL | `78`, `live_url_invalid` | Korrektur der Runner-Konfiguration nötig |
 | Supervisor-Laufzeitfehler | `1` | systemd versucht den Neustart nach fünf Sekunden |
-| Kontrolliertes Dienstende | `0` | Keine neuen Versuche |
+| Kontrolliertes Dienstende | `0` | Keine neuen Versuche. Ein vom Stopp-Signal beendeter Versuch behält seinen Lease und läuft nach dessen Ablauf erneut. Scheitert ein Versuch während des Stopps anders (Timeout, Ausgabelimit, echter Exit-Code), wird er zuerst gezählt und als `runner_attempt_failed` im Journal vermerkt |
 
 Ein unerreichbarer Ollama-Dienst beendet die Poll-Schleife nicht mit `78`.
 Der Runner meldet die Lane als `unavailable`; weitere Polls können die Erholung erkennen.
@@ -117,7 +117,8 @@ nur einen lokalen HTTP-Stub. Sie konfigurieren weder einen echten Ollama-Dienst 
 laden sie ein Modell. Die Restore-Erinnerung bleibt ein Probelauf ohne `--apply`.
 
 SIGTERM oder SIGINT beendet den aktiven Host-Prozess samt Unterprozessen und stoppt neue
-Claims. Das schreibt **keinen** Owner-Abbruch. Die bestehende Lease läuft aus; der Reaper
+Claims. Der Supervisor endet dabei mit `0`, auch wenn der Host-Prozess durch dasselbe
+Signal schon beendet wurde. Das schreibt **keinen** Owner-Abbruch. Die bestehende Lease läuft aus; der Reaper
 plant den Versuch gemäss Etappe 10 und verbleibendem Budget erneut ein. Nur eine echte
 Owner-Deadline erzeugt `expired`. Der Not-Aus in der Oberfläche bleibt davon getrennt:
 Er setzt den ausdrücklichen Abbruchpfad für aktive Aufgaben.

@@ -45,14 +45,18 @@
     if (payload.persisted !== undefined) {
       parts.push(payload.persisted ? "Gespeichert, vom Owner gewählt" : "Nicht gespeichert");
     }
-    if (payload.evidence_status) {
-      parts.push(payload.evidence_status);
+    if (payload.evidence_label || payload.evidence_status) {
+      parts.push(payload.evidence_label || payload.evidence_status);
     }
     if (payload.data_class) {
       parts.push(payload.data_class);
     }
     metaEl.textContent = parts.join(" · ");
     metaEl.hidden = parts.length === 0;
+  }
+
+  function errorText(payload) {
+    return payload.message || "Fehler: " + (payload.error || "assistant_model_unavailable");
   }
 
   function appendText(text) {
@@ -101,7 +105,7 @@
         return;
       }
       if (snapshot.state === "error") {
-        setStatus("Fehler: " + (snapshot.error || "assistant_model_unavailable"));
+        setStatus(errorText(snapshot));
         finishTurn();
         return;
       }
@@ -158,7 +162,7 @@
       source.addEventListener("failed", function (event) {
         try {
           const data = JSON.parse(event.data);
-          setStatus("Fehler: " + (data.error || "assistant_model_unavailable"));
+          setStatus(errorText(data));
         } catch (_err) {
           setStatus("Verbindung unterbrochen.");
         }
@@ -192,7 +196,7 @@
           return;
         }
         if (snapshot.state === "error") {
-          setStatus("Fehler: " + (snapshot.error || "assistant_model_unavailable"));
+          setStatus(errorText(snapshot));
           finishTurn();
           return;
         }

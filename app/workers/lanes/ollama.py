@@ -338,7 +338,10 @@ class OllamaExecutor:
         return OllamaAvailability("ok", "live_ready", tuple(available), tuple(context_limits))
 
     def execute(self, context: AttemptContext) -> ResultV1:
-        """Send exactly the archived text once; discard incomplete or unsafe output."""
+        """Send exactly the archived text; discard incomplete or unsafe output.
+
+        Only a queue-full 503, which Ollama refused before inference, is sent again.
+        """
         started_at = datetime.now(UTC)
         started = time.monotonic()
         self.last_metadata = {}
@@ -420,6 +423,8 @@ class OllamaExecutor:
             return finish(ResultStatus.FAILED, code=ErrorCode.TIMEOUT)
         if available.reason == "inventory_internal":
             return finish(ResultStatus.FAILED, code=ErrorCode.INTERNAL)
+        if available.reason == "inventory_busy":
+            return finish(ResultStatus.FAILED, code=ErrorCode.RATE_LIMITED)
         if available.status != "ok":
             return finish(ResultStatus.FAILED, code=ErrorCode.WORKER_UNAVAILABLE)
         timeout = remaining_budget()
@@ -465,6 +470,7 @@ class OllamaExecutor:
                     "timeout": ErrorCode.TIMEOUT,
                     "unavailable": ErrorCode.WORKER_UNAVAILABLE,
                     "internal": ErrorCode.INTERNAL,
+                    "busy": ErrorCode.RATE_LIMITED,
                 }[exc.reason]
                 return finish(ResultStatus.FAILED, code=error)
             input_tokens, output_tokens = response.prompt_eval_count, response.eval_count

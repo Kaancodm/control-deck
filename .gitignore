@@ -53,5 +53,6 @@ htmlcov/
 .claude/settings.local.json
 tests/hooks/_guard_tmp/
 
-# Claude data-plugin build output (local only, never commit)
+# Claude data-plugin: the vendored files from #72 stay tracked; new local build
+# output (e.g. schema dumps) stays ignored. Add deliberate plugin updates with git add -f.
 plugin-build/

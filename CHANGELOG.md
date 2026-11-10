@@ -16,8 +16,16 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - Die Übersicht zeigt nur Daten mit Quelle (Freigaben, Claims, Lanes, letztes Backup- und
   Restore-Ereignis, Audit) und Schalter nur als Zustand. Beispielzahlen, Namen, Hoster,
   PR-Nummern, Modellname, Backup-Uhrzeit und 3D-Patch des Mockups entfallen.
-- Assistent zeigt Loopback, Web und Routine-Wake als Zustandschips; Texte und Formulare
-  bleiben unverändert.
+- Assistent zeigt Loopback, Web und Routine-Wake als Zustandschips; Feldnamen und
+  Formularreihenfolge bleiben unverändert.
+- Fix-Runde 1: Telefon zuerst. Einzeilige deckende Kopfzeile mit eigenem Stapelkontext
+  (Menü liegt oben), Runner-Zustand als Pill, deckende Leiste, die bei Fokus im Feld
+  verschwindet. Übersicht mit Status-Leiste direkt unter dem Titel, genau einer gefüllten
+  Hauptaktion, offenen Punkten nur aus Warnungen und eingeklappten Hinweisen, Assistent,
+  Meldungen und Audit. Fehlende Lane-Daten heissen «nicht verfügbar», agy erscheint als
+  vierte, noch nicht angebundene Lane (Owner-Entscheid), ein Datenbankfehler ergibt 503
+  statt eines unbehandelten Fehlers. Assistentenseite beginnt mit dem Dialog; der Kanal
+  trägt keinen Personennamen mehr. Neuer Chromium-Test für Falz, Menü und Tastatur.
 - Tests für Redirects, CSP-Pin, kein Inline-Code, Viewport, Kontrast, keine erfundenen
   Zahlen, keine Konfigurationswerte im HTML, Übersicht gegen PostgreSQL, Chromium-Shell
   bei 320/390/1024 Pixeln und optionale WebKit-Vorschau.

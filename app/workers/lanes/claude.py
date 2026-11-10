@@ -13,6 +13,7 @@ from typing import Literal
 from uuid import uuid4
 
 from app.core.schemas import (
+    ATTEMPT_TIMEOUT_MAX_S,
     ErrorCode,
     RedactionInfo,
     ResultError,
@@ -137,7 +138,7 @@ class ClaudeExecutor:
         *,
         profile: Literal["disabled", "simulation"] = "disabled",
         simulation: ClaudeSimulation | None = None,
-        timeout_s: float = 600,
+        timeout_s: float = ATTEMPT_TIMEOUT_MAX_S,
         max_stdout_bytes: int = 4 * 1024 * 1024,
         max_stderr_bytes: int = 64 * 1024,
     ) -> None:

@@ -56,5 +56,36 @@ def db_session(migrated_database: None) -> Generator[Session, None, None]:
             session.execute(text("TRUNCATE ui_login_clients"))
         if session.scalar(text("SELECT to_regclass('auth_events')")) is not None:
             session.execute(text("TRUNCATE auth_events"))
+        if session.scalar(text("SELECT to_regclass('assistant_cards')")) is not None:
+            session.execute(
+                text(
+                    "TRUNCATE assistant_turns, assistant_card_versions, assistant_cards, "
+                    "assistant_profile_versions, assistant_order_keys"
+                )
+            )
+        if session.scalar(text("SELECT to_regclass('assistant_messages')")) is not None:
+            session.execute(
+                text(
+                    "TRUNCATE memory_facts, assistant_messages, assistant_thread_links, "
+                    "assistant_threads, memory_approvals"
+                )
+            )
+            # Restore the migration seed: only deck_ui/owner exists and is active.
+            session.execute(
+                text(
+                    "DELETE FROM assistant_channel_accounts "
+                    "WHERE NOT (channel = 'deck_ui' AND account_label = 'owner')"
+                )
+            )
+            session.execute(
+                text(
+                    "INSERT INTO assistant_channel_accounts "
+                    "(channel, account_label, active, allowed_data_classes) VALUES "
+                    "('deck_ui', 'owner', true, "
+                    "ARRAY['local_only', 'cloud_redacted', 'cloud_ok']::text[]) "
+                    "ON CONFLICT (channel, account_label) DO UPDATE SET active = true, "
+                    "allowed_data_classes = EXCLUDED.allowed_data_classes"
+                )
+            )
         session.commit()
         session.close()

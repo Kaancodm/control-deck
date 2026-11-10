@@ -128,9 +128,15 @@ def test_context_limit_refuses_request_and_returns_review_failure(context):
     assert not any(request["path"] == "/api/chat" for request in stub.requests)
 
 
-@pytest.mark.parametrize("num_ctx", [2048, 8192])
-def test_configured_context_from_show_bounds_and_configures_chat(context, num_ctx):
-    payload = "x" * ((num_ctx - 1024) * 3)
+@pytest.mark.parametrize(
+    ("num_ctx", "expected"),
+    [
+        (2048, 2048),
+        (8192, 4096),
+    ],
+)
+def test_configured_context_from_show_bounds_and_configures_chat(context, num_ctx, expected):
+    payload = "x" * ((expected - 1024) * 3)
     context = replace(
         context, payload_text=payload, payload_sha256=hashlib.sha256(payload.encode()).hexdigest()
     )
@@ -141,7 +147,7 @@ def test_configured_context_from_show_bounds_and_configures_chat(context, num_ct
         result = executor.execute(context)
         assert result.status == ResultStatus.SUCCEEDED
         chat = [request for request in stub.requests if request["path"] == "/api/chat"]
-        assert len(chat) == 1 and chat[0]["body"]["options"]["num_ctx"] == num_ctx
+        assert len(chat) == 1 and chat[0]["body"]["options"]["num_ctx"] == expected
         too_large = payload + "x"
         rejected = executor.execute(
             replace(
@@ -182,7 +188,31 @@ def test_legacy_parameters_do_not_override_model_context(context, parameters):
         result = _executor(stub).execute(context)
     assert result.status == ResultStatus.SUCCEEDED
     chat = next(request for request in stub.requests if request["path"] == "/api/chat")
-    assert chat["body"]["options"]["num_ctx"] == 131072
+    assert chat["body"]["options"]["num_ctx"] == 4096
+
+
+def test_explicit_lane_num_ctx_ignores_task_cap(monkeypatch: pytest.MonkeyPatch, context) -> None:
+    monkeypatch.setenv("DECK_OLLAMA_TASK_NUM_CTX", "4096")
+    with OllamaStub(
+        models=(MODEL,),
+        show_extra={"model_info": {"fixture.context_length": 131072}},
+    ) as stub:
+        result = _executor(stub, num_ctx=8192).execute(context)
+    assert result.status == ResultStatus.SUCCEEDED
+    chat = next(request for request in stub.requests if request["path"] == "/api/chat")
+    assert chat["body"]["options"]["num_ctx"] == 8192
+
+
+def test_huge_metadata_context_is_capped(monkeypatch: pytest.MonkeyPatch, context) -> None:
+    monkeypatch.setenv("DECK_OLLAMA_TASK_NUM_CTX", "4096")
+    with OllamaStub(
+        models=(MODEL,),
+        show_extra={"model_info": {"fixture.context_length": 40960}},
+    ) as stub:
+        result = _executor(stub).execute(context)
+    assert result.status == ResultStatus.SUCCEEDED
+    chat = next(request for request in stub.requests if request["path"] == "/api/chat")
+    assert chat["body"]["options"]["num_ctx"] == 4096
 
 
 @pytest.mark.parametrize(
@@ -352,7 +382,7 @@ def test_direct_live_runner_does_not_treat_unavailable_provider_as_config_failur
     ("configured", "model_info", "expected"),
     [
         (2048, {"fixture.context_length": 8192}, 2048),
-        (None, {"fixture.context_length": 8192}, 8192),
+        (None, {"fixture.context_length": 8192}, 4096),
         (
             None,
             {

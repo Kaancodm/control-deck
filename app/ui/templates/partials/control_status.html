@@ -1,7 +1,7 @@
 <p class="control-band">
-  {% if controls.stop_requested %}<strong>■ Not-Aus aktiv</strong>
-  {% elif controls.paused %}<strong>Ⅱ Neue Aufträge pausiert</strong>
-  {% else %}<span>○ Runner freigegeben</span>{% endif %}
-  <a href="/ui/lanes">Steuerung und Lane-Zustand</a>
+  {% if controls.stop_requested %}<strong class="chip chip--warn">■ Not-Aus aktiv</strong>
+  {% elif controls.paused %}<strong class="chip chip--warn">Ⅱ Neue Aufträge pausiert</strong>
+  {% else %}<span class="chip chip--off">○ Runner freigegeben</span>{% endif %}
+  <a href="/ui/lanes">Steuerung →</a>
 </p>
 {% include 'partials/lane_warnings.html' %}

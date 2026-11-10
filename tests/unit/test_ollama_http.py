@@ -55,6 +55,7 @@ def test_metadata_and_exact_text_request_ignore_proxy_environment(monkeypatch):
         assert response.output_sha256 == hashlib.sha256(payload.encode()).hexdigest()
         assert response.prompt_eval_count == 3 and response.eval_count == 4
         assert response.done_reason == "stop"
+        assert response.load_duration is None
         request = stub.requests[-1]
         assert request["body"] == {
             "model": MODEL,

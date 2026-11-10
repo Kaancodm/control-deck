@@ -8,7 +8,13 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.channels.receipt import settle_due_receipts
 from app.core.schemas import DataClass, Worker
+from app.db.attempt_outcome import (
+    abandoned_detail,
+    attempt_termination,
+    record_abandoned_attempt,
+)
 from app.db.models import Lease, Task
 from app.db.repository import record_gate_error
 from app.db.routing import persist_task_route, pin_claim_worker, routing_snapshot
@@ -209,13 +215,22 @@ def dequeue_next_queued_task(
 
 
 def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
-    """
-    Return expired leases to the queue (``LEASE_EXPIRED``) using ``SKIP LOCKED``.
+    """Close expired leases and record the attempt when the runner left none.
 
-    Only tasks in ``leased`` or ``running`` with ``expires_at < now()`` are processed.
+    An owner deadline still expires the task and does not invent a worker
+    result. Cancellation stays cancellation. A vanished runner gets one
+    ``worker_unavailable`` result, which is not a timeout, then the existing
+    same-lane lease recovery until ``max_attempts``. That bound is the Etappe
+    10 rule for lease expiry. A result the live runner submits, including
+    ``worker_unavailable`` and ``timeout``, still goes through ``decide_failure``
+    and may move to the next allowed lane. This sweep does not add another
+    same-lane retry and does not skip that submitted-result rule. A result that
+    already exists, including a timeout, is not rewritten. The same call settles
+    due channel receipts, using one bounded batch.
     """
     expire_overdue_tasks(session, limit=limit)
     now = datetime.now(tz=UTC)
+    settle_due_receipts(session, now=now, limit=limit)
     stmt = (
         select(Lease)
         .join(Task, Task.id == Lease.task_id)
@@ -231,22 +246,40 @@ def reap_expired_leases(session: Session, *, limit: int = 32) -> int:
     for lease in leases:
         task = lease.task
         try:
+            if expire_task_if_due(session, task=task):
+                continue
             if task.cancel_requested:
+                termination = attempt_termination(session, task, if_absent="cancelled")
                 transition_task(
                     session,
                     task=task,
                     trigger=TaskTransition.CANCEL,
                     lease_id=lease.lease_id,
                     actor=TransitionActor.SYSTEM,
-                    detail={"reaper": True, "reason": "cancel_requested"},
+                    detail=abandoned_detail(
+                        termination=termination,
+                        expired_at=lease.expires_at,
+                        lease_id=lease.lease_id,
+                    ),
+                )
+                record_abandoned_attempt(
+                    session, task=task, lease=lease, now=now, termination="cancelled"
                 )
                 continue
+            termination = attempt_termination(session, task, if_absent="process_lost")
             transition_task(
                 session,
                 task=task,
                 trigger=TaskTransition.LEASE_EXPIRED,
                 lease_id=lease.lease_id,
-                detail={"reaper": True, "expired_at": lease.expires_at.isoformat()},
+                detail=abandoned_detail(
+                    termination=termination,
+                    expired_at=lease.expires_at,
+                    lease_id=lease.lease_id,
+                ),
+            )
+            record_abandoned_attempt(
+                session, task=task, lease=lease, now=now, termination="process_lost"
             )
         except (LeaseOwnershipError, TransitionFencingError):
             # The bounded sweep may omit this task, or its deadline may cross

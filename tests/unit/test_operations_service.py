@@ -205,6 +205,9 @@ def test_install_is_idempotent_and_never_starts_services(
     runner = (destination / "deck-runner@.service").read_text()
     assert "RestartPreventExitStatus=78" in runner
     assert "--simulate" not in runner
+    assert "KillMode=mixed" in runner
+    # A clean stop is exit 0 from the daemon; masking status 1 would hide real failures.
+    assert "SuccessExitStatus" not in runner
 
 
 def test_unit_templates_have_valid_offline_syntax(

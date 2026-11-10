@@ -1,5 +1,42 @@
 # Stand des Repositorys
 
+## Nachtrag 2026-11-10: UI-Angleichung als Draft
+
+Der Zweig `feat/ui-command-center-shell` setzt PR 1 aus
+[plans/UI_MOCKUP_ANGLEICHUNG.md](plans/UI_MOCKUP_ANGLEICHUNG.md) um: neue Shell,
+Übersicht unter `/ui/overview`, Redirect von `/`, überarbeitete Anmelde- und
+Assistentenseite. Auth, Session, CSRF, Login-Limit und CSP sind unverändert; der Zweig
+legt keine eigene Alembic-Revision an (Kopf nach M0/M1: `20261110_0064`) und bringt keine
+neue Abhängigkeit. Stand nach Fix-Runde 2 (Review Fable R2 und Codequalität): CI ist auf
+`6c1c766` grün (3540 passed, 2 skipped); die Chromium-Browsertests liefen dort. Der lokale
+Lauf nutzte entpackte Systembibliotheken per `LD_LIBRARY_PATH` und ist deshalb kein Ersatz
+für CI. Fix-Runde 3 (Reduced Motion behält die Verzögerung der Leiste, `color-mix`-Rückfälle,
+Zwischenzeile im Assistenten) ist lokal geprüft; ihr CI-Lauf folgt mit dem Push. Offen sind
+die WebKit-Screenshots `after2_*` (390 × 844) und die Abnahme am echten iPhone. Offen sind
+die Owner-Entscheide zu «Meldungen» (O7), zur Projekt-Stand-Liste und zum agy-Titel; bis
+dahin gilt die konservative Variante. Nichts davon ist ausgerollt.
+
+## Nachtrag 2026-11-08: Assistent offline
+
+Migration `20261108_0019` folgt auf `20261104_0018` und speichert Profilversionen,
+Kartenstände, optionale Dialogsätze und Idempotenzschlüssel. `20261108_0020`
+erlaubt die Dialogherkunft `ollama_loopback`. Das ist keine zweite
+Auftragswarteschlange. Der Assistent bleibt standardmässig beim Mock. Ein
+Loopback-Dialog, MediaWiki-Enzyklopädie und SearXNG-Vertrag sind opt-in.
+Fixtureresultate sind keine API-Treffer. Ein einzelner Cloud-Lauf der
+Enzyklopädie mit dem Wort octet lieferte einen API-Treffer. Die Loopback-Probe
+startet mit Python 3.12 und der Standardbibliothek, ohne das Projekt-Lockfile.
+Ein Serverlauf um 05:42 endete am bisherigen 8-Sekunden-Limit. Am selben Tag
+von 05:53:46 bis 05:53:55 lieferte Head `eb5e908` in einem Aufruf den
+Loopback-Präfix und `LOOPBACK_PROBE_7`, mit `python-stdlib`, ohne Drittmodule
+und ohne Uncensored-Nachweis. Das ist keine End-zu-End-Prüfung des Decks.
+Einzelheiten stehen in
+[ASSISTENT.md](ASSISTENT.md). Ein lebendes unzensiertes Modell, eine allgemeine
+Websuche und ein Kaan-Transport sind darin nicht enthalten. Dieser
+Integrationsstand enthaelt die Kanal-Quittung und das Ergebnis nach externem
+Runner-Abbruch. Der Folgezweig ergaenzt den ausgeschalteten Routine-Wake aus
+[TRANSPORT.md](TRANSPORT.md). Die GitHub-Entwuerfe bleiben getrennt.
+
 ## Nachtrag: Ollama Live-Adapter als Draft
 
 Der auf `main` nach #37 neu aufgebaute Stack ergänzt gemäss [ADR 0009](DECISIONS/0009-ollama-loopback-http.md)

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "golden_set.v1",
+  "description": "Router golden set. Offline, CHF 0, no network. The repository holds synthetic rows only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "synthetic", "cost_chf", "network", "rows"],
+  "properties": {
+    "schema_version": {"const": "golden_set.v1"},
+    "synthetic": {"type": "boolean"},
+    "cost_chf": {"const": 0},
+    "currency": {"const": "CHF"},
+    "network": {"const": "forbidden"},
+    "rows": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/row"}}
+  },
+  "$defs": {
+    "text": {"type": "string", "pattern": "\\S"},
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "raw_input",
+        "vorkontext",
+        "sprachkategorie",
+        "expected_route",
+        "expected_clarification",
+        "erlaubte_aktion",
+        "kritische_parameter",
+        "begruendung",
+        "source"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+        "raw_input": {"$ref": "#/$defs/text"},
+        "vorkontext": {"type": "string"},
+        "sprachkategorie": {
+          "enum": ["hochdeutsch", "ch_dialekt", "umgangssprache", "denglisch", "tippfehler", "diktat"]
+        },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "trap_rights",
+              "trap_secret",
+              "trap_local_only",
+              "trap_ambiguous",
+              "multi_intent",
+              "negation"
+            ]
+          }
+        },
+        "expected_route": {
+          "enum": [
+            "chat",
+            "status",
+            "search_local",
+            "search_external",
+            "memory_read",
+            "memory_write",
+            "order_draft",
+            "clarify"
+          ]
+        },
+        "expected_clarification": {"type": "boolean"},
+        "erlaubte_aktion": {"enum": ["refuse", "none", "read", "draft", "write_confirmed"]},
+        "kritische_parameter": {
+          "type": "object",
+          "propertyNames": {"minLength": 1},
+          "additionalProperties": {"type": "string"}
+        },
+        "begruendung": {"$ref": "#/$defs/text"},
+        "source": {"enum": ["synthetic", "owner"]},
+        "split": {"enum": ["dev", "holdout", null]},
+        "schema_version": {"const": "golden_set.v1"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"expected_route": {"const": "clarify"}}, "required": ["expected_route"]},
+          "then": {"properties": {"expected_clarification": {"const": true}}}
+        },
+        {
+          "if": {
+            "properties": {"tags": {"anyOf": [{"contains": {"const": "trap_rights"}}, {"contains": {"const": "trap_secret"}}]}},
+            "required": ["tags"]
+          },
+          "then": {"properties": {"erlaubte_aktion": {"enum": ["refuse", "none"]}}}
+        },
+        {
+          "if": {"properties": {"tags": {"contains": {"const": "trap_local_only"}}}, "required": ["tags"]},
+          "then": {"properties": {"expected_route": {"not": {"const": "search_external"}}}}
+        }
+      ]
+    }
+  }
+}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 import time
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.core.schemas import (
+    ATTEMPT_TIMEOUT_MAX_S,
     ErrorCode,
     RedactionInfo,
     ResultCheck,
@@ -28,6 +30,7 @@ from app.core.schemas import (
 )
 from app.workers.contracts import AttemptContext
 from app.workers.lanes.ollama_http import OllamaHTTPClient, OllamaHTTPError
+from app.workers.lanes.ollama_keep_alive import lane_keep_alive_from_env
 from app.workers.process import ProcessResult, run_process
 
 _MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
@@ -35,6 +38,30 @@ SUPPORTED_OLLAMA_VERSION = "0.40.14"
 ADAPTER_VERSION = "1"
 _FALLBACK_NUM_CTX = 4096
 _CONTEXT_RESERVE = 1024
+_TASK_NUM_CTX_DEFAULT = 4096
+_TASK_NUM_CTX_MIN = 512
+_TASK_NUM_CTX_MAX = 32768
+
+
+def task_num_ctx_cap() -> int:
+    """Upper bound for live task ``num_ctx``. Prevents OOM from huge model metadata."""
+    raw = os.environ.get("DECK_OLLAMA_TASK_NUM_CTX", "").strip()
+    if not raw:
+        return _TASK_NUM_CTX_DEFAULT
+    try:
+        value = int(raw)
+    except ValueError:
+        return _TASK_NUM_CTX_DEFAULT
+    if not _TASK_NUM_CTX_MIN <= value <= _TASK_NUM_CTX_MAX:
+        return _TASK_NUM_CTX_DEFAULT
+    return value
+
+
+def _metadata_num_ctx(metadata_value: int) -> int:
+    """Cap only values inferred from model metadata or the fallback, not lane config."""
+    return min(metadata_value, task_num_ctx_cap())
+
+
 _BEHAVIORS = frozenset(
     {
         "ok",
@@ -122,7 +149,7 @@ class OllamaExecutor:
         url: str | None = None,
         simulation: OllamaSimulation | None = None,
         num_ctx: int | None = None,
-        timeout_s: float = 600,
+        timeout_s: float = ATTEMPT_TIMEOUT_MAX_S,
         max_stdout_bytes: int = 4 * 1024 * 1024,
         max_stderr_bytes: int = 64 * 1024,
     ) -> None:
@@ -298,9 +325,11 @@ class OllamaExecutor:
                     reason = "model_capability_unsupported"
                     continue
                 # Lane configuration wins; metadata and the safe fallback are secondary.
-                context_limits.append(
-                    (model, self.num_ctx if self.num_ctx is not None else _model_context(info))
-                )
+                if self.num_ctx is not None:
+                    limit = self.num_ctx
+                else:
+                    limit = _metadata_num_ctx(_model_context(info))
+                context_limits.append((model, limit))
                 available.append(model)
         except OllamaHTTPError as exc:
             return OllamaAvailability("unavailable", f"inventory_{exc.reason}")
@@ -309,7 +338,10 @@ class OllamaExecutor:
         return OllamaAvailability("ok", "live_ready", tuple(available), tuple(context_limits))
 
     def execute(self, context: AttemptContext) -> ResultV1:
-        """Send exactly the archived text once; discard incomplete or unsafe output."""
+        """Send exactly the archived text; discard incomplete or unsafe output.
+
+        Only a queue-full 503, which Ollama refused before inference, is sent again.
+        """
         started_at = datetime.now(UTC)
         started = time.monotonic()
         self.last_metadata = {}
@@ -391,6 +423,8 @@ class OllamaExecutor:
             return finish(ResultStatus.FAILED, code=ErrorCode.TIMEOUT)
         if available.reason == "inventory_internal":
             return finish(ResultStatus.FAILED, code=ErrorCode.INTERNAL)
+        if available.reason == "inventory_busy":
+            return finish(ResultStatus.FAILED, code=ErrorCode.RATE_LIMITED)
         if available.status != "ok":
             return finish(ResultStatus.FAILED, code=ErrorCode.WORKER_UNAVAILABLE)
         timeout = remaining_budget()
@@ -425,7 +459,7 @@ class OllamaExecutor:
                     cancelled=context.cancel_requested,
                     format_json=context.json_format,
                     num_ctx=num_ctx,
-                    keep_alive="1m",
+                    keep_alive=lane_keep_alive_from_env().wire,
                 )
             except OllamaHTTPError as exc:
                 if exc.status_code is not None:
@@ -436,6 +470,7 @@ class OllamaExecutor:
                     "timeout": ErrorCode.TIMEOUT,
                     "unavailable": ErrorCode.WORKER_UNAVAILABLE,
                     "internal": ErrorCode.INTERNAL,
+                    "busy": ErrorCode.RATE_LIMITED,
                 }[exc.reason]
                 return finish(ResultStatus.FAILED, code=error)
             input_tokens, output_tokens = response.prompt_eval_count, response.eval_count

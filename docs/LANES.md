@@ -46,8 +46,25 @@ Signalziel und eine ausdrückliche Umgebungs-Allowlist. Geerbte Provider-Variabl
 `OLLAMA_HOST`, Proxy-Werte und das Benutzer-HOME werden nicht weitergegeben.
 stdout und stderr werden gleichzeitig gelesen und getrennt begrenzt; Standardgrenzen
 sind 4 MiB und 64 KiB. Timeout und Abbruch beenden und ernten die Prozessgruppe.
-Die Dauer ist das Minimum aus Task-Limit, Adapter-Limit (Standard 600 Sekunden) und
-verbleibender Owner-Deadline. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
+Die Dauer ist das Minimum aus `policy.timeout_s` (Standard 900 Sekunden, Grenze 30 bis
+7200) und der verbleibenden Owner-Deadline. Die Adapter-Obergrenze ist dieselbe
+Schema-Grenze 7200 und unterschreitet den Standard 900 nicht mehr. Ein explizit
+kleineres Adapter-Limit gilt nur, wenn der Aufruf es setzt, zum Beispiel in einem
+kurzen Test. Der Dienstsupervisor wartet standardmässig bis zu derselben Grenze
+von 7200 Sekunden. Er bricht einen erlaubten Versuch nicht mehr still nach 3600
+Sekunden ab. Der Versuch selbst endet bei `policy.timeout_s`. Ein von aussen
+beendeter Runner, der kein Ergebnis schreibt, bekommt vom Lease-Reaper genau
+ein `worker_unavailable`. Das ist kein `timeout` und keine zweite Warteschlange.
+Die Erholung bleibt auf derselben Lane, innerhalb von `max_attempts`. Das ist
+die Lease-Regel aus Etappe 10, nicht ein unbegrenzter gleicher Versuch. Ein
+`worker_unavailable` oder `timeout`, den der laufende Runner selbst speichert,
+geht weiter zur naechsten zulaessigen Lane. Der Reaper ruft diese Fallback-Regel
+nicht zusaetzlich auf. Jedes neu geschriebene Verloren-Ergebnis zaehlt genau
+einmal als unbekannter Lane-Versuch. Eine verspaetete Antwort der alten Lease
+wird abgewiesen. Der Ollama-Transport bleibt
+davon getrennt: 120 Sekunden bis zum ersten
+Chunk, danach 60 Sekunden Leerlauf. Das ist keine Ergebnisfrist und keine
+Kanal-Quittung. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
 versteckten Retry. Inventarprüfungen verwenden ein eigenes begrenztes `list`.
 
 | Ergebnis | `result.v1` |
@@ -125,6 +142,11 @@ oder mehrdeutige Metadaten erhöhen den Fallback nicht. Prüfung und Chat verwen
 Wert. Die Schätzung lautet `ceil(UTF-8-Bytes / 3) + 1024` für Vorlage und Ausgabe.
 Gleichheit mit `num_ctx` ist erlaubt; ein Token darüber ergibt vor dem Chat-Request
 `context_limit_exceeded`. Serverfehler bleiben Fehler ohne Teilausgabe oder Adapter-Retry.
+Einzige Ausnahme ist HTTP 503 bei voller Ollama-Warteschlange (`OLLAMA_MAX_QUEUE`): Ollama
+weist den Request vor der Inferenz ab. Der Client sendet ihn innerhalb desselben Zeitbudgets
+höchstens viermal, mit 0,5, 1 und 2 Sekunden Abstand oder gemäss `Retry-After`, gedeckelt
+auf 4 Sekunden. Der `attempt` zählt dabei nicht weiter. Bleibt der Dienst ausgelastet,
+meldet der Versuch `rate_limited`; die Queue plant ihn nach den Regeln aus Etappe 10 neu ein.
 
 Die Verfügbarkeit wird pro konfiguriertem Modell geprüft. Ein fehlendes oder ungeeignetes
 Modell sperrt keine anderen einzeln bestätigten Modelle. Die Queue überspringt Aufgaben

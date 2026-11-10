@@ -1529,6 +1529,14 @@ def test_approved_fact_validity_and_supersession_are_frozen(db_session: Session)
         predicate="needs",
         object_="sun",
     )
+    # Positive control: validity may still change while the fact is proposed.
+    db_session.execute(
+        update(MemoryFact)
+        .where(MemoryFact.id == fact.id)
+        .values(valid_to=datetime.now(UTC) + timedelta(days=30))
+    )
+    db_session.flush()
+    db_session.refresh(fact)
     decide_fact(
         db_session,
         fact.id,
@@ -1536,6 +1544,29 @@ def test_approved_fact_validity_and_supersession_are_frozen(db_session: Session)
         session_token=token,
         shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
     )
+    rejected = propose_fact(
+        db_session,
+        source_message_id=ids[0],
+        original_sentence="Basil needs shade.",
+        subject="basil",
+        predicate="needs",
+        object_="shade",
+    )
+    decide_fact(
+        db_session,
+        rejected.id,
+        decision="rejected",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(rejected, decision="rejected")),
+    )
+    nested = db_session.begin_nested()
+    with pytest.raises(DBAPIError, match="memory_content_immutable"):
+        db_session.execute(
+            update(MemoryFact)
+            .where(MemoryFact.id == rejected.id)
+            .values(valid_to=datetime.now(UTC))
+        )
+    nested.rollback()
     for values in (
         {"valid_to": datetime.now(UTC)},
         {"valid_from": datetime.now(UTC)},
@@ -1568,6 +1599,16 @@ def test_approved_unmapped_message_may_attach_once_and_topics_links_freeze(
     db_session.flush()
     db_session.refresh(stored)
     assert stored.thread_id == target.id
+    second = _owner_thread(db_session, token, "Second late topic", "local_only")
+    for new_thread in (second.id, None):
+        nested = db_session.begin_nested()
+        with pytest.raises(DBAPIError, match="memory_content_immutable"):
+            db_session.execute(
+                update(AssistantMessage)
+                .where(AssistantMessage.id == loose.message_id)
+                .values(thread_id=new_thread)
+            )
+        nested.rollback()
 
     thread, _ids = _thread_with_messages(
         db_session,

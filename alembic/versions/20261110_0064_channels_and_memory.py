@@ -565,16 +565,17 @@ def _drop_content_guards() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    # Abort instead of waiting into a deadlock with live ingest or approvals.
+    # lock_timeout bounds a one-way wait; Postgres deadlock detection aborts a
+    # cycle. Either way the single migration transaction rolls back cleanly.
     bind.execute(text("SET LOCAL lock_timeout = '10s'"))
-    # Ingest reads the account allowlist first, so lock it first as well.
-    bind.execute(text("LOCK TABLE assistant_channel_accounts IN SHARE ROW EXCLUSIVE MODE"))
-    # SHARE ROW EXCLUSIVE conflicts with INSERT, so a row that arrives after a
-    # count cannot commit before this downgrade drops the table. Content tables
-    # are locked in ingest order first and events last to avoid a lock cycle.
+    # ACCESS EXCLUSIVE up front: DROP/ALTER need it anyway, and taking it here in
+    # ingest order (accounts, content tables, events last) makes the first
+    # conflicting lock come before any count. Writers that already hold a row
+    # lock make the downgrade wait or abort; nothing is half-dropped.
+    bind.execute(text("LOCK TABLE assistant_channel_accounts IN ACCESS EXCLUSIVE MODE"))
     for table in _CONTENT_TABLES:
-        bind.execute(text(f"LOCK TABLE {table} IN SHARE ROW EXCLUSIVE MODE"))
-    bind.execute(text("LOCK TABLE events IN SHARE ROW EXCLUSIVE MODE"))
+        bind.execute(text(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
+    bind.execute(text("LOCK TABLE events IN ACCESS EXCLUSIVE MODE"))
     taskless = bind.execute(text("SELECT count(*) FROM events WHERE task_id IS NULL")).scalar_one()
     if taskless:
         raise RuntimeError(

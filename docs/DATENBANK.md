@@ -478,9 +478,10 @@ Index `ix_events_conversation_created_at` auf `created_at` WHERE
 ### Downgrade
 
 Der Migrationskopf nennt Test- und Entwicklungsdatenbanken. Der Code prüft den
-Datenbanknamen nicht. Er setzt `lock_timeout` auf 10 s (begrenzt ein einseitiges Warten;
-Deadlocks loest Postgres ueber `deadlock_timeout`) und sperrt mit `LOCK TABLE ... IN SHARE ROW EXCLUSIVE MODE` in dieser
-Reihenfolge: `assistant_channel_accounts`, `assistant_thread_links`,
+Datenbanknamen nicht. Er setzt `lock_timeout` auf 10 s (begrenzt ein
+einseitiges Warten; einen Zyklus löst Postgres über die Deadlock-Erkennung,
+dann rollt der Downgrade zurück) und sperrt mit
+`LOCK TABLE ... IN ACCESS EXCLUSIVE MODE` in dieser Reihenfolge: `assistant_channel_accounts`, `assistant_thread_links`,
 `assistant_threads`, `assistant_messages`, `memory_facts`, `memory_approvals`
 und zuletzt `events`. Danach zählt er Zeilen in `events` mit `task_id IS NULL`
 und bricht ab, wenn welche existieren:
@@ -501,6 +502,6 @@ Append-only-Trigger und die Funktion `memory_approvals_append_only`.
   `thread_id` nur von leer auf gesetzt), Fakten (`status`, `evidence_status`,
   `approval_id`, `valid_from`, `valid_to`, `superseded_by` nach `proposed`), Themen und Verknuepfungen (`status`/`state`,
   `approval_id`, bei Verknuepfungen `thread_id`, nach `proposed`).
-- Downgrade setzt `lock_timeout` auf 10 s und sperrt `assistant_channel_accounts`,
-  dann `assistant_thread_links`, `assistant_threads`, `assistant_messages`,
+- Downgrade setzt `lock_timeout` auf 10 s und sperrt (ACCESS EXCLUSIVE)
+  `assistant_channel_accounts`, dann `assistant_thread_links`, `assistant_threads`, `assistant_messages`,
   `memory_facts`, `memory_approvals` und zuletzt `events` (siehe «Downgrade» oben).

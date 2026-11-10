@@ -19,7 +19,7 @@ from app.core.schemas import DataClass
 from app.memory.audit import record_conversation_event
 from app.memory.ingest import contains_secret, text_digest
 from app.memory.models import AssistantMessage, AssistantThread, ChannelAccount
-from app.memory.policy import EVIDENCE_DEFAULT
+from app.memory.policy import EVIDENCE_DEFAULT, ConversationError
 
 # Fixed id so a re-run finds the same collection thread.
 COLLECTION_THREAD_ID = uuid.UUID("5a3c1d0e-6b7f-4e21-9c4d-0000000c0064")
@@ -106,11 +106,13 @@ def backfill_assistant_turns(session: Session) -> BackfillReport:
     if not turns:
         return BackfillReport(0, 0, 0, None)
     # Account first, like ingest and the downgrade, before any thread or message write.
-    session.execute(
+    account = session.scalar(
         select(ChannelAccount.channel)
         .where(ChannelAccount.channel == "deck_ui", ChannelAccount.account_label == "owner")
         .with_for_update(read=True)
     )
+    if account is None:
+        raise ConversationError("account_missing")
     thread_existed = session.get(AssistantThread, COLLECTION_THREAD_ID) is not None
     thread = _collection_thread(session)
     inserted = duplicates = rejected = 0

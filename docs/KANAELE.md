@@ -473,5 +473,7 @@ Sammel-Thread neu ist.
   dem Entscheid»).
 - Sperr-Reihenfolge: Konto (FOR SHARE), Verknuepfung, aktives Thema, Nachricht;
   Antwort und Backfill sperren das Konto ebenfalls zuerst. Der Downgrade sperrt
-  zuerst `assistant_channel_accounts`, dann die Inhaltstabellen in derselben
-  Reihenfolge und `events` zuletzt.
+  (ACCESS EXCLUSIVE) zuerst `assistant_channel_accounts`, dann die Inhaltstabellen
+  in derselben Reihenfolge und `events` zuletzt. Ein gleichzeitiger Schreiber kann
+  den Downgrade trotzdem warten lassen oder abbrechen (`lock_timeout`,
+  Deadlock-Erkennung); dann rollt die Migration vollständig zurück.

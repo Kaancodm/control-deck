@@ -574,8 +574,8 @@ def decide_thread_link(
     chosen = target_thread_id if target_thread_id is not None else link.thread_id
     if checked == "rejected" and chosen != link.thread_id:
         raise ConversationError("invalid_decision")
-    # Lock the topic before any message row: ingest_turn holds the topic and then
-    # takes FOR KEY SHARE on a referenced message, so the reverse order can cycle.
+    # Lock and refresh the topic so its active state and class cannot change
+    # before messages attach; same link -> topic order as ingest.
     thread = session.scalar(
         select(AssistantThread)
         .where(AssistantThread.id == chosen)

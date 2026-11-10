@@ -14,6 +14,7 @@ from app.core.schemas import DataClass
 from app.kb.config import get_kb_test_database_url
 from app.kb.contracts import KnowledgeError
 from app.kb.repository import KnowledgeStore
+from tests.support.kb import use_fake_contract
 
 
 @pytest.fixture(scope="module")
@@ -22,6 +23,7 @@ def kb_engine():
         pytest.skip("DECK_KB_TEST_DATABASE_URL is required for pgvector integration")
     command.upgrade(Config("alembic_kb.ini"), "head")
     engine = create_engine(get_kb_test_database_url())
+    use_fake_contract(engine)
     yield engine
     engine.dispose()
 
@@ -31,16 +33,12 @@ def knowledge_store(kb_engine, tmp_path, monkeypatch):
     blocklist = tmp_path / "knowledge-blocklist.txt"
     blocklist.write_text("")
     monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(blocklist))
+    use_fake_contract(kb_engine)
     store = KnowledgeStore(kb_engine)
     yield store
     with kb_engine.begin() as connection:
         connection.execute(text("TRUNCATE deck_kb.chunks, deck_kb.documents"))
-        connection.execute(
-            text(
-                "UPDATE deck_kb.contract SET version = 'deck_kb.v1', "
-                "embedding_model = 'deck-fake-embedding-v1', embedding_dimension = 8"
-            )
-        )
+    use_fake_contract(kb_engine)
 
 
 def insert(store, classification=DataClass.LOCAL_ONLY, content="Useful bounded knowledge"):
@@ -117,7 +115,7 @@ def test_secret_rejected_before_embedding_and_storage(knowledge_store, monkeypat
     def forbidden(_):
         pytest.fail("Embedding must not see a secret")
 
-    monkeypatch.setattr(knowledge_store.embeddings, "embed", forbidden)
+    monkeypatch.setattr(knowledge_store.embeddings, "embed_documents", forbidden)
     with pytest.raises(KnowledgeError) as error:
         insert(knowledge_store, content="DECK_OWNER_TOKEN=fake-secret-credential-value")
     assert error.value.code == "secret_detected"
@@ -201,6 +199,7 @@ def test_knowledge_migration_roundtrip(knowledge_store):
             assert connection.scalar(text("SELECT to_regclass('deck_kb.documents')")) is None
     finally:
         command.upgrade(configuration, "head")
+    use_fake_contract(knowledge_store.engine)
     knowledge_store.check_contract(write=True)
     command.check(configuration)
 

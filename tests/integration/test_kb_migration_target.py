@@ -67,10 +67,10 @@ def _assert_ok(result: subprocess.CompletedProcess[str]) -> None:
 def _assert_contract(url: str) -> None:
     engine = create_engine(url, poolclass=pool.NullPool)
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_kb_version")) == "kb_0001"
+        assert connection.scalar(text("SELECT version_num FROM alembic_kb_version")) == "kb_0002"
         assert connection.execute(
             text("SELECT version, embedding_model, embedding_dimension FROM deck_kb.contract")
-        ).all() == [("deck_kb.v1", "deck-fake-embedding-v1", 8)]
+        ).all() == [("deck_kb.v1", "qwen3-embedding:0.6b", 1024)]
         assert set(
             connection.scalars(text("SELECT tablename FROM pg_tables WHERE schemaname = 'deck_kb'"))
         ) == {"contract", "documents", "chunks"}
@@ -98,7 +98,7 @@ def test_selector_migrates_checks_and_repeats(database_url, selector, variable):
     _assert_ok(_alembic(*selector, "check", **{variable: database_url}))
     current = _alembic(*selector, "current", **{variable: database_url})
     _assert_ok(current)
-    assert "kb_0001" in current.stdout
+    assert "kb_0002" in current.stdout
     _assert_contract(database_url)
     assert database_url not in current.stdout + current.stderr
 

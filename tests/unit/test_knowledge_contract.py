@@ -7,13 +7,15 @@ import pytest
 from app.core.schemas import DataClass
 from app.kb.config import get_kb_test_database_url, require_simulation
 from app.kb.contracts import (
+    SCHEMA_EMBEDDING_DIMENSION,
     ContextBlock,
+    EmbeddingSpec,
     KnowledgeError,
     allowed_classes,
     digest_text,
     validate_contexts,
 )
-from app.kb.embeddings import FakeLocalEmbeddings, validate_vector
+from app.kb.embeddings import FakeLocalEmbeddings, validate_vector, vector_literal
 
 
 @pytest.mark.parametrize("task_class", list(DataClass))
@@ -72,18 +74,47 @@ def test_snapshot_repr_contains_no_text():
 
 
 @pytest.mark.parametrize(
-    "vector", [(0.0,) * 8, (float("nan"),) * 8, (float("inf"),) * 8, (True,) * 8, (0.5,) * 7]
+    "vector,code",
+    [
+        ((0.0,) * 8, "embedding_invalid"),
+        ((float("nan"),) * 8, "embedding_invalid"),
+        ((float("inf"),) * 8, "embedding_invalid"),
+        ((True,) * 8, "embedding_invalid"),
+        (("0.5",) * 8, "embedding_invalid"),
+        ((10**400,) * 8, "embedding_invalid"),
+        ((0.5,) * 7, "embedding_dimension_mismatch"),
+    ],
 )
-def test_bad_embedding_rejected(vector):
-    with pytest.raises(KnowledgeError):
+def test_bad_embedding_rejected(vector, code):
+    with pytest.raises(KnowledgeError) as error:
         validate_vector(vector, dimension=8)
+    assert error.value.code == code
 
 
 def test_fake_embedding_is_explicit_and_deterministic():
     provider = FakeLocalEmbeddings()
-    assert provider.model == "deck-fake-embedding-v1"
-    assert provider.embed("bounded text") == provider.embed("bounded text")
-    assert len(provider.embed("bounded text")) == 8
+    assert provider.spec == EmbeddingSpec("fake", "deck-fake-embedding-v2", 1024)
+    assert provider.spec.dimension == SCHEMA_EMBEDDING_DIMENSION == 1024
+    first = provider.embed_query("bounded text")
+    assert first == provider.embed_query("bounded text")
+    assert provider.embed_documents(["bounded text", "other text"])[0] == first
+    assert provider.embed_documents(["other text"])[0] != first
+    assert len(first) == 1024
+    assert all(0 < value <= 1 for value in first)
+    assert vector_literal(first, dimension=1024).count(",") == 1023
+
+
+@pytest.mark.parametrize("texts", [[], [""], ["x"] * 17, "plain string", [b"bytes"]])
+def test_fake_embedding_rejects_unbounded_batches(texts):
+    with pytest.raises(KnowledgeError) as error:
+        FakeLocalEmbeddings().embed_documents(texts)
+    assert error.value.code == "embedding_input_invalid"
+
+
+def test_vector_literal_checks_requested_dimension():
+    with pytest.raises(KnowledgeError) as error:
+        vector_literal((0.5,) * 8, dimension=1024)
+    assert error.value.code == "embedding_dimension_mismatch"
 
 
 @pytest.mark.parametrize("profile", ["disabled", "live", "", "true"])

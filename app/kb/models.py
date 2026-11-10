@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql.base import ischema_names
 from sqlalchemy.types import UserDefinedType
 
-from app.kb.contracts import EMBEDDING_DIMENSION
+from app.kb.contracts import SCHEMA_EMBEDDING_DIMENSION
 
 
 class VectorType(UserDefinedType[Any]):
@@ -30,7 +30,7 @@ class VectorType(UserDefinedType[Any]):
 
     cache_ok = True
 
-    def __init__(self, dimension: int = EMBEDDING_DIMENSION) -> None:
+    def __init__(self, dimension: int = SCHEMA_EMBEDDING_DIMENSION) -> None:
         self.dimension = dimension
 
     def get_col_spec(self, **kw: Any) -> str:

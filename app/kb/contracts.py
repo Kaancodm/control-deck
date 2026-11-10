@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from hashlib import sha256
+from typing import Literal
 from uuid import UUID
 
 from app.core.schemas import DataClass
 
 CONTRACT_VERSION = "deck_kb.v1"
-EMBEDDING_MODEL = "deck-fake-embedding-v1"
-EMBEDDING_DIMENSION = 8
+# The single schema source: models.py and the column type check both use this width.
+SCHEMA_EMBEDDING_DIMENSION = 1024
+# The deterministic simulation; v1 stays historical at dimension 8 in kb_0001.
+FAKE_EMBEDDING_MODEL = "deck-fake-embedding-v2"
 MAX_DOCUMENT_BYTES = 24_000
 MAX_CONTEXT_BYTES = 96_000
 MAX_CONTEXT_REFS = 16
@@ -22,6 +25,21 @@ class KnowledgeError(ValueError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__("Knowledge operation could not be completed.")
+
+
+EmbeddingProviderName = Literal["fake", "ollama"]
+
+
+@dataclass(frozen=True)
+class EmbeddingSpec:
+    """The identity the contract row must name; never taken from an adapter response."""
+
+    provider: EmbeddingProviderName
+    model: str
+    dimension: int
+
+
+FAKE_EMBEDDING_SPEC = EmbeddingSpec("fake", FAKE_EMBEDDING_MODEL, SCHEMA_EMBEDDING_DIMENSION)
 
 
 def allowed_classes(task_class: DataClass) -> tuple[DataClass, ...]:

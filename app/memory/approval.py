@@ -574,12 +574,20 @@ def correct_fact(
     """
     checked = _check_decision(decision)
     approver_ref = require_owner_session(session, session_token)
-    fact = session.scalar(
-        select(MemoryFact)
-        .where(MemoryFact.id == fact_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    # Lock the fact and a named successor together in id order, so two crossing
+    # corrections (A -> B, B -> A) serialize instead of both seeing the other current.
+    locked_ids = sorted({fact_id, superseded_by} - {None}, key=str)
+    locked = {
+        row.id: row
+        for row in session.scalars(
+            select(MemoryFact)
+            .where(MemoryFact.id.in_(locked_ids))
+            .order_by(MemoryFact.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    }
+    fact = locked.get(fact_id)
     if fact is None:
         raise ConversationError("not_found")
     previous = _decided(fact.approval_id, pending=fact.status == "proposed")
@@ -590,8 +598,9 @@ def correct_fact(
     if superseded_by is not None:
         if superseded_by == fact.id:
             raise ConversationError("invalid_fact")
-        successor = session.get(MemoryFact, superseded_by)
-        # No chains or cycles: the successor must itself be current.
+        successor = locked.get(superseded_by)
+        # The successor must be current (locked above). This rules out cycles;
+        # a chain A -> B -> C can still form when B is superseded later.
         if (
             successor is None
             or successor.status != "approved"

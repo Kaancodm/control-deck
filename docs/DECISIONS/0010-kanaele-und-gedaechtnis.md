@@ -298,8 +298,10 @@ Ohne Ticket, als Betriebsschritt beim Prod-Rollout: `TRUNCATE`-Recht der
 Anwendungsrolle entziehen.
 
 Bekannte Grenzen des Korrekturwegs: `correct_fact` kann `valid_to` und
-`superseded_by` setzen, aber nicht leeren; ein Nachfolger muss selbst aktuell sein
-(kein Ketten- oder Kreisverweis). Wird ein Nachfolger widerrufen, bleibt das alte
+`superseded_by` setzen, aber nicht leeren (bewusst nicht geplant; bei Bedarf eigenes
+Ticket). Ein Nachfolger muss beim Korrigieren selbst aktuell sein; Faktum und
+Nachfolger werden zusammen in Id-Reihenfolge gesperrt. Das schliesst Kreise aus,
+Ketten (A -> B, spaeter B -> C) bleiben moeglich. Wird ein Nachfolger widerrufen, bleibt das alte
 Faktum ausgeblendet, bis der Owner ein neues Faktum freigibt. `thread_id` einer
 angehaengten Nachricht bleibt nach dem Loesen einer Verknuepfung bestehen.
 

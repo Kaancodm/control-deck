@@ -241,7 +241,8 @@ nicht mit `thread_class_block` abgewiesen. `reply_for_message_id` und
 `live_push`. `evidence_status` ist `unbewiesen`. Dieselbe Datenschutz-Markierung
 wie bei `ingest_turn` gilt fuer Klasse und Kanal der Quelle (auf `deck_ui` ohne
 Blockliste nur die eingebauten Muster). Traegt die Quelle `privacy_hold`, erbt die
-Antwort diesen Code, wenn sie selbst keinen eigenen hat.
+Antwort die Markierung; treffen eigene und geerbte Markierung zusammen, gilt
+`privacy_block` vor `blocklist_unavailable`.
 
 `UNIQUE (reply_for_message_id)` laesst eine zweite Antwort zum Duplikat werden.
 Ein anderer Text ueberschreibt den ersten nicht (`duplicate_body_mismatch`,
@@ -487,7 +488,7 @@ Sammel-Thread neu ist. Fehlt das Konto `deck_ui`/`owner`, bricht der Backfill
 mit `account_missing` ab, bevor etwas geschrieben wird. Ein Datenschutz-Befund
 ausserhalb `local_only` setzt `privacy_hold` wie `ingest_turn` auf `deck_ui`; die
 Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
-`blocklist_unavailable`). `privacy_held` im Bericht zaehlt markierte neue Zeilen.
+`blocklist_unavailable`). `privacy_held` im Bericht und im Audit zaehlt markierte neue Zeilen.
 
 ## Nicht in diesem Stand
 

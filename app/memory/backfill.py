@@ -127,6 +127,7 @@ def backfill_assistant_turns(session: Session) -> BackfillReport:
             rejected += 1
             continue
         owner_id: uuid.UUID | None = None
+        # Computed even when the owner text is a secret: the reply still inherits it.
         owner_hold = privacy_hold_for("deck_ui", turn.data_class, (turn.owner_text,))
         if contains_secret(turn.owner_text):
             rejected += 1
@@ -177,6 +178,7 @@ def backfill_assistant_turns(session: Session) -> BackfillReport:
                 "inserted": inserted,
                 "duplicates": duplicates,
                 "secret_rejected": rejected,
+                "privacy_held": held,
             },
         )
     return BackfillReport(inserted, duplicates, rejected, thread.id, held)

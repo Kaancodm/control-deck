@@ -46,6 +46,7 @@ _ALLOWED_KEYS: Final = frozenset(
         "inserted",
         "duplicates",
         "secret_rejected",
+        "privacy_held",
         "attached",
     }
 )

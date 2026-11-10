@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import sys
+import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -17,7 +18,14 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import Session
 
-from app.kb.repository import KnowledgeStore
+from app.kb.config import load_embedding_spec
+from app.kb.contracts import (
+    CONTRACT_VERSION,
+    SCHEMA_EMBEDDING_DIMENSION,
+    EmbeddingSpec,
+    KnowledgeError,
+)
+from app.kb.repository import check_contract
 from app.operations.audit import record_operation
 from app.operations.backup import (
     MAXIMUM_DUMP_BYTES,
@@ -86,6 +94,54 @@ def _require_empty_target(connection: Connection) -> None:
         raise OperationError("restore_target_not_empty")
 
 
+def _check_archive_contract(
+    reader: int,
+    spec: EmbeddingSpec,
+    *,
+    restore_command: tuple[str, ...],
+    env: dict[str, str],
+    timeout_s: float,
+) -> None:
+    """Verify the archived contract row against the configured spec before any write."""
+    if spec.dimension != SCHEMA_EMBEDDING_DIMENSION:
+        raise OperationError("knowledge_contract_mismatch")
+    os.lseek(reader, 0, os.SEEK_SET)
+    with tempfile.TemporaryFile() as stream:
+        run_command(
+            (
+                *restore_command,
+                "--data-only",
+                "--schema=deck_kb",
+                "--table=contract",
+                "-f",
+                "-",
+            ),
+            env=env,
+            input_fd=reader,
+            output_fd=stream.fileno(),
+            timeout_s=timeout_s,
+            maximum_output=65536,
+        )
+        stream.seek(0)
+        try:
+            output = stream.read(65536).decode("utf-8")
+        except UnicodeError:
+            raise OperationError("knowledge_contract_mismatch") from None
+    header = (
+        "COPY deck_kb.contract (id, version, embedding_model, embedding_dimension) FROM stdin;\n"
+    )
+    start = output.find(header)
+    if start < 0:
+        raise OperationError("knowledge_contract_mismatch")
+    body = output[start + len(header) :]
+    end = body.find("\n\\.\n")
+    if end < 0:
+        raise OperationError("knowledge_contract_mismatch")
+    rows = body[:end].splitlines()
+    if rows != [f"1\t{CONTRACT_VERSION}\t{spec.model}\t{spec.dimension}"]:
+        raise OperationError("knowledge_contract_mismatch")
+
+
 def restore_backup(
     root: Path,
     name: str,
@@ -98,8 +154,13 @@ def restore_backup(
     check_command: tuple[str, ...] | None = None,
     knowledge_check_command: tuple[str, ...] | None = None,
     timeout_s: float = 300,
+    embedding_spec: EmbeddingSpec | None = None,
 ) -> UUID:
-    """Validate both archives and empty targets first; never report partial success."""
+    """Validate both archives and empty targets first; never report partial success.
+
+    The knowledge contract is checked against the configured embedding spec, so a
+    probe of a runtime backup needs the same embedding variables as the runtime.
+    """
     validate_restore_databases(
         target_url,
         audit_url,
@@ -107,6 +168,13 @@ def restore_backup(
         knowledge_source_url=knowledge_source_url,
     )
     assert knowledge_target_url is not None
+    if embedding_spec is None:
+        try:
+            embedding_spec = load_embedding_spec()
+        except KnowledgeError as error:
+            raise OperationError(error.code) from None
+    if embedding_spec.dimension != SCHEMA_EMBEDDING_DIMENSION:
+        raise OperationError("knowledge_contract_mismatch")
     if re.fullmatch(r"backup-[0-9a-f]{32}", name) is None:
         raise OperationError("invalid_backup_name")
     operation_id = uuid4()
@@ -163,6 +231,13 @@ def restore_backup(
                     timeout_s=timeout_s,
                     maximum_output=65536,
                 )
+            _check_archive_contract(
+                readers["knowledge"],
+                embedding_spec,
+                restore_command=restore_command,
+                env=postgres_environment(urls["knowledge"]),
+                timeout_s=timeout_s,
+            )
             for target in targets.values():
                 with target.connect() as connection:
                     _require_empty_target(connection)
@@ -202,7 +277,7 @@ def restore_backup(
         for key, target in targets.items():
             scope, evidence = SCOPES[key], getattr(manifest, key)
             if key == "knowledge":
-                KnowledgeStore(target).check_contract()
+                check_contract(target, embedding_spec)
             with target.connect() as connection:
                 counts = table_counts(connection, key)
                 revision = connection.scalar(

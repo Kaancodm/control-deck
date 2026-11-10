@@ -175,8 +175,8 @@ Eltern samt ihren Tabellen stehen. `alembic downgrade -1` von `20261108_0063`
 entfernt nur `routine_outbox` und laesst `20261108_0062` stehen. `alembic
 downgrade -1` vom Kopf ist der Downgrade von `20261110_0064` und verweigert,
 solange Gesprächs- oder taskfreie Audit-Zeilen existieren (siehe unten). Die
-Wissens-Kette `alembic_kb` mit `kb_0001` bleibt eine eigene Script-Location und
-eine eigene Versionstabelle.
+Wissens-Kette `alembic_kb` (`kb_0001`, `kb_0002`) bleibt eine eigene Script-Location und
+eine eigene Versionstabelle; `make update` migriert sie nicht mit.
 
 ## Tests
 
@@ -257,10 +257,13 @@ terminale Tasks ohne Lease berücksichtigen. Exportbelege bleiben erhalten und e
 idempotente Wiederaufnahme nach einem Fehler zwischen Host-DB und Wissens-DB. Ein Downgrade
 mit vorhandenen Snapshots oder Exportbelegen wird abgewiesen.
 
-Der vorgeschlagene Vertrag `deck_kb.v1` verwendet eine eigene Alembic-Kette und eine separate
-`_test`-Datenbank mit pgvector. Er ändert keine bestehenden Wissens-Tabellen und bestätigt
-keine Kompatibilität einer produktiven Wissens-DB. Alle Datenklassen sind Pflichtfelder ohne
-DB-Default. Einzelheiten: [WISSENS_DB.md](WISSENS_DB.md).
+Der Vertrag `deck_kb.v1` verwendet eine eigene Alembic-Kette und eine separate Datenbank mit
+pgvector. `kb_0001` legt das Schema mit `vector(8)` an; `kb_0002` stellt die leeren Tabellen
+auf `vector(1024)` und die Vertragszeile auf (`deck_kb.v1`, `qwen3-embedding:0.6b`, 1024) um.
+Sie bricht bei vorhandenen Zeilen, fremder Vertragszeile oder anderem Spaltentyp ohne
+Änderung ab, lässt die Unveränderlichkeits-Trigger unberührt und legt keinen Index an. Der
+Downgrade gilt nur für Test-Ziele und verlangt ebenfalls leere Tabellen. Alle Datenklassen
+sind Pflichtfelder ohne DB-Default. Einzelheiten: [WISSENS_DB.md](WISSENS_DB.md).
 
 ## Ergebnisherkunft (Revision 0018)
 

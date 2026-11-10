@@ -33,20 +33,30 @@ class SearchRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=16, strict=True)
 
 
-def knowledge_problem(exc: KnowledgeError) -> JSONResponse:
-    if exc.code.startswith("export_") or exc.code == "knowledge_export_conflict":
-        status = 409
-    elif exc.code in {
+_INPUT_CODES = frozenset(
+    {
         "secret_detected",
         "knowledge_privacy_gate",
         "knowledge_text_too_large",
         "knowledge_text_invalid",
         "invalid_search_limit",
         "invalid_utf8",
-    }:
-        status = 422
-    else:
-        status = 503
+        "embedding_input_too_long",
+    }
+)
+
+
+def knowledge_error_status(code: str) -> int:
+    """Input faults are 422; configuration, contract and embedding faults stay 503."""
+    if code.startswith("export_") or code == "knowledge_export_conflict":
+        return 409
+    if code in _INPUT_CODES:
+        return 422
+    return 503
+
+
+def knowledge_problem(exc: KnowledgeError) -> JSONResponse:
+    status = knowledge_error_status(exc.code)
     return problem_response(
         status=status,
         title="Knowledge operation unavailable",

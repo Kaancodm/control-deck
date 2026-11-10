@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.schemas import DataClass, Worker
 from app.db.models import Task
+from app.kb.contracts import EmbeddingSpec, KnowledgeError
 from app.kb.state import KnowledgeExport
 from app.workers.runner import HostRunner
 from app.workers.runner_main import SimulationExecutor
@@ -16,6 +17,7 @@ from tests.integration.test_knowledge_store import knowledge_store as knowledge_
 from tests.integration.test_ui_flows import create, login
 from tests.integration.test_ui_flows import password_hash as password_hash
 from tests.integration.test_ui_flows import ui_client as ui_client
+from tests.support.kb import use_contract
 
 
 @pytest.fixture(autouse=True)
@@ -87,6 +89,26 @@ def test_search_for_cloud_never_displays_local_context(ui_client, knowledge_stor
     assert "Keine erlaubten Einträge" in response.text
 
 
+def test_search_separates_input_faults_from_unavailable_knowledge(ui_client, knowledge_store):
+    csrf = login(ui_client)
+    secret = ui_client.post(
+        "/ui/knowledge",
+        data={
+            "csrf": csrf,
+            "query": "DECK_OWNER_TOKEN=fake-secret-credential-value",
+            "data_class": "local_only",
+        },
+    )
+    assert secret.status_code == 422
+    assert "fake-secret-credential-value" not in secret.text
+    use_contract(knowledge_store.engine, EmbeddingSpec("ollama", "qwen3-embedding:0.6b", 1024))
+    mismatch = ui_client.post(
+        "/ui/knowledge", data={"csrf": csrf, "query": "text", "data_class": "local_only"}
+    )
+    assert mismatch.status_code == 503
+    assert "knowledge_contract_mismatch" in mismatch.text
+
+
 @pytest.mark.parametrize("missing", ["csrf", "confirm", "data_class"])
 def test_export_form_requires_each_explicit_owner_field(
     ui_client, db_session, knowledge_store, tmp_path, missing
@@ -113,3 +135,33 @@ def test_export_form_writes_only_after_separate_owner_submit(
     assert "Export abgeschlossen" in response.text
     assert db_session.get(Task, UUID(path.rsplit("/", 1)[-1])).status.value == "done"
     assert db_session.scalar(select(func.count()).select_from(KnowledgeExport)) == 1
+
+
+@pytest.mark.parametrize(
+    "code,expected_status",
+    [
+        ("export_class_forbidden", 409),
+        ("knowledge_export_conflict", 409),
+        ("secret_detected", 422),
+        ("embedding_input_too_long", 422),
+        ("embedding_timeout", 503),
+        ("embedding_unavailable", 503),
+        ("embedding_model_missing", 503),
+        ("knowledge_contract_mismatch", 503),
+    ],
+)
+def test_export_form_aligns_knowledge_error_statuses_with_api(
+    ui_client, db_session, knowledge_store, tmp_path, monkeypatch, code, expected_status
+):
+    csrf = login(ui_client)
+    path = done_task(ui_client, db_session, tmp_path, csrf)
+
+    def fail_export(*_args, **_kwargs):
+        raise KnowledgeError(code)
+
+    monkeypatch.setattr("app.ui.knowledge.export_task", fail_export)
+    response = ui_client.post(
+        path + "/export", data={"csrf": csrf, "confirm": "yes", "data_class": "local_only"}
+    )
+    assert response.status_code == expected_status
+    assert code in response.text

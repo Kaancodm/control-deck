@@ -12,8 +12,17 @@ from sqlalchemy.exc import DBAPIError
 from alembic import command
 from app.core.schemas import DataClass
 from app.kb.config import get_kb_test_database_url
-from app.kb.contracts import KnowledgeError
-from app.kb.repository import KnowledgeStore
+from app.kb.contracts import EmbeddingSpec, KnowledgeError
+from app.kb.ollama_embeddings import OllamaEmbeddings
+from app.kb.repository import KnowledgeStore, configured_store
+from app.workers.lanes.ollama_http import OllamaHTTPClient
+from app.workers.lanes.ollama_keep_alive import parse_keep_alive_value
+from tests.support.kb import contract_row, use_contract, use_fake_contract
+from tests.support.ollama_stub import OllamaStub
+
+QWEN3_QUERY_PREFIX = (
+    "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "
+)
 
 
 @pytest.fixture(scope="module")
@@ -22,6 +31,7 @@ def kb_engine():
         pytest.skip("DECK_KB_TEST_DATABASE_URL is required for pgvector integration")
     command.upgrade(Config("alembic_kb.ini"), "head")
     engine = create_engine(get_kb_test_database_url())
+    use_fake_contract(engine)
     yield engine
     engine.dispose()
 
@@ -31,16 +41,12 @@ def knowledge_store(kb_engine, tmp_path, monkeypatch):
     blocklist = tmp_path / "knowledge-blocklist.txt"
     blocklist.write_text("")
     monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(blocklist))
+    use_fake_contract(kb_engine)
     store = KnowledgeStore(kb_engine)
     yield store
     with kb_engine.begin() as connection:
         connection.execute(text("TRUNCATE deck_kb.chunks, deck_kb.documents"))
-        connection.execute(
-            text(
-                "UPDATE deck_kb.contract SET version = 'deck_kb.v1', "
-                "embedding_model = 'deck-fake-embedding-v1', embedding_dimension = 8"
-            )
-        )
+    use_fake_contract(kb_engine)
 
 
 def insert(store, classification=DataClass.LOCAL_ONLY, content="Useful bounded knowledge"):
@@ -117,7 +123,7 @@ def test_secret_rejected_before_embedding_and_storage(knowledge_store, monkeypat
     def forbidden(_):
         pytest.fail("Embedding must not see a secret")
 
-    monkeypatch.setattr(knowledge_store.embeddings, "embed", forbidden)
+    monkeypatch.setattr(knowledge_store.embeddings, "embed_documents", forbidden)
     with pytest.raises(KnowledgeError) as error:
         insert(knowledge_store, content="DECK_OWNER_TOKEN=fake-secret-credential-value")
     assert error.value.code == "secret_detected"
@@ -201,6 +207,7 @@ def test_knowledge_migration_roundtrip(knowledge_store):
             assert connection.scalar(text("SELECT to_regclass('deck_kb.documents')")) is None
     finally:
         command.upgrade(configuration, "head")
+    use_fake_contract(knowledge_store.engine)
     knowledge_store.check_contract(write=True)
     command.check(configuration)
 
@@ -210,3 +217,184 @@ def test_cloud_knowledge_requires_current_blocklist(knowledge_store, monkeypatch
     with pytest.raises(KnowledgeError) as error:
         insert(knowledge_store, DataClass.CLOUD_OK)
     assert error.value.code == "knowledge_privacy_configuration_unavailable"
+
+
+REAL_SPEC = EmbeddingSpec("ollama", "qwen3-embedding:0.6b", 1024)
+
+
+def ollama_store(engine, stub, **client_options):
+    return KnowledgeStore(
+        engine,
+        embeddings=OllamaEmbeddings(
+            client=OllamaHTTPClient(stub.url, **client_options),
+            spec=REAL_SPEC,
+            timeout_s=2.0,
+            keep_alive=parse_keep_alive_value("server"),
+        ),
+    )
+
+
+def counts(engine):
+    with engine.connect() as connection:
+        return (
+            connection.scalar(text("SELECT count(*) FROM deck_kb.documents")),
+            connection.scalar(text("SELECT count(*) FROM deck_kb.chunks")),
+        )
+
+
+def embed_requests(stub):
+    return [request for request in stub.requests if request["path"] == "/api/embed"]
+
+
+@pytest.fixture
+def real_contract(knowledge_store):
+    """Restore the row kb_0002 wrote; the fixture teardown switches back to the fake."""
+    use_contract(knowledge_store.engine, REAL_SPEC)
+    return knowledge_store.engine
+
+
+def test_ollama_store_puts_searches_and_resolves_on_real_contract(real_contract):
+    content = "Synthetic first chunk " * 100
+    with OllamaStub() as stub:
+        store = ollama_store(real_contract, stub)
+        store.check_contract(write=True)
+        first = insert(store, content=content)
+        other = insert(store, content="Unrelated synthetic note")
+        assert len(embed_requests(stub)) == 2
+        assert len(embed_requests(stub)[0]["body"]["input"]) == 2
+        hits = store.search(content[:1500], task_class=DataClass.LOCAL_ONLY, limit=2)
+        assert [item.reference for item in hits] == [first, other]
+        # Only the query carries the fixed Qwen3 instruction; documents stay unprefixed.
+        assert embed_requests(stub)[-1]["body"]["input"] == [QWEN3_QUERY_PREFIX + content[:1500]]
+        assert embed_requests(stub)[0]["body"]["input"][0] == content[:1500]
+        assert store.resolve((first,), task_class=DataClass.LOCAL_ONLY)[0].text.endswith(content)
+    assert contract_row(real_contract) == ("deck_kb.v1", "qwen3-embedding:0.6b", 1024)
+    assert counts(real_contract) == (2, 3)
+
+
+@pytest.mark.parametrize(
+    "options,code",
+    [
+        ({"embed_dimension": 8}, "embedding_dimension_mismatch"),
+        ({"status_by_path": {"/api/embed": 404}}, "embedding_model_missing"),
+        ({"status_by_path": {"/api/show": 404}}, "embedding_model_missing"),
+        ({"show_extra": {"remote_model": "cloud-model"}}, "embedding_model_remote"),
+        ({"show_extra": {"remote_host": "https://remote.invalid"}}, "embedding_model_remote"),
+        ({"embed_count_delta": -1}, "embedding_malformed"),
+    ],
+)
+def test_ollama_failures_store_nothing(real_contract, options, code):
+    with OllamaStub(**options) as stub:
+        with pytest.raises(KnowledgeError) as error:
+            insert(ollama_store(real_contract, stub))
+        if code == "embedding_model_remote":
+            assert embed_requests(stub) == []
+    assert error.value.code == code
+    assert counts(real_contract) == (0, 0)
+
+
+def test_stopped_ollama_stores_nothing(real_contract):
+    with OllamaStub() as stub:
+        store = ollama_store(real_contract, stub)
+    with pytest.raises(KnowledgeError) as error:
+        insert(store)
+    assert error.value.code == "embedding_unavailable"
+    with pytest.raises(KnowledgeError) as error:
+        store.search("question", task_class=DataClass.LOCAL_ONLY)
+    assert error.value.code == "embedding_unavailable"
+    assert counts(real_contract) == (0, 0)
+
+
+def test_secret_never_reaches_ollama(real_contract):
+    with OllamaStub() as stub:
+        store = ollama_store(real_contract, stub)
+        with pytest.raises(KnowledgeError) as error:
+            insert(store, content="DECK_OWNER_TOKEN=fake-secret-credential-value")
+        assert error.value.code == "secret_detected"
+        with pytest.raises(KnowledgeError) as error:
+            store.search(
+                "DECK_OWNER_TOKEN=fake-secret-credential-value", task_class=DataClass.CLOUD_OK
+            )
+        assert error.value.code == "secret_detected"
+        assert embed_requests(stub) == []
+    assert counts(real_contract) == (0, 0)
+
+
+def test_repeated_put_does_not_embed_again(real_contract):
+    document_id, task_id = uuid4(), uuid4()
+    kwargs = dict(
+        document_id=document_id,
+        source_task_id=task_id,
+        title="Export",
+        content="Reviewed result",
+        data_class=DataClass.LOCAL_ONLY,
+    )
+    with OllamaStub() as stub:
+        store = ollama_store(real_contract, stub)
+        assert store.put_document(**kwargs) == document_id
+        assert store.put_document(**kwargs) == document_id
+        assert len(embed_requests(stub)) == 1
+        with pytest.raises(KnowledgeError) as error:
+            store.put_document(**(kwargs | {"content": "Changed result"}))
+        assert error.value.code == "knowledge_export_conflict"
+        assert len(embed_requests(stub)) == 1
+    assert counts(real_contract) == (1, 1)
+
+
+def test_wrong_contract_never_contacts_ollama(knowledge_store):
+    with OllamaStub() as stub:
+        with pytest.raises(KnowledgeError) as error:
+            insert(ollama_store(knowledge_store.engine, stub))
+        assert error.value.code == "knowledge_contract_mismatch"
+        assert stub.requests == []
+
+
+def test_fake_against_real_contract_row_is_a_mismatch(real_contract):
+    store = KnowledgeStore(real_contract)
+    for operation in (
+        lambda: store.check_contract(),
+        lambda: insert(store),
+        lambda: store.search("question", task_class=DataClass.LOCAL_ONLY),
+    ):
+        with pytest.raises(KnowledgeError) as error:
+            operation()
+        assert error.value.code == "knowledge_contract_mismatch"
+    assert counts(real_contract) == (0, 0)
+
+
+def test_runtime_profile_store_runs_against_the_selected_database(real_contract, monkeypatch):
+    """Runtime reaches DECK_KB_DATABASE_URL (here the KB test database) with Ollama only."""
+    with OllamaStub() as stub:
+        monkeypatch.setenv("DECK_KB_PROFILE", "runtime")
+        monkeypatch.setenv("DECK_KB_DATABASE_URL", get_kb_test_database_url())
+        monkeypatch.setenv("DECK_KB_TEST_DATABASE_URL", "postgresql+psycopg:///unused_test")
+        monkeypatch.setenv("DECK_KB_EMBEDDING_PROVIDER", "ollama")
+        monkeypatch.setenv("DECK_KB_EMBEDDING_MODEL", REAL_SPEC.model)
+        monkeypatch.setenv("DECK_KB_EMBEDDING_DIMENSION", str(REAL_SPEC.dimension))
+        monkeypatch.setenv("DECK_KB_EMBEDDING_TIMEOUT_S", "2")
+        monkeypatch.setenv("DECK_OLLAMA_URL", stub.url)
+        store = configured_store()
+        try:
+            assert store.spec == REAL_SPEC
+            reference = insert(store, content="Synthetic runtime note")
+            hits = store.search("Synthetic runtime note", task_class=DataClass.LOCAL_ONLY)
+            assert [item.reference for item in hits] == [reference]
+        finally:
+            store.engine.dispose()
+        assert len(embed_requests(stub)) == 2
+    assert counts(real_contract) == (1, 1)
+
+
+def test_runtime_profile_refuses_the_fake_before_connecting(knowledge_store, monkeypatch):
+    monkeypatch.setenv("DECK_KB_PROFILE", "runtime")
+    monkeypatch.setenv("DECK_KB_DATABASE_URL", get_kb_test_database_url())
+    for name in (
+        "DECK_KB_EMBEDDING_PROVIDER",
+        "DECK_KB_EMBEDDING_MODEL",
+        "DECK_KB_EMBEDDING_DIMENSION",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(KnowledgeError) as error:
+        configured_store()
+    assert error.value.code == "knowledge_embedding_configuration_invalid"
+    assert counts(knowledge_store.engine) == (0, 0)

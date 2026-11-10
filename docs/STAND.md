@@ -1,5 +1,19 @@
 # Stand des Repositorys
 
+## Nachtrag 2026-11-10: Wissens-DB mit echtem Embedding als Draft
+
+Der Zweig `feat/kb-real-embedding` stellt die Wissens-DB auf ein lokales Ollama-Embedding mit
+1024 Dimensionen um (`kb_0002`, `OllamaEmbeddings`, Profil `runtime`, ADR 0011). Der Fake bleibt
+Standard, `disabled` bleibt das Standardprofil. Vor dem ersten `/api/embed` prüft der Adapter
+`/api/show` für `<modell>:local` und weist `remote_host`, `remote_model` sowie Cloud-Kennungen
+mit `embedding_model_remote` ab. Tests sprechen nur den lokalen HTTP-Stub, kein echtes Ollama.
+Dass `/api/embed` am gepinnten Ollama `v0.40.14` den Suffix `:local` annimmt und
+1024-dimensionale Vektoren liefert, ist belegt (Quelle: Owner-Messung vom 2026-11-10 per `curl`
+am Server, Status `proven` für `v0.40.14`, siehe [LANES.md](LANES.md#embedding-vertrag-apiembed);
+nach einem Ollama-Update erneut zu prüfen). Nicht ausgerollt: Runtime-Migration der Wissens-DB,
+Aktivierung des Profils und der Rollout aus
+[OPERATIONS.md](OPERATIONS.md#rollout-echtes-embedding-der-wissens-db) bleiben beim Owner.
+
 ## Nachtrag 2026-11-10: UI-Angleichung als Draft
 
 Der Zweig `feat/ui-command-center-shell` setzt PR 1 aus

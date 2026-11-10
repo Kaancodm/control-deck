@@ -267,6 +267,114 @@ Betriebsfehler melden stabile Codes und Operation-IDs. Die geschützte Audit-Ans
 Etappe 17 kann diese Phasen anzeigen. Rohdaten, Passwörter, Dateipfade und Ausgabe von
 Unterprozessen gehören nicht in die Auditdetails.
 
+`make update` migriert nur die zentrale Kette. Die Wissens-DB hat eine eigene Alembic-Kette
+(`alembic_kb.ini`), die ein getrennter, ausdrücklicher Schritt bleibt.
+
+## Rollout echtes Embedding der Wissens-DB
+
+Umstellung von `deck-fake-embedding-v1` (8 Dimensionen) auf `qwen3-embedding:0.6b`
+(1024 Dimensionen) mit Migration `kb_0002`, siehe [WISSENS_DB.md](WISSENS_DB.md) und ADR 0011.
+Alle Schritte führt der Owner aus, einzeln und jeweils erst nach bestandenem Vorgänger; jeder
+Prod-Zugriff braucht ein ausdrückliches GO. Agents bereiten nur vor. Werte stehen nur in der
+privaten Env-Datei, nie im Repo oder in Logs.
+
+0. **Preflight, nur lesend.** `alembic_kb_version` ist `kb_0001`; Vertragszeile
+   (`deck_kb.v1`, `deck-fake-embedding-v1`, 8); Spalte `deck_kb.chunks.embedding` ist
+   `vector(8)`; `deck_kb.documents` und `deck_kb.chunks` haben je 0 Zeilen; pgvector-Version
+   wie im letzten Backup-Manifest; `/api/tags` listet `qwen3-embedding:0.6b`; `/api/show` für
+   `qwen3-embedding:0.6b:local` liefert keine Felder `remote_host` oder `remote_model` und keine
+   Cloud-Kennung (der Adapter prüft dies vor dem ersten `/api/embed` ebenfalls und bricht sonst
+   mit `embedding_model_remote` ab). Zusätzlich prüfen, ob `/api/embed` die Kennung mit Suffix
+   `:local` annimmt und 1024 Dimensionen liefert (siehe
+   [LANES.md](LANES.md#embedding-vertrag-apiembed); am 2026-11-10 für Ollama `v0.40.14` per
+   `curl` am Server belegt, Status `proven` für diese Version; nach jedem Ollama-Update
+   wiederholen). Bei jeder Abweichung Stopp.
+1. **Backup mit dem alten Release:**
+   ```bash
+   make backup ARGS='--apply --target runtime'
+   ```
+   Ohne `ARGS='--apply --target runtime'` bleibt `make backup` ein Dry-Run auf dem Default-Ziel
+   `test` (`DECK_DATABASE_URL` und `DECK_KB_DATABASE_URL` müssen für die Wartung gesetzt sein).
+   Die Ausgabe meldet `"status": "completed"` und `operation_id`; in
+   `<DECK_BACKUP_DIR>/backup-<operation_id ohne Bindestriche>/manifest.json` (Standard `backups/`)
+   prüfen, dass `knowledge.schema_revision` auf `"kb_0001"` steht. `restore-probe` akzeptiert nur
+   `_test`-Ziele und verlangt für diesen Satz den alten Code-Stand (`restore_revision_mismatch`
+   unter neuem Code); einen automatisierten Prod-Restore-Pfad enthält das Repo nicht.
+2. **KB-Migration, eigener Schritt,** als Tabelleneigentümer:
+   ```bash
+   uv run alembic -c alembic_kb.ini -x target=runtime upgrade head
+   uv run alembic -c alembic_kb.ini -x target=runtime current
+   uv run alembic -c alembic_kb.ini -x target=runtime check
+   ```
+   `kb_0002` sperrt Vertrag, Dokumente und Chunks, bricht bei vorhandenen Zeilen, fremder Vertragszeile oder
+   anderem Spaltentyp ohne Änderung ab und prüft danach die Unveränderlichkeits-Trigger. Ein
+   Runtime-Downgrade ist gesperrt (`knowledge_runtime_command_unavailable`) und nicht nötig.
+3. **Private Env-Datei:** `DECK_KB_PROFILE=runtime`, `DECK_KB_EMBEDDING_PROVIDER=ollama`,
+   `DECK_KB_EMBEDDING_MODEL=qwen3-embedding:0.6b`, `DECK_KB_EMBEDDING_DIMENSION=1024`;
+   `DECK_KB_DATABASE_URL` und `DECK_OLLAMA_URL` sind gesetzt. Optional
+   `DECK_KB_EMBEDDING_TIMEOUT_S` (Standard 60) und `DECK_KB_EMBEDDING_KEEP_ALIVE`
+   (Standard `server`). Der Ollama-Dienst bleibt unverändert.
+4. **Update und Neustart:**
+   ```bash
+   make update ARGS='--apply'
+   ```
+   Ohne `ARGS='--apply'` bleibt `make update` ein Dry-Run (bei Aufruf ausserhalb des Checkouts
+   zusätzlich `--repository <repo>`). Falls Schritt 3 erst nach dem Update eingetragen wurde,
+   `deck-api.service` anschliessend neu starten. Die Reihenfolge von 2 und 4 ist unkritisch:
+   Jeder Zwischenzustand endet in `knowledge_contract_mismatch` oder
+   `knowledge_embedding_configuration_invalid`, ohne Schreiben.
+5. **Backup mit dem neuen Release:**
+   ```bash
+   make backup ARGS='--apply --target runtime'
+   ```
+   In `<DECK_BACKUP_DIR>/backup-<operation_id ohne Bindestriche>/manifest.json` (Standard
+   `backups/`) prüfen, dass `knowledge.schema_revision` auf `"kb_0002"` steht und
+   `knowledge.row_counts` für `deck_kb.documents` und `deck_kb.chunks` je `0` ausweist.
+6. **Prod-Prüfung ohne Schreiben:** Suche über `/ui/knowledge` mit synthetischer Anfrage;
+   erwartet wird eine leere Trefferliste. Die Zähler bleiben 0.
+7. **Testdokument nur in einer isolierten Kopie:** Entweder Restore-Probe des Backups aus
+   Schritt 5 mit denselben `DECK_KB_EMBEDDING_*`-Variablen wie im Betrieb
+   (`make restore-probe ARGS='--apply --target test --backup-name backup-<operation_id ohne Bindestriche>'`),
+   wobei die Probe-Kopie in `DECK_RESTORE_TEST_DATABASE_URL` und
+   `DECK_KB_RESTORE_TEST_DATABASE_URL` landet (getrennt von `DECK_TEST_DATABASE_URL` und
+   `DECK_KB_TEST_DATABASE_URL`), und danach `DECK_KB_TEST_DATABASE_URL` für die Simulation auf
+   diese wiederhergestellte `_test`-Wissens-DB richten; oder eine frische `_test`-DB in
+   `DECK_KB_TEST_DATABASE_URL` ausdrücklich mit `-x target=test` migrieren:
+   ```bash
+   uv run alembic -c alembic_kb.ini -x target=test upgrade head
+   ```
+   (Ohne `-x target=test` bricht Alembic bei gesetzter `DECK_KB_DATABASE_URL` mit
+   `knowledge_migration_target_required` ab.) Dort mit `DECK_KB_PROFILE=simulation`,
+   `DECK_KB_EMBEDDING_PROVIDER=ollama`, `DECK_KB_EMBEDDING_MODEL=qwen3-embedding:0.6b`,
+   `DECK_KB_EMBEDDING_DIMENSION=1024` und `DECK_OLLAMA_URL` das synthetische Testdokument über
+   `uv run python scripts/kb_import.py <inbox-relativer-pfad> --title <titel> --data-class local_only --simulate`
+   in `DECK_KB_TEST_DATABASE_URL` schreiben, Suche mit umformulierter Anfrage und `resolve`
+   prüfen und die `_test`-Kopie danach verwerfen. `kb_import.py` weist das Runtime-Profil ab
+   (`knowledge_import_simulation_only`).
+8. **Kaltstart des Chat-Modells** nach Schritt 6 messen, als Grundlage für den Entscheid
+   zum Modellwechsel zwischen Chat und Embedding.
+
+Warum eine Kopie statt Prod: Die Trigger weisen UPDATE und DELETE für jede Rolle ab. Ein
+Testdokument in Prod liesse sich nur per `TRUNCATE`, deaktivierten Triggern oder einem manuellen
+Voll-Restore entfernen; alle drei heben die Unveränderlichkeit auf.
+
+**Backup-Kompatibilität.** Restore prüft die archivierte Vertragszeile vor dem ersten
+Schreibzugriff (und nach `pg_restore` das wiederhergestellte Ziel) gegen die konfigurierte
+Embedding-Spec. Eine Restore-Probe eines Runtime-Backups nach `kb_0002` braucht deshalb
+dieselben `DECK_KB_EMBEDDING_*`-Variablen wie der Betrieb; mit Fake-Standard scheitert sie
+vor jeder Änderung an den `_test`-Zielen mit `knowledge_contract_mismatch`. Sätze vor `kb_0002`
+lassen sich nur mit dem alten Code-Stand in `_test`-Ziele proben.
+
+**Rückweg.** Es gibt im Repo **keinen** Prod-Restore der Wissens-DB über `make restore-probe`
+(akzeptiert ausschliesslich `_test`-Ziele, `unsafe_restore_target`), und ein Runtime-`downgrade`
+ist gesperrt (`knowledge_runtime_command_unavailable`). Der reale operative Rückweg lautet:
+Vor Schritt 4 die `DECK_KB_*`-Werte aus der privaten Env-Datei entfernen; das Profil bleibt
+`disabled`. Nach Schritt 4 `DECK_KB_PROFILE` leeren (wieder `disabled`) und `deck-api.service`
+neu starten; die produktive Wissens-DB bleibt leer und auf `kb_0002`. Das alte Release liefert
+gegen `kb_0002` nur `knowledge_contract_mismatch`, ohne Schreiben. Ein vollständiges
+Zurückspielen des Vor-Migrations-Backups (`kb_0001`) in die produktiven Datenbanken wäre ein
+separater manueller Owner-Schritt ausserhalb der Repo-Werkzeuge (Status: `unproven`).
+
 ## Inbetriebnahme
 
 Offen bleiben der reale User-Manager mit Lingering, Bindung und TLS, Datei-/Backup-Ziele,

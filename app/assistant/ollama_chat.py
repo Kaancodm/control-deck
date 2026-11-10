@@ -85,7 +85,7 @@ def validate_model_tag(model: str) -> str:
         or _NAME_PART.fullmatch(name) is None
         or _NAME_PART.fullmatch(tag) is None
         or ":cloud" in folded
-        or folded.endswith("-cloud")
+        or "-cloud" in folded
         or folded.endswith(":local")
     ):
         raise AssistantError("assistant_model_unconfigured")

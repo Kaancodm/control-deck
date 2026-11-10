@@ -1,0 +1,23 @@
+{#- Static network map. Geometry lives in attributes, appearance in overview.css; no script. -#}
+{% set nodes = net|default([]) %}
+<svg class="net" viewBox="0 0 400 250" role="img" aria-labelledby="net-title" focusable="false">
+  <title id="net-title">Netzkarte: das Deck in der Mitte, verbunden mit Owner, Lanes, Assistent, Meldungen, Datenbank und Backup. Gestrichelt: aus oder nicht erfasst.</title>
+  <ellipse class="net-ring" cx="200" cy="125" rx="170" ry="100"/>
+  <ellipse class="net-ring net-ring--inner" cx="200" cy="125" rx="115" ry="68"/>
+  {% for node in nodes %}
+  <line class="net-edge{% if not node.active %} net-edge--off{% endif %}" x1="200" y1="125" x2="{{ node.x }}" y2="{{ node.y }}"/>
+  {% endfor %}
+  {% for node in nodes %}
+  <g class="net-node net-node--{{ node.kind }}{% if not node.active %} net-node--off{% endif %}">
+    <circle cx="{{ node.x }}" cy="{{ node.y }}" r="{{ 6 if node.kind == 'owner' else 5 if node.kind == 'lane' else 4 }}"/>
+    {% if node.kind == 'owner' %}<circle class="net-halo" cx="{{ node.x }}" cy="{{ node.y }}" r="11"/>{% endif %}
+    <text class="net-label{% if node.kind in ['service', 'infra'] %} net-label--minor{% endif %}" x="{{ node.label_x }}" y="{{ node.label_y }}" text-anchor="{{ node.anchor }}">{{ node.label|upper }}</text>
+  </g>
+  {% endfor %}
+  <polygon class="net-core" points="219,114 219,136 200,147 181,136 181,114 200,103"/>
+  <text class="net-core-mark" x="200" y="131" text-anchor="middle">◈</text>
+  <text class="net-label net-label--core" x="200" y="164" text-anchor="middle">DECK</text>
+</svg>
+<ul class="visually-hidden">
+  {% for node in nodes %}<li>{{ node.label }}</li>{% endfor %}
+</ul>

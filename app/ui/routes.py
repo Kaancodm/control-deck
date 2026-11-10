@@ -17,6 +17,7 @@ from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.api.deps import DbSession
+from app.assistant.providers import activation_status
 from app.audit.presentation import (
     ACTORS,
     AUTH_EVENT_TYPES,
@@ -70,10 +71,26 @@ from app.ui.chat import ChatError, ChatRequest, UnavailableChat, ask_local
 from app.ui.files import MAX_FILE_BYTES, UiFileError, Upload, read_payload, store_uploads
 from app.ui.forms import FormError, form_from_draft, task_from_form, validate_draft
 from app.ui.middleware import MAX_BODY_BYTES
+from app.ui.overview import (
+    claims_summary,
+    feature_flags,
+    lane_rows,
+    latest_outcome,
+    network_nodes,
+    open_points,
+    workflow_steps,
+)
 from app.ui.progress import AttemptProgress, attempt_progress
-from app.ui.views import page, preview_context, preview_redirect
+from app.ui.views import HOME_PATH, page, preview_context, preview_redirect
 
 router = APIRouter(prefix="/ui", include_in_schema=False)
+root_router = APIRouter(include_in_schema=False)
+
+
+@root_router.get("/")
+def root() -> Response:
+    # Fixed internal target; no query, cookie or session is read here.
+    return RedirectResponse("/ui", status_code=303)
 
 
 class UiError(Exception):
@@ -161,7 +178,7 @@ def csrf(request: Request, session: Session, data: FormData, *, anonymous: bool 
 
 @router.get("")
 def index() -> Response:
-    return RedirectResponse("/ui/tasks", status_code=303)
+    return RedirectResponse(HOME_PATH, status_code=303)
 
 
 @router.get("/login")
@@ -169,7 +186,7 @@ def login_page(request: Request, session: DbSession) -> Response:
     settings = get_auth_settings()
     existing = get_ui_session(session, request.cookies.get(SESSION_COOKIE), owner_required=False)
     if existing is not None and existing.authenticated:
-        return RedirectResponse("/ui/tasks", status_code=303)
+        return RedirectResponse(HOME_PATH, status_code=303)
     if owner_login_locked(session):
         return page(request, "login.html", owner=False, login_locked=True, status=423)
     retry_after = limit_login_page(session, settings, client=client_address(request))
@@ -206,7 +223,7 @@ def login(request: Request, session: DbSession, data: ParsedForm) -> Response:
     )
     session.commit()
     if outcome.credentials is not None:
-        response: Response = RedirectResponse("/ui/tasks", status_code=303)
+        response: Response = RedirectResponse(HOME_PATH, status_code=303)
         set_session_cookies(response, outcome.credentials, settings)
         return response
     if outcome.code == "login_locked":
@@ -245,6 +262,62 @@ def logout_all(request: Request, session: DbSession, data: ParsedForm) -> Respon
     response = RedirectResponse("/ui/login", status_code=303)
     clear_session_cookies(response, settings)
     return response
+
+
+_ACTIVE_FOCUS = frozenset({TaskState.QUEUED, TaskState.LEASED, TaskState.RUNNING})
+
+
+@router.get("/overview")
+def overview(request: Request, session: DbSession) -> Response:
+    """Owner overview. Only existing read functions; every number has a stored source."""
+    owner(request, session)
+    waiting, waiting_total = list_owner_tasks(session, needs_owner=True, limit=5)
+    _, blocked_total = list_owner_tasks(session, state=TaskState.BLOCKED, limit=1)
+    latest, _ = list_owner_tasks(session, limit=1)
+    recent = list_audit(session, AuditFilter(limit=5))
+    backups = list_audit(
+        session, AuditFilter(source="operation", event_type="operation.backup", limit=10)
+    )
+    restores = list_audit(
+        session, AuditFilter(source="operation", event_type="operation.restore", limit=10)
+    )
+    focus = waiting[0] if waiting else None
+    if focus is None and latest and latest[0].status in _ACTIVE_FOCUS:
+        focus = latest[0]
+    lanes = request.state.lane_health
+    health_unavailable = getattr(request.state, "health_unavailable", False)
+    flags = feature_flags()
+    last_backup = latest_outcome(backups.items)
+    last_restore = latest_outcome(restores.items)
+    rows = lane_rows(lanes)
+    points = open_points(
+        controls=request.state.controls,
+        waiting_total=waiting_total,
+        blocked_total=blocked_total,
+        lanes=lanes,
+        health_unavailable=health_unavailable,
+        flags=flags,
+        last_backup=last_backup,
+        last_restore=last_restore,
+    )
+    return page(
+        request,
+        "overview.html",
+        waiting_total=waiting_total,
+        focus=focus,
+        steps=workflow_steps(None if focus is None else focus.status.value),
+        claims=claims_summary(lanes),
+        lane_rows=rows,
+        flags=flags,
+        activation=activation_status(),
+        open_points=points,
+        audit=recent.items,
+        csv_url="/ui/audit.csv?limit=5",
+        last_backup=last_backup,
+        last_restore=last_restore,
+        net=network_nodes(lanes=lanes, flags=flags, last_backup=last_backup),
+        nav_counts={"lanes": len(rows), "open": len(points)},
+    )
 
 
 @router.get("/tasks")

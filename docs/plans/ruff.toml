@@ -1,0 +1,5 @@
+# Plans quote code sketches verbatim; they are not formatted as source.
+extend = "../../pyproject.toml"
+
+[format]
+exclude = ["*.md"]

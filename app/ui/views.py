@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from secrets import token_urlsafe
 from threading import Lock
 from time import monotonic
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
@@ -222,6 +223,54 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
         "Kurz warten und neu laden.",
     ),
 }
+# Fixed landing page after login and for /ui. There is deliberately no ``next`` parameter.
+HOME_PATH = "/ui/overview"
+
+
+@dataclass(frozen=True)
+class NavItem:
+    key: str
+    label: str
+    href: str
+    icon: str
+    group: Literal["workspace", "control"]
+    tab_label: str | None = None
+
+
+# Up to 860 px: entries with a tab label sit in the tab bar, the rest in the menu.
+# Wider: only the sidebar shows them. Each target has one visible link per width.
+NAV_ITEMS: tuple[NavItem, ...] = (
+    NavItem("overview", "Übersicht", HOME_PATH, "grid", "workspace", "Übersicht"),
+    NavItem("tasks", "Aufträge", "/ui/tasks", "lines", "workspace"),
+    NavItem("new", "Neuer Auftrag", "/ui/tasks/new", "plus", "workspace"),
+    NavItem("knowledge", "Wissen", "/ui/knowledge", "layers", "workspace"),
+    NavItem("lanes", "Lanes", "/ui/lanes", "lanes", "control", "Lanes"),
+    NavItem("assistant", "Assistent", "/ui/assistant", "person", "control", "Assistent"),
+    NavItem("messages", "Meldungen", HOME_PATH + "#meldungen", "bell", "control", "Meldungen"),
+    NavItem("open", "Offene Punkte", HOME_PATH + "#offen", "list", "control", "Offen"),
+    NavItem("chat", "Lokaler Chat", "/ui/chat", "chat", "control"),
+    NavItem("audit", "Audit", "/ui/audit", "shield", "control"),
+)
+_NAV_PREFIXES = tuple(
+    sorted(
+        [(item.href, item.key) for item in NAV_ITEMS if "#" not in item.href]
+        + [("/ui/failed", "tasks")],
+        key=lambda entry: len(entry[0]),
+        reverse=True,
+    )
+)
+
+
+def nav_key(path: str) -> str:
+    """Return the navigation key for a path; the longest matching prefix wins."""
+    for prefix, key in _NAV_PREFIXES:
+        if path == prefix or path.startswith(prefix + "/"):
+            return key
+    return ""
+
+
+TEMPLATES.env.globals["nav_items"] = NAV_ITEMS
+TEMPLATES.env.globals["home_path"] = HOME_PATH
 TEMPLATES.env.globals["status_labels"] = STATUS_LABELS
 TEMPLATES.env.globals["data_class_labels"] = DATA_CLASS_LABELS
 TEMPLATES.env.globals["error_messages"] = ERROR_MESSAGES
@@ -288,6 +337,7 @@ def page(request: Request, name: str, *, status: int = 200, **context: Any) -> R
             "controls": getattr(request.state, "controls", None),
             "lane_health": getattr(request.state, "lane_health", []),
             "health_unavailable": getattr(request.state, "health_unavailable", False),
+            "nav": nav_key(request.url.path),
             **context,
         },
         status_code=status,

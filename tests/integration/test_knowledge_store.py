@@ -12,9 +12,13 @@ from sqlalchemy.exc import DBAPIError
 from alembic import command
 from app.core.schemas import DataClass
 from app.kb.config import get_kb_test_database_url
-from app.kb.contracts import KnowledgeError
+from app.kb.contracts import EmbeddingSpec, KnowledgeError
+from app.kb.ollama_embeddings import OllamaEmbeddings
 from app.kb.repository import KnowledgeStore
-from tests.support.kb import use_fake_contract
+from app.workers.lanes.ollama_http import OllamaHTTPClient
+from app.workers.lanes.ollama_keep_alive import parse_keep_alive_value
+from tests.support.kb import contract_row, use_contract, use_fake_contract
+from tests.support.ollama_stub import OllamaStub
 
 
 @pytest.fixture(scope="module")
@@ -209,3 +213,139 @@ def test_cloud_knowledge_requires_current_blocklist(knowledge_store, monkeypatch
     with pytest.raises(KnowledgeError) as error:
         insert(knowledge_store, DataClass.CLOUD_OK)
     assert error.value.code == "knowledge_privacy_configuration_unavailable"
+
+
+REAL_SPEC = EmbeddingSpec("ollama", "qwen3-embedding:0.6b", 1024)
+
+
+def ollama_store(engine, stub, **client_options):
+    return KnowledgeStore(
+        engine,
+        embeddings=OllamaEmbeddings(
+            client=OllamaHTTPClient(stub.url, **client_options),
+            spec=REAL_SPEC,
+            timeout_s=2.0,
+            keep_alive=parse_keep_alive_value("server"),
+        ),
+    )
+
+
+def counts(engine):
+    with engine.connect() as connection:
+        return (
+            connection.scalar(text("SELECT count(*) FROM deck_kb.documents")),
+            connection.scalar(text("SELECT count(*) FROM deck_kb.chunks")),
+        )
+
+
+def embed_requests(stub):
+    return [request for request in stub.requests if request["path"] == "/api/embed"]
+
+
+@pytest.fixture
+def real_contract(knowledge_store):
+    """Restore the row kb_0002 wrote; the fixture teardown switches back to the fake."""
+    use_contract(knowledge_store.engine, REAL_SPEC)
+    return knowledge_store.engine
+
+
+def test_ollama_store_puts_searches_and_resolves_on_real_contract(real_contract):
+    content = "Synthetic first chunk " * 100
+    with OllamaStub() as stub:
+        store = ollama_store(real_contract, stub)
+        store.check_contract(write=True)
+        first = insert(store, content=content)
+        other = insert(store, content="Unrelated synthetic note")
+        assert len(embed_requests(stub)) == 2
+        assert len(embed_requests(stub)[0]["body"]["input"]) == 2
+        hits = store.search(content[:1500], task_class=DataClass.LOCAL_ONLY, limit=2)
+        assert [item.reference for item in hits] == [first, other]
+        assert embed_requests(stub)[-1]["body"]["input"] == [content[:1500]]
+        assert store.resolve((first,), task_class=DataClass.LOCAL_ONLY)[0].text.endswith(content)
+    assert contract_row(real_contract) == ("deck_kb.v1", "qwen3-embedding:0.6b", 1024)
+    assert counts(real_contract) == (2, 3)
+
+
+@pytest.mark.parametrize(
+    "options,code",
+    [
+        ({"embed_dimension": 8}, "embedding_dimension_mismatch"),
+        ({"status_by_path": {"/api/embed": 404}}, "embedding_model_missing"),
+        ({"embed_count_delta": -1}, "embedding_malformed"),
+    ],
+)
+def test_ollama_failures_store_nothing(real_contract, options, code):
+    with OllamaStub(**options) as stub:
+        with pytest.raises(KnowledgeError) as error:
+            insert(ollama_store(real_contract, stub))
+    assert error.value.code == code
+    assert counts(real_contract) == (0, 0)
+
+
+def test_stopped_ollama_stores_nothing(real_contract):
+    with OllamaStub() as stub:
+        store = ollama_store(real_contract, stub)
+    with pytest.raises(KnowledgeError) as error:
+        insert(store)
+    assert error.value.code == "embedding_unavailable"
+    with pytest.raises(KnowledgeError) as error:
+        store.search("question", task_class=DataClass.LOCAL_ONLY)
+    assert error.value.code == "embedding_unavailable"
+    assert counts(real_contract) == (0, 0)
+
+
+def test_secret_never_reaches_ollama(real_contract):
+    with OllamaStub() as stub:
+        store = ollama_store(real_contract, stub)
+        with pytest.raises(KnowledgeError) as error:
+            insert(store, content="DECK_OWNER_TOKEN=fake-secret-credential-value")
+        assert error.value.code == "secret_detected"
+        with pytest.raises(KnowledgeError) as error:
+            store.search(
+                "DECK_OWNER_TOKEN=fake-secret-credential-value", task_class=DataClass.CLOUD_OK
+            )
+        assert error.value.code == "secret_detected"
+        assert embed_requests(stub) == []
+    assert counts(real_contract) == (0, 0)
+
+
+def test_repeated_put_does_not_embed_again(real_contract):
+    document_id, task_id = uuid4(), uuid4()
+    kwargs = dict(
+        document_id=document_id,
+        source_task_id=task_id,
+        title="Export",
+        content="Reviewed result",
+        data_class=DataClass.LOCAL_ONLY,
+    )
+    with OllamaStub() as stub:
+        store = ollama_store(real_contract, stub)
+        assert store.put_document(**kwargs) == document_id
+        assert store.put_document(**kwargs) == document_id
+        assert len(embed_requests(stub)) == 1
+        with pytest.raises(KnowledgeError) as error:
+            store.put_document(**(kwargs | {"content": "Changed result"}))
+        assert error.value.code == "knowledge_export_conflict"
+        assert len(embed_requests(stub)) == 1
+    assert counts(real_contract) == (1, 1)
+
+
+def test_wrong_contract_never_contacts_ollama(knowledge_store):
+    with OllamaStub() as stub:
+        with pytest.raises(KnowledgeError) as error:
+            insert(ollama_store(knowledge_store.engine, stub))
+        assert error.value.code == "knowledge_contract_mismatch"
+        assert stub.requests == []
+
+
+def test_fake_against_real_contract_row_is_a_mismatch(real_contract):
+    store = KnowledgeStore(real_contract)
+    for operation in (
+        lambda: store.check_contract(),
+        lambda: insert(store),
+        lambda: store.search("question", task_class=DataClass.LOCAL_ONLY),
+    ):
+        with pytest.raises(KnowledgeError) as error:
+            operation()
+        assert error.value.code == "knowledge_contract_mismatch"
+    assert counts(real_contract) == (0, 0)

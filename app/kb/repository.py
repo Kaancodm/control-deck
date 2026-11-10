@@ -8,7 +8,7 @@ from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.schemas import DataClass
-from app.kb.config import require_simulation
+from app.kb.config import EmbeddingSettings, load_embedding_settings, require_simulation
 from app.kb.contracts import (
     CONTRACT_VERSION,
     MAX_DOCUMENT_BYTES,
@@ -21,9 +21,11 @@ from app.kb.contracts import (
     validate_contexts,
 )
 from app.kb.embeddings import EmbeddingProvider, FakeLocalEmbeddings, vector_literal
+from app.kb.ollama_embeddings import OllamaEmbeddings
 from app.privacy.config import get_privacy_settings
 from app.privacy.normalization import NormalizationError
 from app.privacy.scanner import FindingKind, scan_text
+from app.workers.lanes.ollama_http import OllamaHTTPClient
 
 
 def check_knowledge_text(title: str, content: str, data_class: DataClass) -> None:
@@ -131,6 +133,24 @@ class KnowledgeStore:
             raise KnowledgeError("embedding_malformed")
         return tuple(vector_literal(item, dimension=self.spec.dimension) for item in vectors)
 
+    def _already_stored(self, document_id: UUID, expected: tuple[object, ...]) -> bool:
+        try:
+            with self.engine.connect() as connection:
+                existing = connection.execute(
+                    text(
+                        "SELECT source_task_id, title, data_class, content_sha256 "
+                        "FROM deck_kb.documents WHERE id = :id"
+                    ),
+                    {"id": document_id},
+                ).one_or_none()
+        except SQLAlchemyError:
+            raise KnowledgeError("knowledge_write_unavailable") from None
+        if existing is None:
+            return False
+        if tuple(existing) != expected:
+            raise KnowledgeError("knowledge_export_conflict")
+        return True
+
     def put_document(
         self,
         *,
@@ -142,9 +162,12 @@ class KnowledgeStore:
     ) -> UUID:
         check_knowledge_text(title, content, data_class)
         self.check_contract(write=True)
+        digest = digest_text(content)
+        # A repeated export must not load the embedding model (and evict the chat model).
+        if self._already_stored(document_id, (source_task_id, title, data_class.value, digest)):
+            return document_id
         pieces = tuple(content[start : start + 1500] for start in range(0, len(content), 1500))
         vectors = self._vectors(pieces)
-        digest = digest_text(content)
         try:
             with self.engine.begin() as connection:
                 inserted = connection.scalar(
@@ -288,8 +311,24 @@ class KnowledgeStore:
         )
 
 
+def build_embeddings(settings: EmbeddingSettings) -> EmbeddingProvider:
+    """Construct the configured provider; no connection is opened here."""
+    if settings.spec.provider == "fake":
+        return FakeLocalEmbeddings()
+    if settings.ollama_url is None:
+        raise KnowledgeError("knowledge_embedding_configuration_invalid")
+    return OllamaEmbeddings(
+        client=OllamaHTTPClient(settings.ollama_url),
+        spec=settings.spec,
+        timeout_s=settings.timeout_s,
+        keep_alive=settings.keep_alive,
+    )
+
+
 def configured_store() -> KnowledgeStore:
-    """Use only the explicit simulation profile and an isolated test database."""
+    """Validate the embedding configuration, then the explicit database selection."""
+    embeddings = build_embeddings(load_embedding_settings())
     return KnowledgeStore(
-        create_engine(require_simulation(), pool_pre_ping=True, hide_parameters=True)
+        create_engine(require_simulation(), pool_pre_ping=True, hide_parameters=True),
+        embeddings=embeddings,
     )

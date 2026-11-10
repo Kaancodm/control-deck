@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -11,9 +11,26 @@ from typing import Literal
 
 from sqlalchemy.engine import URL, make_url
 
-from app.kb.contracts import KnowledgeError
+from app.assistant.errors import AssistantError
+from app.assistant.ollama_chat import validate_model_tag
+from app.kb.contracts import (
+    FAKE_EMBEDDING_SPEC,
+    SCHEMA_EMBEDDING_DIMENSION,
+    EmbeddingSpec,
+    KnowledgeError,
+)
+from app.workers.lanes.ollama_keep_alive import (
+    KEEP_ALIVE_SERVER,
+    KeepAliveSetting,
+    parse_keep_alive_value,
+)
+from app.workers.loopback_url import LiveConfigurationError, validate_ollama_url
 
 RUNTIME_MIGRATION_COMMANDS = frozenset({"check", "current", "upgrade"})
+# One budget for evicting the chat model, loading, and computing; below the 90s shell.
+EMBEDDING_TIMEOUT_DEFAULT_S = 60.0
+EMBEDDING_TIMEOUT_MIN_S = 1.0
+EMBEDDING_TIMEOUT_MAX_S = 85.0
 _CENTRAL_DATABASE_NAMES = frozenset({"controldeck", "controldeck_test"})
 _CENTRAL_DATABASE_VARIABLES = ("DECK_DATABASE_URL", "DECK_TEST_DATABASE_URL")
 _LOOPBACK_HOSTS = frozenset({None, "", "localhost", "127.0.0.1", "::1"})
@@ -56,6 +73,70 @@ def require_simulation() -> str:
     if os.environ.get("DECK_KB_PROFILE", "disabled") != "simulation":
         raise KnowledgeError("knowledge_live_profile_unavailable")
     return get_kb_test_database_url()
+
+
+@dataclass(frozen=True)
+class EmbeddingSettings:
+    """Validated before any database or HTTP connection exists."""
+
+    spec: EmbeddingSpec
+    ollama_url: str | None = field(repr=False)
+    timeout_s: float
+    keep_alive: KeepAliveSetting
+
+
+def _invalid() -> KnowledgeError:
+    return KnowledgeError("knowledge_embedding_configuration_invalid")
+
+
+def load_embedding_spec(environment: Mapping[str, str] | None = None) -> EmbeddingSpec:
+    """Read provider, model and width; the fake takes no model or width of its own."""
+    env = os.environ if environment is None else environment
+    provider = env.get("DECK_KB_EMBEDDING_PROVIDER", "").strip() or "fake"
+    model = env.get("DECK_KB_EMBEDDING_MODEL", "").strip()
+    raw_dimension = env.get("DECK_KB_EMBEDDING_DIMENSION", "").strip()
+    if provider == "fake":
+        if model or raw_dimension:
+            raise _invalid()
+        return FAKE_EMBEDDING_SPEC
+    if provider != "ollama" or not model or not raw_dimension:
+        raise _invalid()
+    try:
+        validate_model_tag(model)
+    except AssistantError:
+        raise _invalid() from None
+    if not raw_dimension.isascii() or not raw_dimension.isdecimal():
+        raise _invalid()
+    if int(raw_dimension) != SCHEMA_EMBEDDING_DIMENSION:
+        raise _invalid()
+    return EmbeddingSpec("ollama", model, SCHEMA_EMBEDDING_DIMENSION)
+
+
+def load_embedding_settings(environment: Mapping[str, str] | None = None) -> EmbeddingSettings:
+    """Fail closed on any invalid value; an Ollama spec never degrades to the fake."""
+    env = os.environ if environment is None else environment
+    spec = load_embedding_spec(env)
+    raw_timeout = env.get("DECK_KB_EMBEDDING_TIMEOUT_S", "").strip()
+    try:
+        timeout_s = float(raw_timeout) if raw_timeout else EMBEDDING_TIMEOUT_DEFAULT_S
+    except ValueError:
+        raise _invalid() from None
+    if not EMBEDDING_TIMEOUT_MIN_S <= timeout_s <= EMBEDDING_TIMEOUT_MAX_S:
+        raise _invalid()
+    try:
+        keep_alive = parse_keep_alive_value(
+            env.get("DECK_KB_EMBEDDING_KEEP_ALIVE", "").strip() or KEEP_ALIVE_SERVER
+        )
+    except ValueError:
+        raise _invalid() from None
+    if spec.provider == "fake":
+        return EmbeddingSettings(spec, None, timeout_s, keep_alive)
+    url = env.get("DECK_OLLAMA_URL", "").strip()
+    try:
+        validate_ollama_url(url)
+    except LiveConfigurationError:
+        raise _invalid() from None
+    return EmbeddingSettings(spec, url, timeout_s, keep_alive)
 
 
 def _database_identity(url: URL) -> tuple[str | None, int, str | None]:

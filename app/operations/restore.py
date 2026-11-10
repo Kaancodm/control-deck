@@ -17,7 +17,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import Session
 
-from app.kb.repository import KnowledgeStore
+from app.kb.config import load_embedding_spec
+from app.kb.contracts import EmbeddingSpec, KnowledgeError
+from app.kb.repository import check_contract
 from app.operations.audit import record_operation
 from app.operations.backup import (
     MAXIMUM_DUMP_BYTES,
@@ -98,8 +100,13 @@ def restore_backup(
     check_command: tuple[str, ...] | None = None,
     knowledge_check_command: tuple[str, ...] | None = None,
     timeout_s: float = 300,
+    embedding_spec: EmbeddingSpec | None = None,
 ) -> UUID:
-    """Validate both archives and empty targets first; never report partial success."""
+    """Validate both archives and empty targets first; never report partial success.
+
+    The knowledge contract is checked against the configured embedding spec, so a
+    probe of a runtime backup needs the same embedding variables as the runtime.
+    """
     validate_restore_databases(
         target_url,
         audit_url,
@@ -107,6 +114,11 @@ def restore_backup(
         knowledge_source_url=knowledge_source_url,
     )
     assert knowledge_target_url is not None
+    if embedding_spec is None:
+        try:
+            embedding_spec = load_embedding_spec()
+        except KnowledgeError as error:
+            raise OperationError(error.code) from None
     if re.fullmatch(r"backup-[0-9a-f]{32}", name) is None:
         raise OperationError("invalid_backup_name")
     operation_id = uuid4()
@@ -202,7 +214,7 @@ def restore_backup(
         for key, target in targets.items():
             scope, evidence = SCOPES[key], getattr(manifest, key)
             if key == "knowledge":
-                KnowledgeStore(target).check_contract()
+                check_contract(target, embedding_spec)
             with target.connect() as connection:
                 counts = table_counts(connection, key)
                 revision = connection.scalar(

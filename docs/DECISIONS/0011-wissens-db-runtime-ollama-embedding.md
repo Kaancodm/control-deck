@@ -30,6 +30,14 @@ geprueft (`proven` fuer das Client-Verhalten), Serverbetrieb `unproven`.
 - Das Embedding laeuft im API-Prozess ueber den bestehenden `OllamaHTTPClient` (`/api/embed`).
   Es erbt Loopback-only, keinen Proxy, keine Weiterleitung, `Connection: close` und die
   begrenzte 503-Wiederholung aus ADR 0009. Kein Pull, kein Warmup, kein periodischer Probe.
+- Modell ist `qwen3-embedding:0.6b`; es lag im Owner-A/B gegen `bge-m3` vorne. Fuer
+  `purpose=query` stellt nur der Ollama-Adapter eine feste, an diesen Modell-Tag gebundene
+  Instruktion voran (`Instruct: Given a web search query, retrieve relevant passages that
+  answer the query` + Zeilenumbruch + `Query: `); Dokumente bleiben ohne Praefix, der Fake
+  bleibt unveraendert. Mit Instruktion R@1 1.0 und MRR 1.0, ohne 0.964 und 0.982. Quelle:
+  Owner-A/B vom 2026-11-10, Ollama `v0.40.14`; Methode: 40 oeffentliche synthetische deutsche
+  Dokumente, 28 Anfragen, Server-CPU; Status: `proven` nur fuer diesen kleinen Satz. Details in
+  [WISSENS_DB.md](../WISSENS_DB.md#anfrage-instruktion).
 - Das Schema bindet die Breite 1024 (`kb_0002`). Die Vertragszeile bindet Modellname und
   Dimension, nicht den Digest. Kein ANN-Index in `kb_0002`; die Suche bleibt exakt.
 - `scripts/kb_import.py --simulate` weist das Runtime-Profil mit

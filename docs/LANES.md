@@ -245,9 +245,11 @@ am Server `unproven`.
 - Ein fehlendes Modell ergibt 404 (`embedding_model_missing`).
 - Vektoren werden serverseitig L2-normalisiert; NaN oder Inf ergeben 400.
 - `EmbedHandler` leitet nur Modelle mit Cloud-Quelle weiter; eine eigene Pruefung auf `:local`
-  oder auf lokale Aliase mit Remote-Ziel ist im Handler nicht ersichtlich. Ob die gemeinsame
-  Namensaufloesung den Suffix `:local` hier annimmt, ist **nicht belegt** und gehoert in den
-  Preflight des Owner-Rollouts. `OLLAMA_NO_CLOUD=1` am Dienst bleibt Voraussetzung.
+  oder auf lokale Aliase mit Remote-Ziel ist im Handler nicht ersichtlich. Dass `/api/embed`
+  den Suffix `:local` annimmt und 1024-dimensionale Vektoren liefert, ist fuer `v0.40.14`
+  belegt (Quelle: Owner-Messung vom 2026-11-10; Methode: `curl` am Server; Status: `proven`
+  fuer diese Version). Der Preflight des Owner-Rollouts wiederholt die Pruefung nach jedem
+  Ollama-Update. `OLLAMA_NO_CLOUD=1` am Dienst bleibt Voraussetzung.
 
 ## Claude in Etappe 12
 

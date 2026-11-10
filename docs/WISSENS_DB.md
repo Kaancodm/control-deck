@@ -97,7 +97,8 @@ API und Oberflaeche melden diese Codes mit 503; Eingabefehler bleiben 422.
 | `DECK_OLLAMA_URL` | leer | Pflicht bei `ollama`; Regel aus ADR 0009 (`http://127.0.0.1:<port>` oder `http://[::1]:<port>`) |
 
 Das vorgesehene Modell ist `qwen3-embedding:0.6b` mit 1024 Dimensionen (Quelle: Bauplan des
-Owners, 2026-11-10; Status: `unproven` am Server). Die Migration `kb_0002` setzt die Spalte auf
+Owners, 2026-11-10). Im A/B-Vergleich gegen `bge-m3` lag es vorne (siehe
+[Anfrage-Instruktion](#anfrage-instruktion)). Die Migration `kb_0002` setzt die Spalte auf
 `vector(1024)` und die Vertragszeile auf (`deck_kb.v1`, `qwen3-embedding:0.6b`, 1024). Sie
 laeuft nur auf leeren Tabellen mit exakt der alten Vertragszeile (`deck-fake-embedding-v1`, 8)
 und laesst die Unveraenderlichkeits-Trigger unberuehrt. Tests setzen die Fake-Vertragszeile
@@ -107,6 +108,31 @@ Ein Dokument wird mit allen Chunks (hoechstens 16) in einem `/api/embed`-Aufruf 
 eine Suche mit einem weiteren. Ein bereits vorhandenes Dokument wird nicht erneut eingebettet.
 Die Antwort muss das Modell spiegeln, darf keine Remote- oder Fehlerfelder tragen und liefert
 je Eingabe genau 1024 endliche Zahlen ohne Nullvektor. Es gibt nie einen Rueckfall auf den Fake.
+
+### Anfrage-Instruktion
+
+Qwen3-Embedding ist asymmetrisch. Fuer `purpose=query` stellt der Ollama-Adapter der Anfrage
+eine feste Instruktion voran; Dokumente bleiben ohne Praefix. Die Konstante haengt am exakten
+Modell-Tag `qwen3-embedding:0.6b` (`app/kb/ollama_embeddings.py`, `QUERY_INSTRUCTIONS`); jedes
+andere Modell und der Fake erhalten keinen Praefix. Wortlaut (mit Zeilenumbruch vor `Query:`):
+
+```text
+Instruct: Given a web search query, retrieve relevant passages that answer the query
+Query: <Anfrage>
+```
+
+Die Groessengrenze gilt fuer den Anfragetext, nicht fuer den Praefix. Die Logzeile nennt weder
+Text noch Praefix. Weil nur die Anfrageseite betroffen ist, bleiben gespeicherte Dokumentvektoren
+gueltig; ein Wechsel der Instruktion verlangt kein Neu-Einbetten, veraendert aber die Rangfolge.
+
+| Variante | R@1 | MRR |
+|---|---|---|
+| `qwen3-embedding:0.6b` mit Anfrage-Instruktion | 1.0 | 1.0 |
+| `qwen3-embedding:0.6b` ohne Instruktion | 0.964 | 0.982 |
+
+Quelle: Owner-A/B vom 2026-11-10 am Server, Ollama `v0.40.14`, gegen `bge-m3`; Methode:
+40 oeffentliche synthetische deutsche Dokumente, 28 Anfragen, Server-CPU. Status: `proven`
+nur fuer diesen kleinen oeffentlichen Satz, nicht fuer reale Bestaende.
 
 | Code | Ursache |
 |---|---|
@@ -177,17 +203,20 @@ Anfrage ergibt eine leere Trefferliste; das durchlaeuft Konfiguration, Vertragsp
 Einbetten und SQL. Ein Testdokument wird nur in einer isolierten `_test`-Kopie eingespielt,
 weil Dokumente in Prod unveraenderlich sind.
 
+Belegt: `/api/embed` am gepinnten Ollama `v0.40.14` nimmt die Kennung mit Quellensuffix
+`:local` an und liefert 1024-dimensionale Vektoren (Quelle: Owner-Messung vom 2026-11-10;
+Methode: `curl` auf `/api/embed` am Server; Status: `proven` fuer diese Version). Siehe
+[LANES.md](LANES.md#embedding-vertrag-apiembed). Nach einem Ollama-Update ist das erneut zu
+pruefen; scheitert es, endet jede Operation mit `embedding_model_missing`, ohne Schreiben.
+
 Offen (Status `unproven`, Pruefung im Owner-Serverlauf):
 
-- Ob `/api/embed` am gepinnten Ollama `v0.40.14` den Quellensuffix `:local` annimmt; siehe
-  [LANES.md](LANES.md#embedding-vertrag-apiembed). Scheitert das, endet jede Operation mit
-  `embedding_model_missing`, ohne Schreiben.
 - Modellwechsel zwischen Chat- und Embedding-Modell bei einem geladenen Modell: jede Suche und
   jeder Export verdraengt das Chat-Modell; eine laufende Generierung kann zu `embedding_timeout`
   fuehren.
 - Die Vertragszeile bindet Modellname und Dimension, nicht den Digest.
-- Anfrage-Instruktion fuer Qwen3-Embedding, Chunking (1500 Zeichen ohne Ueberlappung) und eine
-  `BEFORE TRUNCATE`-Sperre sind vor dem ersten echten Import zu entscheiden.
+- Chunking (1500 Zeichen ohne Ueberlappung) und eine `BEFORE TRUNCATE`-Sperre sind vor dem
+  ersten echten Import zu entscheiden. Die Anfrage-Instruktion ist entschieden (siehe oben).
 
 ## Oberflaeche
 

@@ -139,17 +139,23 @@ Current team split (owner decision; model mechanics proven):
 
 - **Planning (Fable or another strong planner):** plans in Plan Mode and writes the
   ticket/handoff; does not build. In Claude Code, select Fable explicitly (`/model fable`);
-  it is never the default, and its default effort is `high` (proven). Recommendation: keep
-  `high` as default and raise to `max`/`xhigh` only for hard architecture or
-  capacity-critical work.
+  it is never the default. Default effort `high` applies only to Fable (proven);
+  Opus/Sonnet/Haiku start at `medium` (proven), and for other models set effort explicitly
+  per task. Recommendation: keep Fable at `high` and raise to `max`/`xhigh` only for hard
+  architecture or capacity-critical work.
 - **Building (Opus or Gemini):** implements and fixes from the ticket in a fresh session.
-- **Review/small-fix account:** reviews diffs from other workers and makes small, scoped fixes
-  only; it must **not** review its own fixes (a different worker/model reviews those).
+- **Review/small-fix account:** in Claude Code, the account defaults to Opus (Opus 5.5 on
+  Pro/Max, proven), which is also the builder model. Therefore, reviews of Opus builds must
+  not use the default Opus model — run them with a different model or provider (e.g. a
+  read-only `sonnet`/`haiku` `reviewer` subagent limited to `Read, Grep, Glob` [proven], or a
+  Grok/Gemini worker), and small, scoped fixes written by the review account are themselves
+  reviewed afterward by another worker/model (owner decision / `[B principle]`).
 - **Security and code-quality reviews:** run by a different worker/model than the builder in a
   fresh session without the build context (proven: fresh session, `/code-review`,
-  `/security-review`, `REVIEW.md`, or a read-only `reviewer` subagent on `sonnet`/`haiku` with
-  `Read, Grep, Glob`; owner decision / principle: builder and reviewer are never the same
-  worker/model, and provider rotation follows `AGENTS.md` and ADR 0008).
+  `/security-review`, `REVIEW.md`, or a read-only `reviewer` subagent on `sonnet`/`haiku`
+  limited to `Read, Grep, Glob`; owner decision / `[B principle]`: `builder != reviewer` —
+  builder and reviewer are never the same worker/model, and provider rotation follows
+  `AGENTS.md` and ADR 0008).
 - Do not run Fable in non-interactive `claude -p` runs: there it may bill usage credits
   without asking (proven). Recommendation: pin models explicitly in scripts.
 

@@ -16,10 +16,11 @@ from typing import Any, Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.memory.audit import record_conversation_event
-from app.memory.envelope import TEXT_MAX, ChannelTurnV1, parse_turn
+from app.memory.envelope import RESERVED_MESSAGE_PREFIX, TEXT_MAX, ChannelTurnV1, parse_turn
 from app.memory.models import (
     AssistantMessage,
     AssistantThread,
@@ -36,10 +37,15 @@ from app.memory.policy import (
     check_link_class,
     class_admits,
 )
+from app.privacy.gate import non_local_texts_blocked
 from app.privacy.scanner import FindingKind, scan_text
 
 Status = Literal["accepted", "duplicate", "rejected"]
 _ACCOUNT = re.compile(r"^[a-z][a-z0-9_]{0,31}\Z")
+
+
+class _LinkTaken(Exception):
+    """Another transaction owns the open link. The savepoint rolls the proposal back."""
 
 
 @dataclass(frozen=True)
@@ -75,24 +81,57 @@ def _reject(
     return IngestOutcome(status="rejected", reason=reason)
 
 
+def _secret_reject(
+    session: Session, digest: str | None, *, event: str = "turn_rejected"
+) -> IngestOutcome:
+    """Audit a secret hit with the reason and the text hash only."""
+    detail: dict[str, object] = {}
+    if digest is not None:
+        detail["text_sha256"] = digest
+    return _reject(session, "secret_rejected", detail, event=event)
+
+
+def _text_digest_or_none(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return text_digest(value)
+    except UnicodeError:
+        return None
+
+
 def _safe_identity(payload: object) -> dict[str, object]:
-    """Channel/account for the audit of an invalid envelope, only when well-formed."""
+    """Channel/account for an invalid envelope, only when well-formed and not a secret."""
     if not isinstance(payload, Mapping):
         return {}
     detail: dict[str, object] = {}
     channel = payload.get("channel")
     account = payload.get("account")
-    if isinstance(channel, str) and channel in CHANNELS:
+    if isinstance(channel, str) and channel in CHANNELS and not contains_secret(channel):
         detail["channel"] = channel
-        if isinstance(account, str) and _ACCOUNT.fullmatch(account):
+        if (
+            isinstance(account, str)
+            and _ACCOUNT.fullmatch(account)
+            and not contains_secret(account)
+        ):
             detail["account"] = account
-    text = payload.get("text")
-    if isinstance(text, str):
-        try:
-            detail["text_sha256"] = text_digest(text)
-        except UnicodeError:
-            pass
+    digest = _text_digest_or_none(payload.get("text"))
+    if digest is not None:
+        detail["text_sha256"] = digest
     return detail
+
+
+def _raw_identity_is_secret(payload: object) -> tuple[str | None, bool]:
+    """True when an identity field copied into an audit detail is a secret."""
+    if not isinstance(payload, Mapping):
+        return None, False
+    digest = _text_digest_or_none(payload.get("text"))
+    values: list[str] = []
+    for key in ("account", "channel"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            values.append(value)
+    return digest, contains_secret(*values)
 
 
 def _load_account(session: Session, channel: str, account: str) -> ChannelAccount | None:
@@ -103,15 +142,27 @@ def _load_account(session: Session, channel: str, account: str) -> ChannelAccoun
     )
 
 
-def _active_link(session: Session, turn: ChannelTurnV1) -> ThreadLink | None:
-    return session.scalar(
-        select(ThreadLink).where(
-            ThreadLink.channel == turn.channel,
-            ThreadLink.account == turn.account,
-            ThreadLink.external_thread_id == turn.external_thread_id,
-            ThreadLink.state != "rejected",
-        )
+def _load_link(
+    session: Session,
+    channel: str,
+    account: str,
+    external_thread_id: str,
+    *,
+    lock: bool,
+) -> ThreadLink | None:
+    query = select(ThreadLink).where(
+        ThreadLink.channel == channel,
+        ThreadLink.account == account,
+        ThreadLink.external_thread_id == external_thread_id,
+        ThreadLink.state != "rejected",
     )
+    if lock:
+        query = query.with_for_update()
+    return session.scalar(query)
+
+
+def _active_link(session: Session, turn: ChannelTurnV1) -> ThreadLink | None:
+    return _load_link(session, turn.channel, turn.account, turn.external_thread_id, lock=False)
 
 
 def _resolve_in_reply_to(session: Session, turn: ChannelTurnV1) -> uuid.UUID | None:
@@ -126,8 +177,10 @@ def _resolve_in_reply_to(session: Session, turn: ChannelTurnV1) -> uuid.UUID | N
     )
 
 
-def _existing_duplicate(session: Session, turn: ChannelTurnV1, digest: str) -> uuid.UUID | None:
-    query = select(AssistantMessage.id).where(
+def _existing_duplicate(
+    session: Session, turn: ChannelTurnV1, digest: str
+) -> AssistantMessage | None:
+    query = select(AssistantMessage).where(
         AssistantMessage.source_channel == turn.channel,
         AssistantMessage.source_account == turn.account,
     )
@@ -148,42 +201,100 @@ def _proposal_title(turn: ChannelTurnV1) -> str:
     return f"{turn.channel}/{turn.account}: {turn.external_thread_id[:150]}"
 
 
+def _identity_texts(turn: ChannelTurnV1) -> tuple[str, ...]:
+    """Every identity or body string that may be stored or copied into a title."""
+    values = [
+        turn.account,
+        turn.channel,
+        turn.external_thread_id,
+        turn.source_ref.ref,
+        turn.text,
+        _proposal_title(turn),
+    ]
+    if turn.external_message_id is not None:
+        values.append(turn.external_message_id)
+    if turn.in_reply_to is not None:
+        values.append(turn.in_reply_to)
+    return tuple(values)
+
+
+def _audit_body_mismatch(
+    session: Session, *, event: str, digest: str, existing_digest: str
+) -> None:
+    record_conversation_event(
+        session,
+        event,
+        {
+            "reason": "duplicate_body_mismatch",
+            "text_sha256": digest,
+            "existing_text_sha256": existing_digest,
+        },
+    )
+
+
 def _propose_link(session: Session, turn: ChannelTurnV1, data_class: str) -> uuid.UUID | None:
     """Store one open mapping proposal with a proposed topic thread. Never auto-accepts."""
     check_link_class(channel=turn.channel, thread_class=data_class)
     existing = _active_link(session, turn)
     if existing is not None:
         return existing.id
-    nested = session.begin_nested()
-    thread = AssistantThread(
-        id=uuid.uuid4(),
-        title=_proposal_title(turn),
-        title_origin="assistant_proposed",
-        data_class=data_class,
-        status="proposed",
-    )
-    session.add(thread)
-    session.flush()
-    link_id: uuid.UUID | None = session.scalar(
-        pg_insert(ThreadLink)
-        .values(
-            id=uuid.uuid4(),
-            channel=turn.channel,
-            account=turn.account,
-            external_thread_id=turn.external_thread_id,
-            thread_id=thread.id,
-            state="proposed",
-        )
-        .on_conflict_do_nothing()
-        .returning(ThreadLink.id)
-    )
-    if link_id is None:
-        # A concurrent ingest proposed the same mapping first; keep only theirs.
-        nested.rollback()
+    link_id: uuid.UUID | None = None
+    try:
+        with session.begin_nested():
+            thread = AssistantThread(
+                id=uuid.uuid4(),
+                title=_proposal_title(turn),
+                title_origin="assistant_proposed",
+                data_class=data_class,
+                status="proposed",
+            )
+            session.add(thread)
+            session.flush()
+            link_id = session.scalar(
+                pg_insert(ThreadLink)
+                .values(
+                    id=uuid.uuid4(),
+                    channel=turn.channel,
+                    account=turn.account,
+                    external_thread_id=turn.external_thread_id,
+                    thread_id=thread.id,
+                    state="proposed",
+                )
+                .on_conflict_do_nothing()
+                .returning(ThreadLink.id)
+            )
+            if link_id is None:
+                raise _LinkTaken()
+    except _LinkTaken:
         concurrent = _active_link(session, turn)
         return None if concurrent is None else concurrent.id
-    nested.commit()
-    return link_id
+    except IntegrityError:
+        concurrent = _active_link(session, turn)
+        if concurrent is None:
+            raise
+        return concurrent.id
+    return None if link_id is None else uuid.UUID(str(link_id))
+
+
+def _active_topic(
+    session: Session, link: ThreadLink | None, data_class: str
+) -> tuple[uuid.UUID | None, bool]:
+    """``(thread_id, blocked)`` for a link already locked by the caller.
+
+    ``blocked`` is true only when the link is active, the topic is active, and
+    that topic does not admit ``data_class``. Callers reject a new turn in that
+    case and leave an existing row's thread unchanged.
+    """
+    if link is None or link.state != "active":
+        return None, False
+    thread = session.scalar(
+        select(AssistantThread).where(AssistantThread.id == link.thread_id).with_for_update()
+    )
+    if thread is None or thread.status != "active":
+        return None, False
+    if not class_admits(thread.data_class, data_class):
+        return None, True
+    return thread.id, False
 
 
 def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) -> IngestOutcome:
@@ -192,12 +303,19 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
     The caller owns the transaction. Rejections and duplicates change no memory
     state; they only append an audit row.
     """
+    raw = payload if isinstance(payload, Mapping) else None
     try:
         turn = parse_turn(payload)
     except ConversationError as error:
-        raw = payload if isinstance(payload, Mapping) else None
+        digest, secret = _raw_identity_is_secret(raw)
+        if secret:
+            return _secret_reject(session, digest)
         return _reject(session, error.code, _safe_identity(raw))
     digest = text_digest(turn.text)
+    # Identity fields and the composed proposal title are scanned before any audit
+    # that would copy them, and before the message insert.
+    if contains_secret(*_identity_texts(turn)):
+        return _secret_reject(session, digest)
     detail: dict[str, object] = {
         "channel": turn.channel,
         "account": turn.account,
@@ -230,33 +348,20 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
     if turn.role == "assistant" and turn.channel in REPLY_CHANNELS:
         # Deck replies go through record_deck_reply, which enforces one reply per message.
         return _reject(session, "reply_path_required", detail)
+    if non_local_texts_blocked(data_class, _identity_texts(turn)):
+        return _reject(session, "privacy_block", detail)
 
-    # 2. Secret scan: a hit stores nothing but the hash and the reason code.
-    if contains_secret(
-        turn.text,
-        turn.external_thread_id,
-        turn.external_message_id,
-        turn.in_reply_to,
-        turn.source_ref.ref,
-    ):
-        return _reject(session, "secret_rejected", detail)
-
-    # 5 (read part). Known accepted link maps to its thread; otherwise unmapped.
-    thread_id: uuid.UUID | None = None
-    link = _active_link(session, turn)
-    if link is not None and link.state == "active":
-        thread = session.get(AssistantThread, link.thread_id)
-        if (
-            thread is not None
-            and thread.status == "active"
-            and class_admits(thread.data_class, data_class)
-        ):
-            thread_id = thread.id
+    # Known accepted link maps to its thread. Lock it before the insert so an
+    # accept that commits first is visible, and a later accept sees this row.
+    link = _load_link(session, turn.channel, turn.account, turn.external_thread_id, lock=True)
+    thread_id, blocked = _active_topic(session, link, data_class)
+    if blocked:
+        return _reject(session, "thread_class_block", detail)
     in_reply_to = _resolve_in_reply_to(session, turn)
     if turn.in_reply_to is not None and in_reply_to is None:
         detail["in_reply_to_unresolved"] = True
 
-    # 3 + 4. Dedup by unique keys under concurrency; new rows are quarantined.
+    # Dedup by unique keys under concurrency; new rows are quarantined.
     message_id = session.scalar(
         pg_insert(AssistantMessage)
         .values(
@@ -283,10 +388,26 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
     )
     if message_id is None:
         existing = _existing_duplicate(session, turn, digest)
+        if existing is not None and existing.text_sha256 != digest:
+            _audit_body_mismatch(
+                session,
+                event="assistant.turn_duplicate",
+                digest=digest,
+                existing_digest=existing.text_sha256,
+            )
+            return IngestOutcome(
+                status="duplicate",
+                reason="duplicate_body_mismatch",
+                message_id=existing.id,
+            )
         if existing is not None:
-            detail["existing_message_id"] = str(existing)
+            detail["existing_message_id"] = str(existing.id)
         record_conversation_event(session, "assistant.turn_duplicate", detail)
-        return IngestOutcome(status="duplicate", reason="duplicate", message_id=existing)
+        return IngestOutcome(
+            status="duplicate",
+            reason="duplicate",
+            message_id=None if existing is None else existing.id,
+        )
 
     detail["message_id"] = str(message_id)
     link_id: uuid.UUID | None = link.id if link is not None else None
@@ -307,6 +428,29 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
     )
 
 
+def _lock_inbound(
+    session: Session, message_id: uuid.UUID
+) -> tuple[AssistantMessage | None, ThreadLink | None]:
+    """Lock the link, then the message. That is the order ``decide_thread_link`` uses."""
+    preview = session.get(AssistantMessage, message_id)
+    if preview is None:
+        return None, None
+    link = _load_link(
+        session,
+        preview.source_channel,
+        preview.source_account,
+        preview.external_thread_id,
+        lock=True,
+    )
+    inbound = session.scalar(
+        select(AssistantMessage)
+        .where(AssistantMessage.id == message_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return inbound, link
+
+
 def record_deck_reply(
     session: Session,
     *,
@@ -317,10 +461,24 @@ def record_deck_reply(
 
     Only ``deck_ui`` and ``slack`` get Deck replies. A UNIQUE constraint on
     ``reply_for_message_id`` makes a second reply to the same message a duplicate.
+    The external id uses :data:`RESERVED_MESSAGE_PREFIX`, which inbound turns cannot mint.
     """
-    inbound = session.get(AssistantMessage, inbound_message_id)
+    inbound, link = _lock_inbound(session, inbound_message_id)
     if inbound is None:
         raise ConversationError("reply_target_missing")
+    external_message_id = f"{RESERVED_MESSAGE_PREFIX}{inbound.id}"
+    source_ref = f"{inbound.source_channel}:reply/{inbound.id}"
+    copied = (
+        inbound.source_account,
+        inbound.source_channel,
+        inbound.external_thread_id,
+        inbound.source_ref,
+        external_message_id,
+        source_ref,
+        text if isinstance(text, str) else None,
+    )
+    if contains_secret(*copied):
+        return _secret_reject(session, _text_digest_or_none(text), event="reply_rejected")
     detail: dict[str, object] = {
         "channel": inbound.source_channel,
         "account": inbound.source_account,
@@ -335,16 +493,21 @@ def record_deck_reply(
         return _reject(session, "invalid_reply", detail, event="reply_rejected")
     digest = text_digest(text)
     detail["text_sha256"] = digest
-    if contains_secret(text):
-        return _reject(session, "secret_rejected", detail, event="reply_rejected")
+    if non_local_texts_blocked(
+        inbound.data_class,
+        (text, inbound.source_account, inbound.external_thread_id, source_ref),
+    ):
+        return _reject(session, "privacy_block", detail, event="reply_rejected")
+    mapped, _blocked = _active_topic(session, link, inbound.data_class)
+    thread_id = mapped if mapped is not None else inbound.thread_id
     channel = inbound.source_channel
     message_id = session.scalar(
         pg_insert(AssistantMessage)
         .values(
             id=uuid.uuid4(),
-            thread_id=inbound.thread_id,
+            thread_id=thread_id,
             external_thread_id=inbound.external_thread_id,
-            external_message_id=f"deck-reply:{inbound.id}",
+            external_message_id=external_message_id,
             role="assistant",
             text=text,
             text_sha256=digest,
@@ -355,7 +518,7 @@ def record_deck_reply(
             source_date=func.clock_timestamp(),
             source_channel=channel,
             source_account=inbound.source_account,
-            source_ref=f"{channel}:reply/{inbound.id}",
+            source_ref=source_ref,
             method="deck_ui" if channel == "deck_ui" else "live_push",
             evidence_status=EVIDENCE_DEFAULT,
         )
@@ -364,12 +527,36 @@ def record_deck_reply(
     )
     if message_id is None:
         existing = session.scalar(
-            select(AssistantMessage.id).where(AssistantMessage.reply_for_message_id == inbound.id)
+            select(AssistantMessage).where(AssistantMessage.reply_for_message_id == inbound.id)
         )
+        if existing is None:
+            existing = session.scalar(
+                select(AssistantMessage).where(
+                    AssistantMessage.source_channel == channel,
+                    AssistantMessage.source_account == inbound.source_account,
+                    AssistantMessage.external_message_id == external_message_id,
+                )
+            )
+        if existing is not None and existing.text_sha256 != digest:
+            _audit_body_mismatch(
+                session,
+                event="assistant.reply_duplicate",
+                digest=digest,
+                existing_digest=existing.text_sha256,
+            )
+            return IngestOutcome(
+                status="duplicate",
+                reason="duplicate_body_mismatch",
+                message_id=existing.id,
+            )
         if existing is not None:
-            detail["existing_message_id"] = str(existing)
+            detail["existing_message_id"] = str(existing.id)
         record_conversation_event(session, "assistant.reply_duplicate", detail)
-        return IngestOutcome(status="duplicate", reason="duplicate", message_id=existing)
+        return IngestOutcome(
+            status="duplicate",
+            reason="duplicate",
+            message_id=None if existing is None else existing.id,
+        )
     detail["message_id"] = str(message_id)
     record_conversation_event(session, "assistant.reply_recorded", detail)
-    return IngestOutcome(status="accepted", message_id=message_id, thread_id=inbound.thread_id)
+    return IngestOutcome(status="accepted", message_id=message_id, thread_id=thread_id)

@@ -334,12 +334,14 @@ Append-only. Primärschlüssel `id` (UUID). Eindeutig `(kind, target_id)`
 |--------|-----------|
 | `kind` | `message`, `fact`, `thread_topic`, `thread_link` |
 | `decision` | `approved` oder `rejected` |
-| `shown_sha256` | 64 Hexzeichen |
-| `session_token_hash` | 64 Hexzeichen, Digest der UI-Session, bewusst kein Fremdschlüssel |
+| `shown_sha256` | 64 Hexzeichen der versionierten UTF-8-Nutzlast, nicht der Text-Hash |
+| `approver_ref` | 64 Hexzeichen. sha256 über das Präfix `deck-memory-approver`, ein NUL-Byte und den Session-Digest. Nicht der Digest, kein Nachschlageschlüssel, kein Fremdschlüssel (`ck_memory_approvals_approver_ref`) |
 | `created_at` | `clock_timestamp()` |
 
+Die Freigabe prüft das rohe UI-Cookie über `get_ui_session`: Owner, kein
+Widerruf, Ablauf, Passwort-Fingerabdruck, Leerlaufzeit, Zeile gesperrt.
 Trigger `trg_memory_approvals_append_only` ruft `memory_approvals_append_only()`
-und verweigert jedes `UPDATE` und `DELETE`.
+und verweigert jedes `UPDATE` und `DELETE` mit `memory_approvals is append-only`.
 
 ### `assistant_threads`
 
@@ -360,7 +362,8 @@ FK auf `assistant_threads`, auf `memory_approvals` und auf
 
 `state` ist `proposed`, `active` oder `rejected`, mit derselben Kopplung an
 `approval_id` wie das Thema (`ck_assistant_thread_links_decision`).
-`external_thread_id` hat 1 bis 200 Zeichen.
+`external_thread_id` hat 1 bis 200 Zeichen und kein `://`
+(`ck_assistant_thread_links_external_scheme`).
 Partieller Unique-Index `uq_assistant_thread_links_external` auf
 `(channel, account, external_thread_id)` WHERE `state <> 'rejected'`.
 Abgelehnte Zeilen bleiben. Index `ix_assistant_thread_links_thread_id`.
@@ -373,8 +376,8 @@ eindeutig (`uq_assistant_messages_seq`).
 | Spalte | Bedeutung |
 |--------|-----------|
 | `thread_id` | nullable, FK auf `assistant_threads` |
-| `external_thread_id` | varchar(200), NOT NULL |
-| `external_message_id` | varchar(200), nullable |
+| `external_thread_id` | varchar(200), NOT NULL, kein `://` |
+| `external_message_id` | varchar(200), nullable, kein `://`. Deck-Antworten tragen das Präfix `deck-reply:`; eingehende Turns dürfen es nicht setzen |
 | `role` | `owner` oder `assistant` |
 | `text` | 1 bis 16000 Zeichen |
 | `text_sha256` | muss `encode(sha256(convert_to(text, 'UTF8')), 'hex')` sein |
@@ -411,6 +414,30 @@ Unique-Index `uq_assistant_messages_fallback` auf
 WHERE `external_message_id IS NULL`. Weitere Indizes:
 `ix_assistant_messages_thread_seq` auf `(thread_id, seq)`,
 `ix_assistant_messages_quarantine` auf `seq` WHERE `state = 'quarantined'`.
+`ck_assistant_messages_external_scheme` verbietet `://` in beiden
+Aussen-Kennungen. Der partielle Fallback-Index behält `source_date`: ohne
+Nachrichten-ID ist derselbe Text zu einer späteren Quellzeit ein eigener
+Quarantäne-Turn. Die Quelluhr ordnet nicht.
+
+### Inhaltssperren
+
+`memory_content_immutable()` hängt als `BEFORE UPDATE OR DELETE FOR EACH ROW`
+an `assistant_messages`, `memory_facts`, `assistant_threads` und
+`assistant_thread_links` (`trg_<tabelle>_content`). `DELETE` wirft
+`memory_content_immutable`. `UPDATE` wirft denselben Fehler, wenn eine
+Inhaltsspalte sich ändert:
+
+- Nachrichten: `text`, `text_sha256`, `data_class`, `role`, Aussen-Kennungen,
+  `source_date`, Kanal, Konto, `source_ref`, `source_ref_sha256`, `method`
+- Fakten: `original_sentence`, `subject`, `predicate`, `object`, `data_class`,
+  `source_message_id` und dieselben Herkunftsspalten
+- Themen: `data_class` und `title` (der Titel steckt in den gezeigten Bytes)
+- Verknüpfungen: `channel`, `account`, `external_thread_id`
+
+Erlaubt bleiben Zustandswechsel (`state`, `status`, `evidence_status`,
+`approval_id`), bei Nachrichten und Verknüpfungen `thread_id`, bei Fakten
+`superseded_by`, `valid_from` und `valid_to`. `TRUNCATE` feuert diese
+Zeilentrigger nicht. `memory_approvals` behält den eigenen Append-only-Trigger.
 
 ### `memory_facts`
 
@@ -455,10 +482,13 @@ existieren:
 
 `events_taskless_rows: conversation audit rows exist with task_id NULL; refusing to restore NOT NULL. Rows are never deleted by this migration.`
 
-Danach prüft er in dieser Reihenfolge `assistant_messages`, `memory_facts`,
-`memory_approvals`, `assistant_thread_links`, `assistant_threads`. Die erste
-nicht leere Tabelle bricht ab mit `conversation_rows: {tabelle} is not empty;
-refusing to drop owner memory.` Es wird nichts gelöscht. Nur wenn beide
-Prüfungen leer sind, entfernt er `ix_events_conversation_created_at` und den
-CHECK, setzt `to_status` und `task_id` wieder auf NOT NULL und droppt die neuen
-Tabellen, den Trigger und die Funktion `memory_approvals_append_only`.
+Danach sperrt er in dieser Reihenfolge jede Inhaltstabelle mit
+`LOCK TABLE ... IN SHARE ROW EXCLUSIVE MODE` und zählt:
+`assistant_messages`, `memory_facts`, `memory_approvals`,
+`assistant_thread_links`, `assistant_threads`. Die erste nicht leere Tabelle
+bricht ab mit `conversation_rows: {tabelle} is not empty; refusing to drop
+owner memory.` Es wird nichts gelöscht. Nur wenn beide Prüfungen leer sind,
+entfernt er die Inhaltstrigger und `memory_content_immutable()`, dann
+`ix_events_conversation_created_at` und den CHECK, setzt `to_status` und
+`task_id` wieder auf NOT NULL und droppt die neuen Tabellen, den
+Append-only-Trigger und die Funktion `memory_approvals_append_only`.

@@ -9,10 +9,12 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
 import pytest
+from argon2 import PasswordHasher
 from sqlalchemy import func, select, text, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.assistant.dialogue import write_profile
 from app.assistant.records import AssistantTurn
 from app.audit.presentation import AuditFilter
 from app.audit.repository import list_audit
@@ -20,6 +22,7 @@ from app.db.models import Event
 from app.db.session import get_engine
 from app.db.ui_auth import UiSession
 from app.memory.approval import (
+    approver_reference,
     create_owner_thread,
     decide_fact,
     decide_message,
@@ -41,9 +44,11 @@ from app.memory.models import (
     AssistantThread,
     ChannelAccount,
     MemoryApproval,
+    MemoryFact,
     ThreadLink,
 )
 from app.memory.policy import ConversationError
+from app.ui.auth import get_auth_settings, password_fingerprint, token_digest
 
 # Synthetic secret trap, assembled at runtime so the repository holds no token literal.
 SECRET = "sk-" + "channeltrap" + "7" * 8
@@ -78,30 +83,45 @@ def _account(
     session.flush()
 
 
+_OWNER_PASSWORD_HASH = PasswordHasher().hash("synthetic-owner-password-for-memory-tests")
+
+
+@pytest.fixture(autouse=True)
+def _owner_password_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Session checks need a configured owner password (synthetic, test-only)."""
+    monkeypatch.setenv("DECK_OWNER_PASSWORD_HASH", _OWNER_PASSWORD_HASH)
+
+
 def _owner_session(
     session: Session,
     *,
     authenticated: bool = True,
     revoked: bool = False,
     expired: bool = False,
+    idle: bool = False,
+    fingerprint_mismatch: bool = False,
 ) -> str:
+    """Return the raw cookie. The row stores only ``token_digest`` of that cookie."""
     now = datetime.now(UTC)
-    token_hash = sha256(secrets.token_bytes(32)).hexdigest()
+    raw = secrets.token_urlsafe(32)
+    digest = token_digest(raw)
+    assert digest is not None
+    fingerprint = "ab" * 32 if fingerprint_mismatch else password_fingerprint(get_auth_settings())
     session.add(
         UiSession(
-            token_hash=token_hash,
+            token_hash=digest,
             csrf_hash=sha256(secrets.token_bytes(32)).hexdigest(),
             authenticated=authenticated,
             created_at=now - timedelta(minutes=5),
             expires_at=now - timedelta(minutes=1) if expired else now + timedelta(hours=1),
             revoked_at=now if revoked else None,
-            last_active_at=now,
-            password_fingerprint=None,
+            last_active_at=now - timedelta(hours=2) if idle else now,
+            password_fingerprint=fingerprint,
             client_hash=None,
         )
     )
     session.flush()
-    return token_hash
+    return raw
 
 
 def _approve_message(session: Session, token: str, message_id: uuid.UUID) -> AssistantMessage:
@@ -111,18 +131,19 @@ def _approve_message(session: Session, token: str, message_id: uuid.UUID) -> Ass
         session,
         message_id,
         decision="approved",
-        session_token_hash=token,
-        shown_sha256_hex=shown_sha256(message_shown_bytes(message)),
+        session_token=token,
+        shown_sha256_hex=shown_sha256(message_shown_bytes(message, decision="approved")),
     )
 
 
 def _owner_thread(session: Session, token: str, title: str, data_class: str) -> AssistantThread:
+    shown = thread_shown_bytes(title=title, data_class=data_class, decision="approved")
     return create_owner_thread(
         session,
         title=title,
         data_class=data_class,
-        session_token_hash=token,
-        shown_sha256_hex=shown_sha256(title.encode("utf-8")),
+        session_token=token,
+        shown_sha256_hex=shown_sha256(shown),
     )
 
 
@@ -135,8 +156,8 @@ def _accept_link(
         session,
         link_id,
         decision="approved",
-        session_token_hash=token,
-        shown_sha256_hex=shown_sha256(link_shown_bytes(link, thread)),
+        session_token=token,
+        shown_sha256_hex=shown_sha256(link_shown_bytes(link, thread, decision="approved")),
         target_thread_id=thread.id,
     )
 
@@ -262,6 +283,7 @@ def test_concurrent_ingest_of_the_same_key_stores_one_row(db_session: Session) -
         thread.start()
     for thread in threads:
         thread.join(timeout=30)
+        assert not thread.is_alive()
     assert errors == []
     assert sorted(outcomes) == ["accepted", "duplicate"]
     db_session.expire_all()
@@ -323,6 +345,15 @@ def test_secret_is_never_stored_anywhere(db_session: Session) -> None:
             subject="deploy",
             predicate="uses key",
             object_="redacted",
+        )
+    with pytest.raises(ConversationError, match="secret_rejected"):
+        propose_fact(
+            db_session,
+            source_message_id=inbound.message_id,
+            original_sentence="  Spare note.  ",
+            subject="  " + SECRET + "  ",
+            predicate="holds",
+            object_="nothing",
         )
     with pytest.raises(ConversationError, match="secret_rejected"):
         _owner_thread(db_session, token, f"Topic {SECRET}", "local_only")
@@ -388,11 +419,13 @@ def test_exactly_one_deck_reply_per_inbound_message(db_session: Session) -> None
     inbound = ingest_turn(db_session, _turn())
     assert inbound.message_id is not None
     first = record_deck_reply(db_session, inbound_message_id=inbound.message_id, text="Reply one.")
-    second = record_deck_reply(db_session, inbound_message_id=inbound.message_id, text="Reply two.")
+    second = record_deck_reply(db_session, inbound_message_id=inbound.message_id, text="Reply one.")
     assert first.status == "accepted"
-    assert second.status == "duplicate" and second.message_id == first.message_id
+    assert second.status == "duplicate" and second.reason == "duplicate"
+    assert second.message_id == first.message_id
     reply = db_session.get(AssistantMessage, first.message_id)
-    assert reply is not None and reply.reply_for_message_id == inbound.message_id
+    assert reply is not None and reply.text == "Reply one."
+    assert reply.reply_for_message_id == inbound.message_id
     assert reply.state == "quarantined" and reply.role == "assistant"
     nested = db_session.begin_nested()
     with pytest.raises(IntegrityError, match="uq_assistant_messages_reply_for"):
@@ -442,13 +475,15 @@ def test_no_approval_without_a_live_owner_session_and_matching_bytes(
     assert outcome.message_id is not None
     message = db_session.get(AssistantMessage, outcome.message_id)
     assert message is not None
-    good_hash = shown_sha256(message_shown_bytes(message))
+    good_hash = shown_sha256(message_shown_bytes(message, decision="approved", mark_proven=True))
     candidates = {
         "unknown": sha256(b"no such session").hexdigest(),
         "malformed": "not-a-digest",
         "anonymous": _owner_session(db_session, authenticated=False),
         "revoked": _owner_session(db_session, revoked=True),
         "expired": _owner_session(db_session, expired=True),
+        "idle": _owner_session(db_session, idle=True),
+        "fingerprint": _owner_session(db_session, fingerprint_mismatch=True),
     }
     for token in candidates.values():
         with pytest.raises(ConversationError, match="owner_session_required"):
@@ -456,7 +491,7 @@ def test_no_approval_without_a_live_owner_session_and_matching_bytes(
                 db_session,
                 message.id,
                 decision="approved",
-                session_token_hash=token,
+                session_token=token,
                 shown_sha256_hex=good_hash,
             )
     token = _owner_session(db_session)
@@ -465,7 +500,7 @@ def test_no_approval_without_a_live_owner_session_and_matching_bytes(
             db_session,
             message.id,
             decision="approved",
-            session_token_hash=token,
+            session_token=token,
             shown_sha256_hex=sha256(b"something else").hexdigest(),
         )
     assert message.state == "quarantined"
@@ -474,20 +509,23 @@ def test_no_approval_without_a_live_owner_session_and_matching_bytes(
         db_session,
         message.id,
         decision="approved",
-        session_token_hash=token,
+        session_token=token,
         shown_sha256_hex=good_hash,
         mark_proven=True,
     )
     assert approved.state == "approved" and approved.evidence_status == "bewiesen"
     approval = db_session.get(MemoryApproval, approved.approval_id)
     assert approval is not None
-    assert approval.session_token_hash == token and approval.shown_sha256 == good_hash
+    digest = token_digest(token)
+    assert digest is not None
+    assert approval.approver_ref == approver_reference(digest)
+    assert approval.approver_ref != digest and approval.shown_sha256 == good_hash
     with pytest.raises(ConversationError, match="already_decided"):
         decide_message(
             db_session,
             message.id,
             decision="rejected",
-            session_token_hash=token,
+            session_token=token,
             shown_sha256_hex=good_hash,
         )
     # The approval row is append-only.
@@ -522,8 +560,8 @@ def test_rejection_keeps_the_row_as_abgelehnt(db_session: Session) -> None:
         db_session,
         message.id,
         decision="rejected",
-        session_token_hash=token,
-        shown_sha256_hex=shown_sha256(message_shown_bytes(message)),
+        session_token=token,
+        shown_sha256_hex=shown_sha256(message_shown_bytes(message, decision="rejected")),
     )
     assert message.state == "rejected" and message.evidence_status == "abgelehnt"
     assert db_session.get(AssistantMessage, message.id) is not None
@@ -553,13 +591,15 @@ def test_topic_proposal_and_link_acceptance_attach_messages(db_session: Session)
         db_session,
         proposed.id,
         decision="approved",
-        session_token_hash=token,
-        shown_sha256_hex=shown_sha256(thread_shown_bytes(proposed)),
+        session_token=token,
+        shown_sha256_hex=shown_sha256(thread_shown_bytes(proposed, decision="approved")),
     )
+    pending = db_session.get(AssistantMessage, first.message_id)
+    assert pending is not None and pending.thread_id is None
     accepted = _accept_link(db_session, token, link.id, proposed)
     assert accepted.state == "active"
-    attached = db_session.get(AssistantMessage, first.message_id)
-    assert attached is not None and attached.thread_id == proposed.id
+    # synchronize_session="fetch" updates the identity map inside the same session.
+    assert pending.thread_id == proposed.id
     second = ingest_turn(db_session, _turn(**grok_turn, text="Follow-up synthetic line."))
     assert second.status == "accepted" and second.thread_id == proposed.id
     assert _events(db_session, "memory.link_approved")[-1].detail["attached"] == 1
@@ -610,15 +650,15 @@ def test_fact_lifecycle_copies_provenance(db_session: Session) -> None:
             db_session,
             fact.id,
             decision="approved",
-            session_token_hash="0" * 64,
-            shown_sha256_hex=shown_sha256(fact_shown_bytes(fact)),
+            session_token="0" * 64,
+            shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
         )
     decided = decide_fact(
         db_session,
         fact.id,
         decision="approved",
-        session_token_hash=token,
-        shown_sha256_hex=shown_sha256(fact_shown_bytes(fact)),
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
     )
     assert decided.status == "approved" and decided.approval_id is not None
 
@@ -674,8 +714,8 @@ def test_context_returns_only_approved_rows_with_class_filter(db_session: Sessio
         db_session,
         rejected.id,
         decision="rejected",
-        session_token_hash=token,
-        shown_sha256_hex=shown_sha256(message_shown_bytes(rejected)),
+        session_token=token,
+        shown_sha256_hex=shown_sha256(message_shown_bytes(rejected, decision="rejected")),
     )
     cloud_thread, cloud_ids = _thread_with_messages(
         db_session,
@@ -738,8 +778,8 @@ def test_class_filter_runs_before_ranking(db_session: Session) -> None:
             db_session,
             fact.id,
             decision="approved",
-            session_token_hash=token,
-            shown_sha256_hex=shown_sha256(fact_shown_bytes(fact)),
+            session_token=token,
+            shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
         )
     cloud = load_memory_context(
         db_session,
@@ -787,6 +827,538 @@ def test_budget_drops_oldest_history_first(db_session: Session) -> None:
     )
     assert [item.text for item in context.items] == lines[2:]
     assert context.dropped == 2
+
+
+def _finish(threads: list[threading.Thread]) -> None:
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+        assert not thread.is_alive()
+
+
+def test_concurrent_fallback_key_stores_one_row(db_session: Session) -> None:
+    factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False)
+    payload = _turn(
+        external_message_id=None,
+        external_thread_id="fb-race",
+        text="Same fallback body.",
+    )
+    barrier = threading.Barrier(2)
+    outcomes: list[tuple[str, str | None]] = []
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        with factory() as session:
+            try:
+                barrier.wait(timeout=10)
+                result = ingest_turn(session, payload)
+                session.commit()
+                outcomes.append((result.status, result.reason))
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                session.rollback()
+                errors.append(exc)
+
+    _finish([threading.Thread(target=worker) for _ in range(2)])
+    assert errors == []
+    assert sorted(item[0] for item in outcomes) == ["accepted", "duplicate"]
+    assert "duplicate_body_mismatch" not in {item[1] for item in outcomes}
+    db_session.expire_all()
+    stored = db_session.scalars(
+        select(AssistantMessage).where(AssistantMessage.external_thread_id == "fb-race")
+    ).all()
+    assert len(stored) == 1 and stored[0].text == "Same fallback body."
+
+
+def test_concurrent_messages_share_one_thread_link(db_session: Session) -> None:
+    factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False)
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker(message_id: str) -> None:
+        with factory() as session:
+            try:
+                barrier.wait(timeout=10)
+                result = ingest_turn(
+                    session,
+                    _turn(
+                        external_thread_id="shared-ext",
+                        external_message_id=message_id,
+                        text=f"Line {message_id}",
+                    ),
+                )
+                session.commit()
+                assert result.status == "accepted"
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                session.rollback()
+                errors.append(exc)
+
+    _finish(
+        [
+            threading.Thread(target=worker, args=("race-a",)),
+            threading.Thread(target=worker, args=("race-b",)),
+        ]
+    )
+    assert errors == []
+    db_session.expire_all()
+    assert db_session.scalar(select(func.count()).select_from(AssistantMessage)) == 2
+    assert db_session.scalar(select(func.count()).select_from(ThreadLink)) == 1
+    assert db_session.scalar(select(func.count()).select_from(AssistantThread)) == 1
+
+
+def test_accept_and_ingest_both_leave_the_message_attached(db_session: Session) -> None:
+    factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False)
+    external = "accept-ingest"
+    with factory() as setup:
+        token = _owner_session(setup)
+        thread = _owner_thread(setup, token, "Shared topic", "cloud_ok")
+        first = ingest_turn(
+            setup,
+            _turn(
+                external_thread_id=external,
+                external_message_id="first-msg",
+                data_class="cloud_ok",
+            ),
+        )
+        assert first.link_id is not None and first.message_id is not None
+        link = setup.get(ThreadLink, first.link_id)
+        assert link is not None
+        shown = shown_sha256(link_shown_bytes(link, thread, decision="approved"))
+        link_id, thread_id = link.id, thread.id
+        setup.commit()
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def accepter() -> None:
+        with factory() as session:
+            try:
+                barrier.wait(timeout=10)
+                decide_thread_link(
+                    session,
+                    link_id,
+                    decision="approved",
+                    session_token=token,
+                    shown_sha256_hex=shown,
+                    target_thread_id=thread_id,
+                )
+                session.commit()
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                session.rollback()
+                errors.append(exc)
+
+    def ingester() -> None:
+        with factory() as session:
+            try:
+                barrier.wait(timeout=10)
+                result = ingest_turn(
+                    session,
+                    _turn(
+                        external_thread_id=external,
+                        external_message_id="second-msg",
+                        data_class="cloud_ok",
+                        text="Second synthetic line.",
+                    ),
+                )
+                session.commit()
+                assert result.status == "accepted"
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                session.rollback()
+                errors.append(exc)
+
+    _finish([threading.Thread(target=accepter), threading.Thread(target=ingester)])
+    assert errors == []
+    db_session.expire_all()
+    rows = db_session.scalars(
+        select(AssistantMessage).where(AssistantMessage.external_thread_id == external)
+    ).all()
+    assert len(rows) == 2
+    assert {row.thread_id for row in rows} == {thread_id}
+
+
+def test_concurrent_deck_replies_keep_one_body(db_session: Session) -> None:
+    factory = sessionmaker(bind=get_engine(for_tests=True), autoflush=False)
+    with factory() as setup:
+        inbound = ingest_turn(setup, _turn(external_message_id="reply-race"))
+        assert inbound.message_id is not None
+        inbound_id = inbound.message_id
+        setup.commit()
+    barrier = threading.Barrier(2)
+    texts = ("Reply alpha.", "Reply beta.")
+    errors: list[BaseException] = []
+
+    def worker(body: str) -> None:
+        with factory() as session:
+            try:
+                barrier.wait(timeout=10)
+                record_deck_reply(session, inbound_message_id=inbound_id, text=body)
+                session.commit()
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                session.rollback()
+                errors.append(exc)
+
+    _finish(
+        [
+            threading.Thread(target=worker, args=(texts[0],)),
+            threading.Thread(target=worker, args=(texts[1],)),
+        ]
+    )
+    assert errors == []
+    db_session.expire_all()
+    replies = db_session.scalars(
+        select(AssistantMessage).where(AssistantMessage.reply_for_message_id == inbound_id)
+    ).all()
+    assert len(replies) == 1
+    kept = replies[0].text
+    other = texts[1] if kept == texts[0] else texts[0]
+    assert kept in texts
+    assert _tables_containing(db_session, other) == []
+    detail = _events(db_session, "assistant.reply_duplicate")[-1].detail
+    assert detail["reason"] == "duplicate_body_mismatch"
+    assert detail["text_sha256"] == sha256(other.encode()).hexdigest()
+    assert detail["existing_text_sha256"] == sha256(kept.encode()).hexdigest()
+    assert "Reply" not in str(detail)
+
+
+def test_rejected_source_blocks_a_new_fact_and_drops_context(db_session: Session) -> None:
+    token = _owner_session(db_session)
+    outcome = ingest_turn(db_session, _turn(text="Tomatoes need water in the orchard."))
+    assert outcome.message_id is not None
+    approved = propose_fact(
+        db_session,
+        source_message_id=outcome.message_id,
+        original_sentence="The orchard irrigation is weekly.",
+        subject="orchard",
+        predicate="needs",
+        object_="irrigation",
+    )
+    decide_fact(
+        db_session,
+        approved.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(approved, decision="approved")),
+    )
+    visible = load_memory_context(
+        db_session,
+        thread_id=None,
+        target="ollama",
+        data_class="local_only",
+        query="orchard irrigation",
+    )
+    assert any(item.reference == str(approved.id) for item in visible.items)
+    pending = propose_fact(
+        db_session,
+        source_message_id=outcome.message_id,
+        original_sentence="A second orchard note.",
+        subject="orchard",
+        predicate="has",
+        object_="note",
+    )
+    message = db_session.get(AssistantMessage, outcome.message_id)
+    assert message is not None
+    decide_message(
+        db_session,
+        message.id,
+        decision="rejected",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(message_shown_bytes(message, decision="rejected")),
+    )
+    hidden = load_memory_context(
+        db_session,
+        thread_id=None,
+        target="ollama",
+        data_class="local_only",
+        query="orchard irrigation",
+    )
+    assert all(item.reference != str(approved.id) for item in hidden.items)
+    with pytest.raises(ConversationError, match="source_rejected"):
+        propose_fact(
+            db_session,
+            source_message_id=outcome.message_id,
+            original_sentence="A third orchard note.",
+            subject="orchard",
+            predicate="has",
+            object_="third",
+        )
+    with pytest.raises(ConversationError, match="source_rejected"):
+        decide_fact(
+            db_session,
+            pending.id,
+            decision="approved",
+            session_token=token,
+            shown_sha256_hex=shown_sha256(fact_shown_bytes(pending, decision="approved")),
+        )
+
+
+def test_different_body_for_the_same_external_id_is_not_overwritten(db_session: Session) -> None:
+    first_text = "First body about basil."
+    second_text = "Second body about basil."
+    payload = _turn(external_message_id="fixed-body", text=first_text)
+    first = ingest_turn(db_session, payload)
+    second = ingest_turn(db_session, {**payload, "text": second_text})
+    assert first.message_id is not None
+    assert second.status == "duplicate" and second.reason == "duplicate_body_mismatch"
+    assert second.message_id == first.message_id
+    stored = db_session.get(AssistantMessage, first.message_id)
+    assert stored is not None and stored.text == first_text
+    detail = _events(db_session, "assistant.turn_duplicate")[-1].detail
+    assert detail["text_sha256"] == sha256(second_text.encode()).hexdigest()
+    assert detail["existing_text_sha256"] == sha256(first_text.encode()).hexdigest()
+    assert "basil" not in str(detail)
+    assert set(detail) == {"reason", "text_sha256", "existing_text_sha256"}
+
+
+def test_active_topic_refuses_a_class_it_does_not_admit(db_session: Session) -> None:
+    token = _owner_session(db_session)
+    thread = _owner_thread(db_session, token, "Cloud topic", "cloud_ok")
+    first = ingest_turn(
+        db_session,
+        _turn(external_thread_id="mixed-class", data_class="cloud_ok", text="Cloud line."),
+    )
+    assert first.link_id is not None
+    _accept_link(db_session, token, first.link_id, thread)
+    blocked = ingest_turn(
+        db_session,
+        _turn(
+            external_thread_id="mixed-class",
+            data_class="local_only",
+            text="Local only line.",
+        ),
+    )
+    assert blocked.status == "rejected" and blocked.reason == "thread_class_block"
+    assert _tables_containing(db_session, "Local only line.") == []
+    reasons = [event.detail["reason"] for event in _events(db_session, "assistant.turn_rejected")]
+    assert reasons == ["thread_class_block"]
+    assert db_session.scalar(select(func.count()).select_from(AssistantMessage)) == 1
+
+
+def test_secret_account_never_reaches_the_audit(db_session: Session) -> None:
+    account = "g" + "hp_" + "a" * 16
+    body = "Ordinary sentence about basil."
+    outcome = ingest_turn(
+        db_session,
+        _turn(
+            channel="grok",
+            account=account,
+            data_class="cloud_ok",
+            ingest_method="live_push",
+            source_ref={"ref": "grok:t1"},
+            text=body,
+        ),
+    )
+    assert outcome.status == "rejected" and outcome.reason == "secret_rejected"
+    detail = _events(db_session, "assistant.turn_rejected")[-1].detail
+    assert set(detail) <= {"reason", "text_sha256"}
+    assert account not in str(detail)
+    assert _tables_containing(db_session, account) == []
+    assert db_session.scalar(select(func.count()).select_from(AssistantThread)) == 0
+    _account(db_session, "deck_ui", account, ["local_only"])
+    inbound = AssistantMessage(
+        external_thread_id="ui-thread-1",
+        external_message_id="stored-account",
+        role="owner",
+        text="Plain inbound.",
+        text_sha256=sha256(b"Plain inbound.").hexdigest(),
+        data_class="local_only",
+        state="quarantined",
+        source_date=datetime.now(UTC),
+        source_channel="deck_ui",
+        source_account=account,
+        source_ref="deck_ui:ui-thread-1",
+        method="deck_ui",
+        evidence_status="unbewiesen",
+    )
+    db_session.add(inbound)
+    db_session.flush()
+    reply = record_deck_reply(db_session, inbound_message_id=inbound.id, text="A normal reply.")
+    assert reply.status == "rejected" and reply.reason == "secret_rejected"
+    for event in db_session.scalars(select(Event)):
+        assert account not in str(event.detail)
+    assert (
+        db_session.scalar(
+            select(func.count())
+            .select_from(AssistantMessage)
+            .where(AssistantMessage.role == "assistant")
+        )
+        == 0
+    )
+
+
+def test_scheme_and_reserved_reply_prefix_are_rejected(db_session: Session) -> None:
+    scheme = ingest_turn(db_session, _turn(external_thread_id="note://1"))
+    prefixed = ingest_turn(db_session, _turn(external_message_id="deck-reply:minted"))
+    assert scheme.reason == "invalid_envelope" and prefixed.reason == "invalid_envelope"
+    assert _messages(db_session) == []
+    nested = db_session.begin_nested()
+    with pytest.raises(IntegrityError, match="ck_assistant_messages_external_scheme"):
+        db_session.add(
+            AssistantMessage(
+                external_thread_id="note://1",
+                external_message_id="manual-scheme",
+                role="owner",
+                text="Scheme row.",
+                text_sha256=sha256(b"Scheme row.").hexdigest(),
+                data_class="local_only",
+                state="quarantined",
+                source_date=datetime.now(UTC),
+                source_channel="deck_ui",
+                source_account="owner",
+                source_ref="deck_ui:ui-thread-1",
+                method="deck_ui",
+                evidence_status="unbewiesen",
+            )
+        )
+        db_session.flush()
+    nested.rollback()
+
+
+def test_content_triggers_block_text_updates_and_deletes(db_session: Session) -> None:
+    token = _owner_session(db_session)
+    outcome = ingest_turn(db_session, _turn())
+    assert outcome.message_id is not None and outcome.link_id is not None
+    nested = db_session.begin_nested()
+    with pytest.raises(DBAPIError, match="memory_content_immutable"):
+        db_session.execute(
+            update(AssistantMessage)
+            .where(AssistantMessage.id == outcome.message_id)
+            .values(text="Changed body.")
+        )
+    nested.rollback()
+    nested = db_session.begin_nested()
+    with pytest.raises(DBAPIError, match="memory_content_immutable"):
+        db_session.execute(
+            text("DELETE FROM assistant_messages WHERE id = :id"), {"id": outcome.message_id}
+        )
+    nested.rollback()
+    thread = _owner_thread(db_session, token, "Attach target", "local_only")
+    db_session.execute(
+        update(AssistantMessage)
+        .where(AssistantMessage.id == outcome.message_id)
+        .values(thread_id=thread.id)
+    )
+    db_session.flush()
+    stored = db_session.get(AssistantMessage, outcome.message_id)
+    assert stored is not None and stored.thread_id == thread.id
+    assert stored.text == "Synthetic remark about watering the tomatoes."
+    fact = propose_fact(
+        db_session,
+        source_message_id=outcome.message_id,
+        original_sentence="Tomatoes like morning water.",
+        subject="tomatoes",
+        predicate="like",
+        object_="water",
+    )
+    nested = db_session.begin_nested()
+    with pytest.raises(DBAPIError, match="memory_content_immutable"):
+        db_session.execute(
+            update(MemoryFact)
+            .where(MemoryFact.id == fact.id)
+            .values(original_sentence="Changed sentence.")
+        )
+    nested.rollback()
+    nested = db_session.begin_nested()
+    with pytest.raises(DBAPIError, match="memory_content_immutable"):
+        db_session.execute(text("DELETE FROM memory_facts WHERE id = :id"), {"id": fact.id})
+    nested.rollback()
+    nested = db_session.begin_nested()
+    with pytest.raises(DBAPIError, match="memory_content_immutable"):
+        db_session.execute(
+            update(AssistantThread)
+            .where(AssistantThread.id == thread.id)
+            .values(data_class="cloud_ok")
+        )
+    nested.rollback()
+    nested = db_session.begin_nested()
+    with pytest.raises(DBAPIError, match="memory_content_immutable"):
+        db_session.execute(text("DELETE FROM assistant_threads WHERE id = :id"), {"id": thread.id})
+    nested.rollback()
+    nested = db_session.begin_nested()
+    with pytest.raises(DBAPIError, match="memory_content_immutable"):
+        db_session.execute(
+            text("DELETE FROM assistant_thread_links WHERE id = :id"), {"id": outcome.link_id}
+        )
+    nested.rollback()
+    assert db_session.get(AssistantMessage, outcome.message_id) is not None
+    assert db_session.get(MemoryFact, fact.id) is not None
+
+
+def test_privacy_block_rejects_cloud_ok_and_context_drops_it(
+    db_session: Session, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    term = "zucchiniplan"
+    path = tmp_path / "blocklist.txt"
+    path.write_text(term + "\n", encoding="utf-8")
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(path))
+    blocked = ingest_turn(
+        db_session,
+        _turn(data_class="cloud_ok", text=f"Note about {term} today."),
+    )
+    assert blocked.status == "rejected" and blocked.reason == "privacy_block"
+    assert _tables_containing(db_session, term) == []
+    for event in _events(db_session, "assistant.turn_rejected"):
+        assert term not in str(event.detail)
+    local = ingest_turn(db_session, _turn(data_class="local_only", text=f"Local {term} note."))
+    assert local.status == "accepted"
+    redacted = ingest_turn(
+        db_session,
+        _turn(data_class="cloud_redacted", text=f"Redacted {term} note."),
+    )
+    assert redacted.status == "accepted"
+    token = _owner_session(db_session)
+    thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="priv-cloud",
+        thread_class="cloud_ok",
+        rows=[("cloud_ok", "Garden hose is coiled.")],
+    )
+    _approve_message(db_session, token, ids[0])
+    visible = load_memory_context(
+        db_session, thread_id=thread.id, target="grok", data_class="cloud_ok"
+    )
+    assert [item.text for item in visible.items] == ["Garden hose is coiled."]
+    path.write_text("coiled\n", encoding="utf-8")
+    hidden = load_memory_context(
+        db_session, thread_id=thread.id, target="grok", data_class="cloud_ok"
+    )
+    assert hidden.items == () and hidden.dropped >= 1
+
+
+def test_context_items_carry_evidence_status(db_session: Session) -> None:
+    token = _owner_session(db_session)
+    write_profile(db_session, "Owner typed garden note.", actor="owner")
+    thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="evidence",
+        thread_class="local_only",
+        rows=[("local_only", "History line about oregano.")],
+    )
+    _approve_message(db_session, token, ids[0])
+    fact = propose_fact(
+        db_session,
+        source_message_id=ids[0],
+        original_sentence="Oregano likes a dry bed.",
+        subject="oregano",
+        predicate="likes",
+        object_="dry bed",
+    )
+    decide_fact(
+        db_session,
+        fact.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
+    )
+    context = load_memory_context(
+        db_session,
+        thread_id=thread.id,
+        target="ollama",
+        data_class="local_only",
+        query="oregano",
+    )
+    by_kind = {item.kind: item.evidence_status for item in context.items}
+    assert by_kind == {"profile": "owner-typed", "history": "unbewiesen", "fact": "unbewiesen"}
 
 
 # --- backfill and audit views ---------------------------------------------------------

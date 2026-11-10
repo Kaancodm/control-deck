@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
@@ -107,6 +107,55 @@ def _task_text_parts(task: TaskV1) -> Iterator[tuple[str, str]]:
         yield f"context_refs[{index}].ref", reference.ref
 
 
+def findings_block(
+    data_class: DataClass,
+    findings: Sequence[Finding],
+    *,
+    unsupported_redaction: bool | None = None,
+) -> bool:
+    """Blocked predicate shared with ``GateReport``.
+
+    Secrets block every class. ``cloud_ok`` blocks every finding. ``cloud_redacted``
+    blocks a secret or a rule outside the redactable set. ``local_only`` blocks
+    only secrets.
+    """
+    has_secrets = any(item.kind == FindingKind.SECRET for item in findings)
+    if unsupported_redaction is None:
+        unsupported_redaction = any(
+            item.kind == FindingKind.SECRET or item.rule not in _REDACTABLE_RULES
+            for item in findings
+        )
+    return (
+        has_secrets
+        or (data_class == DataClass.CLOUD_OK and bool(findings))
+        or (data_class == DataClass.CLOUD_REDACTED and unsupported_redaction)
+    )
+
+
+def non_local_texts_blocked(data_class: str, texts: Sequence[str]) -> bool:
+    """Scan with the configured blocklist and apply :func:`findings_block`.
+
+    ``local_only`` returns false without reading the blocklist. A missing or
+    unreadable blocklist, or text the normalizer refuses, fails closed for every
+    other class. Matched text is not returned.
+    """
+    if data_class == DataClass.LOCAL_ONLY.value:
+        return False
+    try:
+        blocklist = get_privacy_settings().blocklist
+        findings: list[Finding] = []
+        for value in texts:
+            if value:
+                findings.extend(scan_text(value, source="memory", blocklist=blocklist))
+    except (PrivacyConfigurationError, NormalizationError):
+        return True
+    try:
+        checked = DataClass(data_class)
+    except ValueError:
+        return True
+    return findings_block(checked, findings)
+
+
 def inspect_task(
     task: TaskV1,
     *,
@@ -200,13 +249,10 @@ def inspect_task(
             raise PrivacyInputError(exc.code, source="context_refs") from None
         for index, context in enumerate(contexts):
             scan_part(f"context_refs[{index}].content", context.text)
-    has_secrets = any(item.kind == FindingKind.SECRET for item in findings)
     return GateReport(
         findings=tuple(findings),
-        blocked=(
-            has_secrets
-            or (task.data_class == DataClass.CLOUD_OK and bool(findings))
-            or (task.data_class == DataClass.CLOUD_REDACTED and unsupported_redaction)
+        blocked=findings_block(
+            task.data_class, findings, unsupported_redaction=unsupported_redaction
         ),
         file_hashes=tuple(file_hashes),
     )

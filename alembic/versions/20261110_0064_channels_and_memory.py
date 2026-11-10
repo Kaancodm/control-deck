@@ -130,7 +130,7 @@ def upgrade() -> None:
         sa.Column("target_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("decision", sa.String(16), nullable=False),
         sa.Column("shown_sha256", sa.String(64), nullable=False),
-        sa.Column("session_token_hash", sa.String(64), nullable=False),
+        sa.Column("approver_ref", sa.String(64), nullable=False),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -147,9 +147,7 @@ def upgrade() -> None:
             "decision IN ('approved', 'rejected')", name="ck_memory_approvals_decision"
         ),
         sa.CheckConstraint(f"shown_sha256 {_HEX64}", name="ck_memory_approvals_shown_sha256"),
-        sa.CheckConstraint(
-            f"session_token_hash {_HEX64}", name="ck_memory_approvals_session_token_hash"
-        ),
+        sa.CheckConstraint(f"approver_ref {_HEX64}", name="ck_memory_approvals_approver_ref"),
     )
     op.execute(
         text(
@@ -243,6 +241,10 @@ def upgrade() -> None:
             "char_length(external_thread_id) BETWEEN 1 AND 200",
             name="ck_assistant_thread_links_external_thread",
         ),
+        sa.CheckConstraint(
+            "position('://' in external_thread_id) = 0",
+            name="ck_assistant_thread_links_external_scheme",
+        ),
     )
     # One open or accepted link per external thread; rejected rows stay as history.
     op.create_index(
@@ -330,6 +332,11 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "reply_for_message_id IS NULL OR reply_for_message_id <> id",
             name="ck_assistant_messages_reply_not_self",
+        ),
+        sa.CheckConstraint(
+            "position('://' in external_thread_id) = 0 AND "
+            "(external_message_id IS NULL OR position('://' in external_message_id) = 0)",
+            name="ck_assistant_messages_external_scheme",
         ),
         *_provenance("assistant_messages"),
     )
@@ -435,6 +442,100 @@ def upgrade() -> None:
         ["created_at"],
         postgresql_where=sa.text("task_id IS NULL"),
     )
+    _create_content_guards()
+
+
+def _create_content_guards() -> None:
+    """Freeze shown content and forbid hard deletes. State changes stay allowed.
+
+    ``TRUNCATE`` does not fire these row triggers, so test cleanup can still
+    empty the tables. ``memory_approvals`` keeps its own append-only trigger.
+    """
+    op.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION memory_content_immutable()
+            RETURNS trigger AS $$
+            BEGIN
+                IF TG_OP = 'DELETE' THEN
+                    RAISE EXCEPTION 'memory_content_immutable';
+                END IF;
+                IF TG_TABLE_NAME = 'assistant_messages' THEN
+                    IF NEW.text IS DISTINCT FROM OLD.text
+                       OR NEW.text_sha256 IS DISTINCT FROM OLD.text_sha256
+                       OR NEW.data_class IS DISTINCT FROM OLD.data_class
+                       OR NEW.role IS DISTINCT FROM OLD.role
+                       OR NEW.external_thread_id IS DISTINCT FROM OLD.external_thread_id
+                       OR NEW.external_message_id IS DISTINCT FROM OLD.external_message_id
+                       OR NEW.source_date IS DISTINCT FROM OLD.source_date
+                       OR NEW.source_channel IS DISTINCT FROM OLD.source_channel
+                       OR NEW.source_account IS DISTINCT FROM OLD.source_account
+                       OR NEW.source_ref IS DISTINCT FROM OLD.source_ref
+                       OR NEW.source_ref_sha256 IS DISTINCT FROM OLD.source_ref_sha256
+                       OR NEW.method IS DISTINCT FROM OLD.method
+                    THEN
+                        RAISE EXCEPTION 'memory_content_immutable';
+                    END IF;
+                ELSIF TG_TABLE_NAME = 'memory_facts' THEN
+                    IF NEW.original_sentence IS DISTINCT FROM OLD.original_sentence
+                       OR NEW.subject IS DISTINCT FROM OLD.subject
+                       OR NEW.predicate IS DISTINCT FROM OLD.predicate
+                       OR NEW.object IS DISTINCT FROM OLD.object
+                       OR NEW.data_class IS DISTINCT FROM OLD.data_class
+                       OR NEW.source_message_id IS DISTINCT FROM OLD.source_message_id
+                       OR NEW.source_date IS DISTINCT FROM OLD.source_date
+                       OR NEW.source_channel IS DISTINCT FROM OLD.source_channel
+                       OR NEW.source_account IS DISTINCT FROM OLD.source_account
+                       OR NEW.source_ref IS DISTINCT FROM OLD.source_ref
+                       OR NEW.source_ref_sha256 IS DISTINCT FROM OLD.source_ref_sha256
+                       OR NEW.method IS DISTINCT FROM OLD.method
+                    THEN
+                        RAISE EXCEPTION 'memory_content_immutable';
+                    END IF;
+                ELSIF TG_TABLE_NAME = 'assistant_threads' THEN
+                    IF NEW.data_class IS DISTINCT FROM OLD.data_class
+                       OR NEW.title IS DISTINCT FROM OLD.title
+                    THEN
+                        RAISE EXCEPTION 'memory_content_immutable';
+                    END IF;
+                ELSIF TG_TABLE_NAME = 'assistant_thread_links' THEN
+                    IF NEW.channel IS DISTINCT FROM OLD.channel
+                       OR NEW.account IS DISTINCT FROM OLD.account
+                       OR NEW.external_thread_id IS DISTINCT FROM OLD.external_thread_id
+                    THEN
+                        RAISE EXCEPTION 'memory_content_immutable';
+                    END IF;
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+            """
+        )
+    )
+    for table in (
+        "assistant_messages",
+        "memory_facts",
+        "assistant_threads",
+        "assistant_thread_links",
+    ):
+        op.execute(
+            text(
+                f"CREATE TRIGGER trg_{table}_content "
+                f"BEFORE UPDATE OR DELETE ON {table} "
+                "FOR EACH ROW EXECUTE FUNCTION memory_content_immutable()"
+            )
+        )
+
+
+def _drop_content_guards() -> None:
+    for table in (
+        "assistant_messages",
+        "memory_facts",
+        "assistant_threads",
+        "assistant_thread_links",
+    ):
+        op.execute(text(f"DROP TRIGGER IF EXISTS trg_{table}_content ON {table}"))
+    op.execute(text("DROP FUNCTION IF EXISTS memory_content_immutable()"))
 
 
 def downgrade() -> None:
@@ -447,11 +548,15 @@ def downgrade() -> None:
             "refusing to restore NOT NULL. Rows are never deleted by this migration."
         )
     for table in _CONTENT_TABLES:
+        # SHARE ROW EXCLUSIVE conflicts with INSERT, so a row that arrives after
+        # the count cannot commit before this downgrade drops the table.
+        bind.execute(text(f"LOCK TABLE {table} IN SHARE ROW EXCLUSIVE MODE"))
         remaining = bind.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
         if remaining:
             raise RuntimeError(
                 f"conversation_rows: {table} is not empty; refusing to drop owner memory."
             )
+    _drop_content_guards()
     op.drop_index("ix_events_conversation_created_at", table_name="events")
     op.drop_constraint("ck_events_task_or_conversation", "events", type_="check")
     op.alter_column(

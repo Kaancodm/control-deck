@@ -49,7 +49,7 @@ class ChannelAccount(Base):
 
 
 class MemoryApproval(Base):
-    """Append-only owner decision bound to a UI session digest and the shown bytes."""
+    """Append-only owner decision bound to an approver reference and the shown bytes."""
 
     __tablename__ = "memory_approvals"
 
@@ -58,8 +58,9 @@ class MemoryApproval(Base):
     target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     decision: Mapped[str] = mapped_column(String(16), nullable=False)
     shown_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    # Digest of the UI session token; deliberately not a foreign key (sessions are pruned).
-    session_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    # sha256(domain prefix + ui session token hash). Not the token hash, and not a
+    # foreign key: sessions are pruned, and the hash must not be a lookup key.
+    approver_ref: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
     )

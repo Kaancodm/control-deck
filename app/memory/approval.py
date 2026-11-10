@@ -1,9 +1,10 @@
 """Owner decisions. The only code that moves memory rows out of a pending state.
 
-Every decision needs the digest of an authenticated, unrevoked, unexpired UI session
-and the sha256 of the exact bytes the owner saw. A bearer token, a channel, or a
-model has neither, so none of them can approve. Nothing is ever deleted; a rejected
-row keeps ``rejected`` / ``abgelehnt``.
+Every decision takes the raw UI session cookie. The digest is derived with
+``token_digest`` inside ``get_ui_session`` (owner, idle timeout, password
+fingerprint). The approval row stores a non-reversible approver reference, not
+the session token hash. A bearer token, a channel, or a model cannot approve.
+Nothing is ever deleted; a rejected row keeps ``rejected`` / ``abgelehnt``.
 """
 
 from __future__ import annotations
@@ -15,13 +16,14 @@ from datetime import datetime
 from hashlib import sha256
 from typing import Literal
 
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.schemas import DataClass
-from app.db.ui_auth import UiSession
+from app.db.ui_auth import get_ui_session
 from app.kb.contracts import allowed_classes
 from app.memory.audit import ACTOR_OWNER, record_conversation_event
+from app.memory.context import render_fact_text
 from app.memory.ingest import contains_secret, text_digest
 from app.memory.models import (
     AssistantMessage,
@@ -41,48 +43,114 @@ _HEX64 = re.compile(r"^[0-9a-f]{64}\Z")
 _TITLE_MAX = 200
 _TRIPLE_MAX = {"subject": 200, "predicate": 200, "object": 1000}
 _SENTENCE_MAX = 4000
+_SHOWN_VERSION = "memory-shown.v1"
+# Domain separation so the stored reference is not the session token hash.
+_APPROVER_PREFIX = b"deck-memory-approver\0"
+
+
+def _canonical_shown(fields: tuple[tuple[str, str], ...], body: str) -> bytes:
+    """Versioned UTF-8 payload. A blank line separates headers from the text."""
+    header = "\n".join((_SHOWN_VERSION, *(f"{key}={value}" for key, value in fields)))
+    return f"{header}\n\n{body}".encode()
+
+
+def _flag(mark_proven: bool) -> str:
+    return "1" if mark_proven else "0"
 
 
 # Exact bytes the owner is shown. The UI hashes the same bytes before posting a decision.
-def message_shown_bytes(message: AssistantMessage) -> bytes:
-    return message.text.encode("utf-8")
+def message_shown_bytes(
+    message: AssistantMessage, *, decision: str, mark_proven: bool = False
+) -> bytes:
+    return _canonical_shown(
+        (
+            ("kind", "message"),
+            ("data_class", message.data_class),
+            ("channel", message.source_channel),
+            ("account", message.source_account),
+            ("role", message.role),
+            ("decision", decision),
+            ("mark_proven", _flag(mark_proven)),
+        ),
+        message.text,
+    )
 
 
-def fact_shown_bytes(fact: MemoryFact) -> bytes:
-    parts = (fact.original_sentence, fact.subject, fact.predicate, fact.object)
-    return "\n".join(parts).encode("utf-8")
+def fact_shown_bytes(fact: MemoryFact, *, decision: str, mark_proven: bool = False) -> bytes:
+    body = "\n".join((fact.original_sentence, fact.subject, fact.predicate, fact.object))
+    return _canonical_shown(
+        (
+            ("kind", "fact"),
+            ("data_class", fact.data_class),
+            ("channel", fact.source_channel),
+            ("account", fact.source_account),
+            ("decision", decision),
+            ("mark_proven", _flag(mark_proven)),
+        ),
+        body,
+    )
 
 
-def thread_shown_bytes(thread: AssistantThread) -> bytes:
-    return thread.title.encode("utf-8")
+def thread_shown_bytes(
+    thread: AssistantThread | None = None,
+    *,
+    title: str | None = None,
+    data_class: str | None = None,
+    decision: str,
+    mark_proven: bool = False,
+) -> bytes:
+    resolved_title = thread.title if thread is not None else title
+    resolved_class = thread.data_class if thread is not None else data_class
+    if resolved_title is None or resolved_class is None:
+        raise ConversationError("invalid_title")
+    return _canonical_shown(
+        (
+            ("kind", "thread"),
+            ("data_class", resolved_class),
+            ("decision", decision),
+            ("mark_proven", _flag(mark_proven)),
+        ),
+        resolved_title,
+    )
 
 
-def link_shown_bytes(link: ThreadLink, thread: AssistantThread) -> bytes:
-    parts = (link.channel, link.account, link.external_thread_id, str(thread.id), thread.title)
-    return "\n".join(parts).encode("utf-8")
+def link_shown_bytes(
+    link: ThreadLink,
+    thread: AssistantThread,
+    *,
+    decision: str,
+    mark_proven: bool = False,
+) -> bytes:
+    body = f"{link.external_thread_id}\n{thread.title}"
+    return _canonical_shown(
+        (
+            ("kind", "thread_link"),
+            ("data_class", thread.data_class),
+            ("channel", link.channel),
+            ("account", link.account),
+            ("thread_id", str(thread.id)),
+            ("decision", decision),
+            ("mark_proven", _flag(mark_proven)),
+        ),
+        body,
+    )
 
 
 def shown_sha256(value: bytes) -> str:
     return sha256(value).hexdigest()
 
 
-def require_owner_session(session: Session, session_token_hash: str) -> str:
-    """Accept only the digest of an authenticated, unrevoked, unexpired UI session."""
-    if not isinstance(session_token_hash, str) or not _HEX64.fullmatch(session_token_hash):
+def approver_reference(token_hash: str) -> str:
+    """Non-reversible reference. It is not a session lookup key."""
+    return sha256(_APPROVER_PREFIX + token_hash.encode("ascii")).hexdigest()
+
+
+def require_owner_session(session: Session, session_token: str) -> str:
+    """Validate the raw cookie and return the approver reference, not the token hash."""
+    row = get_ui_session(session, session_token, owner_required=True, for_update=True)
+    if row is None:
         raise ConversationError("owner_session_required")
-    found = session.scalar(
-        select(UiSession.token_hash)
-        .where(
-            UiSession.token_hash == session_token_hash,
-            UiSession.authenticated.is_(True),
-            UiSession.revoked_at.is_(None),
-            UiSession.expires_at > func.clock_timestamp(),
-        )
-        .with_for_update(read=True)
-    )
-    if found is None:
-        raise ConversationError("owner_session_required")
-    return session_token_hash
+    return approver_reference(row.token_hash)
 
 
 def _check_shown(expected: bytes, provided: str) -> str:
@@ -108,7 +176,7 @@ def _approval(
     target_id: uuid.UUID,
     decision: Decision,
     shown: str,
-    session_token_hash: str,
+    approver_ref: str,
 ) -> MemoryApproval:
     if session.scalar(
         select(MemoryApproval.id).where(
@@ -122,7 +190,7 @@ def _approval(
         target_id=target_id,
         decision=decision,
         shown_sha256=shown,
-        session_token_hash=session_token_hash,
+        approver_ref=approver_ref,
     )
     session.add(row)
     session.flush()
@@ -133,18 +201,28 @@ def _audit(event: str, detail: dict[str, object], session: Session) -> None:
     record_conversation_event(session, f"memory.{event}", detail, actor=ACTOR_OWNER)
 
 
+def _visible_identity(channel: str, account: str) -> dict[str, object]:
+    """Copy channel and account into an audit detail only when neither is a secret."""
+    detail: dict[str, object] = {}
+    if not contains_secret(channel):
+        detail["channel"] = channel
+    if not contains_secret(account):
+        detail["account"] = account
+    return detail
+
+
 def decide_message(
     session: Session,
     message_id: uuid.UUID,
     *,
     decision: str,
-    session_token_hash: str,
+    session_token: str,
     shown_sha256_hex: str,
     mark_proven: bool = False,
 ) -> AssistantMessage:
     """Move a quarantined message to approved or rejected. Only approved rows reach models."""
     checked = _check_decision(decision)
-    token = require_owner_session(session, session_token_hash)
+    approver_ref = require_owner_session(session, session_token)
     message = session.scalar(
         select(AssistantMessage).where(AssistantMessage.id == message_id).with_for_update()
     )
@@ -152,14 +230,17 @@ def decide_message(
         raise ConversationError("not_found")
     if message.state != "quarantined":
         raise ConversationError("already_decided")
-    shown = _check_shown(message_shown_bytes(message), shown_sha256_hex)
+    shown = _check_shown(
+        message_shown_bytes(message, decision=checked, mark_proven=mark_proven),
+        shown_sha256_hex,
+    )
     approval = _approval(
         session,
         kind="message",
         target_id=message.id,
         decision=checked,
         shown=shown,
-        session_token_hash=token,
+        approver_ref=approver_ref,
     )
     message.approval_id = approval.id
     if checked == "approved":
@@ -176,8 +257,7 @@ def decide_message(
             "approval_id": str(approval.id),
             "shown_sha256": shown,
             "evidence_status": message.evidence_status,
-            "channel": message.source_channel,
-            "account": message.source_account,
+            **_visible_identity(message.source_channel, message.source_account),
         },
         session,
     )
@@ -209,20 +289,36 @@ def propose_fact(
             raise ConversationError("invalid_fact")
     if valid_from is not None and valid_to is not None and valid_to < valid_from:
         raise ConversationError("invalid_fact")
-    source = session.get(AssistantMessage, source_message_id)
+    source = session.scalar(
+        select(AssistantMessage)
+        .where(AssistantMessage.id == source_message_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if source is None:
         raise ConversationError("not_found")
     if source.state == "rejected":
         raise ConversationError("source_rejected")
-    if contains_secret(original_sentence, subject, predicate, object_):
-        _audit_secret(session, original_sentence, source)
+    sentence = original_sentence.strip()
+    subject_text = subject.strip()
+    predicate_text = predicate.strip()
+    object_text = object_.strip()
+    joined = "\n".join((sentence, subject_text, predicate_text, object_text))
+    rendered = render_fact_text(
+        subject=subject_text,
+        predicate=predicate_text,
+        object_=object_text,
+        sentence=sentence,
+    )
+    if contains_secret(sentence, subject_text, predicate_text, object_text, joined, rendered):
+        _audit_secret(session, sentence, source)
         raise ConversationError("secret_rejected")
     fact = MemoryFact(
         id=uuid.uuid4(),
-        original_sentence=original_sentence.strip(),
-        subject=subject.strip(),
-        predicate=predicate.strip(),
-        object=object_.strip(),
+        original_sentence=sentence,
+        subject=subject_text,
+        predicate=predicate_text,
+        object=object_text,
         source_message_id=source.id,
         data_class=source.data_class,
         valid_from=valid_from,
@@ -268,21 +364,29 @@ def decide_fact(
     fact_id: uuid.UUID,
     *,
     decision: str,
-    session_token_hash: str,
+    session_token: str,
     shown_sha256_hex: str,
     mark_proven: bool = False,
 ) -> MemoryFact:
     """Owner decides a proposed fact; approved facts may enter model context."""
     checked = _check_decision(decision)
-    token = require_owner_session(session, session_token_hash)
+    approver_ref = require_owner_session(session, session_token)
     fact = session.scalar(select(MemoryFact).where(MemoryFact.id == fact_id).with_for_update())
     if fact is None:
         raise ConversationError("not_found")
     if fact.status != "proposed":
         raise ConversationError("already_decided")
-    shown = _check_shown(fact_shown_bytes(fact), shown_sha256_hex)
+    shown = _check_shown(
+        fact_shown_bytes(fact, decision=checked, mark_proven=mark_proven),
+        shown_sha256_hex,
+    )
     if checked == "approved":
-        source = session.get(AssistantMessage, fact.source_message_id)
+        source = session.scalar(
+            select(AssistantMessage)
+            .where(AssistantMessage.id == fact.source_message_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if source is None or source.state == "rejected":
             raise ConversationError("source_rejected")
     approval = _approval(
@@ -291,7 +395,7 @@ def decide_fact(
         target_id=fact.id,
         decision=checked,
         shown=shown,
-        session_token_hash=token,
+        approver_ref=approver_ref,
     )
     fact.approval_id = approval.id
     if checked == "approved":
@@ -353,13 +457,17 @@ def create_owner_thread(
     *,
     title: str,
     data_class: str,
-    session_token_hash: str,
+    session_token: str,
     shown_sha256_hex: str,
 ) -> AssistantThread:
     """Owner creates an active topic thread directly; the approval row records the click."""
-    token = require_owner_session(session, session_token_hash)
+    approver_ref = require_owner_session(session, session_token)
     cleaned = _clean_title(title)
-    shown = _check_shown(cleaned.encode("utf-8"), shown_sha256_hex)
+    checked_class = _check_class(data_class)
+    shown = _check_shown(
+        thread_shown_bytes(title=cleaned, data_class=checked_class, decision="approved"),
+        shown_sha256_hex,
+    )
     thread_id = uuid.uuid4()
     approval = _approval(
         session,
@@ -367,13 +475,13 @@ def create_owner_thread(
         target_id=thread_id,
         decision="approved",
         shown=shown,
-        session_token_hash=token,
+        approver_ref=approver_ref,
     )
     thread = AssistantThread(
         id=thread_id,
         title=cleaned,
         title_origin="owner",
-        data_class=_check_class(data_class),
+        data_class=checked_class,
         status="active",
         approval_id=approval.id,
     )
@@ -392,12 +500,12 @@ def decide_thread_topic(
     thread_id: uuid.UUID,
     *,
     decision: str,
-    session_token_hash: str,
+    session_token: str,
     shown_sha256_hex: str,
 ) -> AssistantThread:
     """Owner accepts or rejects an assistant-proposed topic."""
     checked = _check_decision(decision)
-    token = require_owner_session(session, session_token_hash)
+    approver_ref = require_owner_session(session, session_token)
     thread = session.scalar(
         select(AssistantThread).where(AssistantThread.id == thread_id).with_for_update()
     )
@@ -405,14 +513,14 @@ def decide_thread_topic(
         raise ConversationError("not_found")
     if thread.status != "proposed":
         raise ConversationError("already_decided")
-    shown = _check_shown(thread_shown_bytes(thread), shown_sha256_hex)
+    shown = _check_shown(thread_shown_bytes(thread, decision=checked), shown_sha256_hex)
     approval = _approval(
         session,
         kind="thread_topic",
         target_id=thread.id,
         decision=checked,
         shown=shown,
-        session_token_hash=token,
+        approver_ref=approver_ref,
     )
     thread.approval_id = approval.id
     thread.status = "active" if checked == "approved" else "rejected"
@@ -430,7 +538,7 @@ def decide_thread_link(
     link_id: uuid.UUID,
     *,
     decision: str,
-    session_token_hash: str,
+    session_token: str,
     shown_sha256_hex: str,
     target_thread_id: uuid.UUID | None = None,
 ) -> ThreadLink:
@@ -442,7 +550,7 @@ def decide_thread_link(
     admits are attached to it.
     """
     checked = _check_decision(decision)
-    token = require_owner_session(session, session_token_hash)
+    approver_ref = require_owner_session(session, session_token)
     link = session.scalar(select(ThreadLink).where(ThreadLink.id == link_id).with_for_update())
     if link is None:
         raise ConversationError("not_found")
@@ -454,7 +562,7 @@ def decide_thread_link(
     thread = session.get(AssistantThread, chosen)
     if thread is None:
         raise ConversationError("not_found")
-    shown = _check_shown(link_shown_bytes(link, thread), shown_sha256_hex)
+    shown = _check_shown(link_shown_bytes(link, thread, decision=checked), shown_sha256_hex)
     attached = 0
     if checked == "approved":
         if thread.status != "active":
@@ -466,7 +574,7 @@ def decide_thread_link(
         target_id=link.id,
         decision=checked,
         shown=shown,
-        session_token_hash=token,
+        approver_ref=approver_ref,
     )
     link.approval_id = approval.id
     if checked == "approved":
@@ -483,7 +591,7 @@ def decide_thread_link(
                 AssistantMessage.data_class.in_(admitted),
             )
             .values(thread_id=thread.id)
-            .execution_options(synchronize_session=False)
+            .execution_options(synchronize_session="fetch")
         )
         attached = int(getattr(result, "rowcount", 0) or 0)
     else:
@@ -496,9 +604,8 @@ def decide_thread_link(
             "thread_id": str(thread.id),
             "approval_id": str(approval.id),
             "shown_sha256": shown,
-            "channel": link.channel,
-            "account": link.account,
             "attached": attached,
+            **_visible_identity(link.channel, link.account),
         },
         session,
     )
@@ -516,6 +623,7 @@ __all__ = [
     "message_shown_bytes",
     "propose_fact",
     "propose_thread_topic",
+    "approver_reference",
     "require_owner_session",
     "shown_sha256",
     "thread_shown_bytes",

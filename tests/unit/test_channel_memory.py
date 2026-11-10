@@ -9,9 +9,22 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from app.memory.approval import (
+    approver_reference,
+    message_shown_bytes,
+    shown_sha256,
+    thread_shown_bytes,
+)
 from app.memory.audit import record_conversation_event
-from app.memory.context import context_classes, load_memory_context, target_classes
+from app.memory.context import (
+    context_classes,
+    load_memory_context,
+    render_fact_text,
+    target_classes,
+)
 from app.memory.envelope import ChannelTurnV1, json_schema_valid, parse_turn
+from app.memory.ingest import contains_secret
+from app.memory.models import AssistantMessage
 from app.memory.policy import (
     CHANNEL_CLASS_CEILING,
     CLOUD_CHANNELS,
@@ -80,6 +93,12 @@ def _without(key: str) -> dict[str, object]:
         (_turn(source_ref={"ref": "https://example.invalid/x"}), False),
         (_turn(source_ref={"ref": "file:host:8080/x"}), False),
         (_turn(source_ref={"ref": "nowhere:x"}), False),
+        (_turn(external_thread_id="note://1"), False),
+        (_turn(external_message_id="note://msg"), False),
+        (_turn(external_message_id="deck-reply:minted"), False),
+        (_turn(in_reply_to="note://1"), False),
+        (_turn(in_reply_to="deck-reply:minted"), True),
+        (_turn(external_thread_id="slack:C01/1.0001"), True),
         (_turn(extra="field"), False),
         (_turn(ingest_method="scrape"), False),
     ],
@@ -215,7 +234,7 @@ def test_every_decision_function_requires_session_and_shown_hash() -> None:
     }
     for node in deciders:
         names = {arg.arg for arg in node.args.kwonlyargs}
-        assert {"session_token_hash", "shown_sha256_hex"} <= names
+        assert {"session_token", "shown_sha256_hex"} <= names
         calls = {ast.unparse(call.func) for call in ast.walk(node) if isinstance(call, ast.Call)}
         assert "require_owner_session" in calls and "_check_shown" in calls
 
@@ -247,3 +266,45 @@ def test_turn_fixture_is_not_mutated() -> None:
     before = copy.deepcopy(payload)
     parse_turn(payload)
     assert payload == before
+
+
+def test_account_shaped_secret_is_detected_without_a_stored_literal() -> None:
+    account = "g" + "hp_" + "a" * 16
+    assert contains_secret(account)
+    rendered = render_fact_text(
+        subject="box", predicate="holds", object_="key", sentence=f"keep {account}"
+    )
+    assert contains_secret(rendered)
+    assert not contains_secret("box", "holds", "key", "keep the spare")
+
+
+def test_approver_reference_is_not_the_session_token_hash() -> None:
+    digest = "ab" * 32
+    reference = approver_reference(digest)
+    assert reference != digest
+    assert len(reference) == 64
+    assert reference == approver_reference(digest)
+
+
+def test_shown_bytes_bind_decision_class_and_account() -> None:
+    message = AssistantMessage(
+        data_class="cloud_ok",
+        source_channel="deck_ui",
+        source_account="owner",
+        role="owner",
+        text="Hello",
+    )
+    approved = message_shown_bytes(message, decision="approved", mark_proven=True)
+    rejected = message_shown_bytes(message, decision="rejected")
+    assert approved != rejected
+    assert approved.startswith(b"memory-shown.v1\n")
+    assert b"kind=message\n" in approved
+    assert b"data_class=cloud_ok\n" in approved
+    assert b"account=owner\n" in approved
+    assert b"role=owner\n" in approved
+    assert b"decision=approved\n" in approved
+    assert b"mark_proven=1\n" in approved
+    assert approved.endswith(b"\n\nHello")
+    topic = thread_shown_bytes(title="Garden", data_class="local_only", decision="approved")
+    assert b"kind=thread\n" in topic and topic.endswith(b"\n\nGarden")
+    assert shown_sha256(approved) != shown_sha256(rejected)

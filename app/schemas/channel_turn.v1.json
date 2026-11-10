@@ -25,13 +25,13 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 200,
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
+      "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
     },
     "external_message_id": {
       "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 200,
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
+      "pattern": "^(?!.*://)(?!deck-reply:)[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
     },
     "role": {"enum": ["owner", "assistant"]},
     "text": {"type": "string", "minLength": 1, "maxLength": 16000},
@@ -59,7 +59,7 @@
       "type": ["string", "null"],
       "minLength": 1,
       "maxLength": 200,
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
+      "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
     }
   }
 }

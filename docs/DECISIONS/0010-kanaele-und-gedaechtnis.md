@@ -25,13 +25,18 @@ Jeder Owner-Chat ist ein Kanal, der in eine Ablage schreibt:
    inaktiv wird abgewiesen und auditiert (`unknown_account`, `account_inactive`). Ein
    unbekannter Kanal scheitert schon am Schema (`invalid_envelope`). Fail-closed: die
    Migration legt nur `deck_ui/owner` aktiv an.
-2. **Geheimnis-Scan** mit dem bestehenden Scanner (`app/privacy/scanner.py`). Ein Treffer
-   speichert den Text nirgends, auch nicht in einer Quarantaene oder im Log. Im Audit
-   stehen nur sha256 und `secret_rejected`.
+2. **Geheimnis-Scan** mit dem bestehenden Scanner (`app/privacy/scanner.py`), bevor
+   ein Audit Konto, Kanal oder einen Vorschlagstitel uebernimmt. Ein Treffer
+   speichert den Text nirgends. Im Audit stehen nur sha256 und `secret_rejected`.
+   Dieselbe Pruefung gilt fuer kopierte Felder einer Deck-Antwort und fuer den
+   zusammengesetzten Faktsatz nach `strip`.
 3. **Dedup**: eindeutig ist `(channel, account, external_message_id)`. Ohne Quellen-ID gilt
-   `(channel, account, external_thread_id, role, text_sha256, occurred_at)`. Ein Duplikat
-   aendert keinen Zustand; es entsteht nur eine Audit-Zeile `assistant.turn_duplicate`.
-   Zwei gleichzeitige Aufrufe mit demselben Schluessel ergeben genau eine Zeile.
+   `(channel, account, external_thread_id, role, text_sha256, occurred_at)`. `occurred_at`
+   bleibt im Schluessel: derselbe Text zu einer spaeteren Quellzeit ist ohne
+   Nachrichten-ID ein eigener Quarantaene-Turn. Die Quelluhr ordnet nicht; das tut `seq`.
+   Ein anderer Text mit derselben Quellen-ID ueberschreibt nichts
+   (`duplicate_body_mismatch`, nur die zwei Hashes). Ein Duplikat aendert keinen
+   Zustand. Zwei gleichzeitige Aufrufe mit demselben Schluessel ergeben genau eine Zeile.
 4. **Quarantaene**: neue Zeilen haben `state = quarantined`. Sie kommen nie in einen
    Modellkontext und nie in eine Suche.
 5. **Thread-Zuordnung**: eine angenommene Verknuepfung `(channel, account,
@@ -39,7 +44,9 @@ Jeder Owner-Chat ist ein Kanal, der in eine Ablage schreibt:
    `thread_unmapped`, und es entsteht ein **Vorschlag** (Thema plus Verknuepfung), den
    der Owner per Klick bestaetigt.
 6. **Antworten** gibt das Deck nur in `deck_ui` und `slack`. Genau eine Antwort pro
-   eingehender Nachricht erzwingt `UNIQUE (reply_for_message_id)`.
+   eingehender Nachricht erzwingt `UNIQUE (reply_for_message_id)`. Die Kennung
+   beginnt mit `deck-reply:`; ein Kanal darf dieses Praefix nicht vergeben.
+   Aussen-Kennungen duerfen kein `://` enthalten.
 
 Jede Annahme, Abweisung und jedes Duplikat schreibt eine Audit-Zeile.
 
@@ -59,14 +66,20 @@ Uebergaenge `quarantined -> approved/rejected`, Faktum `proposed -> approved/rej
 Thema `proposed -> active/rejected` und Verknuepfung `proposed -> active/rejected` laufen
 nur ueber die Funktionen in `app/memory/approval.py`. Jede verlangt:
 
-- den Hash eines authentisierten, nicht widerrufenen, nicht abgelaufenen UI-Session-Tokens
-  (zum Zeitpunkt der Freigabe in `ui_sessions` geprueft),
-- die sha256 der exakt angezeigten Bytes. Eine Abweichung scheitert (`shown_bytes_mismatch`).
+- das rohe UI-Cookie. `get_ui_session` prueft Owner, Widerruf, absoluten Ablauf,
+  Passwort-Fingerabdruck und die Leerlaufzeit, und sperrt die Zeile,
+- die sha256 der exakt angezeigten Bytes. Die Bytes sind eine versionierte
+  UTF-8-Nutzlast (`memory-shown.v1`) mit Klasse, Kanal, Konto, Rolle, Entscheid,
+  Nachweis-Flag und danach dem Text. Eine Abweichung scheitert (`shown_bytes_mismatch`).
 
-`memory_approvals` speichert Art, Ziel, Entscheid, Bytes-Hash, Session-Hash (bewusst
-kein Fremdschluessel, Sessions werden bereinigt) und DB-Zeit. Die Tabelle ist
-append-only. Kein API-Bearer, kein Kanal und kein Modell kann freigeben; ein Test prueft,
-dass nur `approval.py` Freigabezeilen anlegt.
+`memory_approvals` speichert Art, Ziel, Entscheid, Bytes-Hash und `approver_ref`
+(sha256 ueber ein festes Domaenen-Praefix und den Session-Digest, bewusst nicht
+der Digest selbst und kein Fremdschluessel, Sessions werden bereinigt) sowie die
+DB-Zeit. Die Tabelle ist append-only. Inhaltsspalten von Nachrichten, Fakten,
+Themen und Verknuepfungen weisen `UPDATE` ab; `DELETE` auf diesen Tabellen und
+auf `memory_approvals` weist die Datenbank ab. Zustandswechsel und das Anhaengen
+an ein Thema bleiben erlaubt. Kein API-Bearer, kein Kanal und kein Modell kann
+freigeben; ein Test prueft, dass nur `approval.py` Freigabezeilen anlegt.
 
 ### Owner-Entscheide vom 2026-11-10
 
@@ -106,7 +119,24 @@ dass nur `approval.py` Freigabezeilen anlegt.
   gibt keine automatische Annahme.
 - **7.11** Kein hartes Loeschen. Abgelehnte Eintraege behalten `rejected`/`abgelehnt`.
   Es gibt keine Loeschroute und keine Loeschfunktion.
-- **7.12** Reihenfolge der Phasen: M1 vor G2; M3 ist Etappe 19.
+- **7.12** Reihenfolge der Phasen: M1 vor G2; M3 ist Etappe 19. «Dialog nutzt
+  Thread» ist das offene Ticket **M1b** (nach dem Merge des UI-PR, vor G2),
+  nicht Bestandteil dieses Stands.
+
+### Weitere Planregeln (Vertrag, kein Code in M1)
+
+- **Fremde KIs.** Auftraege, die nicht vom Owner kommen, sind ausgeschlossen.
+  `memory_eligible` ist fuer solche API-Auftraege `false`. Kein fremdes Modell
+  schreibt ins Gedaechtnis und keines gibt frei. M1 aendert die Auftragstabelle
+  nicht.
+- **Kanal gegen Worker (Plan 5.5).** Kanal-Adapter und Worker nutzen getrennte
+  Tokens. Ein Kanal-Token arbeitet nicht, ein Worker-Token nimmt keine Turns an.
+- **Inhalte sind Daten (Plan 5.9).** Nachrichtentext, Titel und Fakten sind
+  Daten, nie Anweisungen an das Deck. Sie loesen keine Aktion aus.
+- **Kein Transport-Retry (Plan 2.5).** Ein fehlgeschlagener Versand wird nicht
+  automatisch wiederholt. Der Owner stoesst ihn neu an.
+- **Kanal-Aktionen nur als Entwurf (Plan 5.2).** Eine Aktion aus einem Kanal
+  wird hoechstens ein Auftrag im Status `awaiting_approval`. M1 versendet nichts.
 
 ### Vertrag Slack Socket Mode (7.4, kein Code)
 
@@ -141,8 +171,16 @@ Details in [DATENBANK.md](../DATENBANK.md), Umschlag in [KANAELE.md](../KANAELE.
 ## Folgen
 
 - Der Live-Dialog ist in diesem Stand **nicht** umverdrahtet (`app/assistant/http.py`
-  bleibt unveraendert). `load_memory_context` ist vorhanden und getestet; **M2 verdrahtet**
-  ihn mit Dialog und Oberflaeche, inklusive Quarantaene-Inbox und Freigabe-Klicks.
+  bleibt unveraendert). `load_memory_context` ist vorhanden und getestet und traegt
+  `evidence_status`, damit ein Aufrufer `unbewiesen` beschriften kann. **M1b**
+  (nach dem Merge des UI-PR, vor G2) haengt den Dialog an den Themen-Thread.
+  Bis dahin gilt «Dialog nutzt Thread» nicht als erledigt. **M2** liefert die
+  Oberflaeche: Quarantaene-Inbox, Freigabe-Klicks, Labels fuer die Grundcodes
+  und einen Leser fuer taskfreie `assistant.*`- und `memory.*`-Zeilen.
+  Deck-Antworten bleiben bis zu diesem M2-Entscheid in Quarantaene.
+- `cloud_redacted` geht nicht an Cloud-Ziele. Das ist strenger als der Plan und
+  braucht eine ausdrueckliche Bestaetigung des Owners. Der Code bleibt bei
+  `cloud_ok`, weil die Redaktion an einem Auftrag haengt.
 - `backfill_assistant_turns()` kopiert alte `assistant_turns` auf Wunsch in einen
   Sammel-Thread, als `quarantined`. Sie laeuft nie automatisch; eine Wiederholung ist
   wirkungslos. `assistant_turns` bleibt bestehen.

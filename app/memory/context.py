@@ -28,6 +28,7 @@ from app.kb.contracts import allowed_classes
 from app.memory.ingest import contains_secret
 from app.memory.models import AssistantMessage, AssistantThread, MemoryFact
 from app.memory.policy import CLOUD_TARGETS, TARGETS, ConversationError
+from app.privacy.gate import non_local_texts_blocked
 
 # Mirrors the dialogue defaults (num_ctx 4096, num_predict 400, template reserve 64);
 # half of the remaining room is left for the system rules and the current message.
@@ -45,6 +46,8 @@ class MemoryItem:
     reference: str
     data_class: str
     role: str | None
+    # ``bewiesen``, ``unbewiesen``, ``abgelehnt``, or ``owner-typed`` for the profile.
+    evidence_status: str
     text: str = field(repr=False)
 
 
@@ -88,8 +91,18 @@ def _keywords(query: str | None) -> frozenset[str]:
     return frozenset(word.lower() for word in _WORD.findall(query))
 
 
+def render_fact_text(*, subject: str, predicate: str, object_: str, sentence: str) -> str:
+    """The one fact string shown in context and scanned at proposal time."""
+    return f"{subject} | {predicate} | {object_} ({sentence})"
+
+
 def _fact_text(fact: MemoryFact) -> str:
-    return f"{fact.subject} | {fact.predicate} | {fact.object} ({fact.original_sentence})"
+    return render_fact_text(
+        subject=fact.subject,
+        predicate=fact.predicate,
+        object_=fact.object,
+        sentence=fact.original_sentence,
+    )
 
 
 def load_memory_context(
@@ -116,7 +129,12 @@ def load_memory_context(
         row = current_profile(session)
         if row is not None and row.notes.strip():
             profile = MemoryItem(
-                "profile", f"profile:{row.version}", "local_only", None, row.notes.strip()
+                "profile",
+                f"profile:{row.version}",
+                "local_only",
+                None,
+                "owner-typed",
+                row.notes.strip(),
             )
 
     history: list[MemoryItem] = []
@@ -134,7 +152,14 @@ def load_memory_context(
                 .limit(_HISTORY_LIMIT)
             )
             history = [
-                MemoryItem("history", str(row.id), row.data_class, row.role, row.text)
+                MemoryItem(
+                    "history",
+                    str(row.id),
+                    row.data_class,
+                    row.role,
+                    row.evidence_status,
+                    row.text,
+                )
                 for row in rows
             ]  # newest first
 
@@ -166,7 +191,9 @@ def load_memory_context(
                 ranked.append((-in_thread, -hits, position, fact))
         ranked.sort(key=lambda entry: entry[:3])
         facts = [
-            MemoryItem("fact", str(fact.id), fact.data_class, None, _fact_text(fact))
+            MemoryItem(
+                "fact", str(fact.id), fact.data_class, None, fact.evidence_status, _fact_text(fact)
+            )
             for *_, fact in ranked
         ]
 
@@ -175,7 +202,7 @@ def load_memory_context(
 
     def fits(item: MemoryItem) -> bool:
         nonlocal used, dropped
-        if contains_secret(item.text):
+        if contains_secret(item.text) or non_local_texts_blocked(item.data_class, (item.text,)):
             dropped += 1
             return False
         cost = estimate_dialogue_tokens(item.text)

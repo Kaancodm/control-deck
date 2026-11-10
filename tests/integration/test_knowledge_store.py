@@ -20,6 +20,10 @@ from app.workers.lanes.ollama_keep_alive import parse_keep_alive_value
 from tests.support.kb import contract_row, use_contract, use_fake_contract
 from tests.support.ollama_stub import OllamaStub
 
+QWEN3_QUERY_PREFIX = (
+    "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "
+)
+
 
 @pytest.fixture(scope="module")
 def kb_engine():
@@ -260,7 +264,9 @@ def test_ollama_store_puts_searches_and_resolves_on_real_contract(real_contract)
         assert len(embed_requests(stub)[0]["body"]["input"]) == 2
         hits = store.search(content[:1500], task_class=DataClass.LOCAL_ONLY, limit=2)
         assert [item.reference for item in hits] == [first, other]
-        assert embed_requests(stub)[-1]["body"]["input"] == [content[:1500]]
+        # Only the query carries the fixed Qwen3 instruction; documents stay unprefixed.
+        assert embed_requests(stub)[-1]["body"]["input"] == [QWEN3_QUERY_PREFIX + content[:1500]]
+        assert embed_requests(stub)[0]["body"]["input"][0] == content[:1500]
         assert store.resolve((first,), task_class=DataClass.LOCAL_ONLY)[0].text.endswith(content)
     assert contract_row(real_contract) == ("deck_kb.v1", "qwen3-embedding:0.6b", 1024)
     assert counts(real_contract) == (2, 3)

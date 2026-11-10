@@ -104,10 +104,15 @@ laeuft nur auf leeren Tabellen mit exakt der alten Vertragszeile (`deck-fake-emb
 und laesst die Unveraenderlichkeits-Trigger unberuehrt. Tests setzen die Fake-Vertragszeile
 ueber `tests/support/kb.py`, das nur `_test`-DBs annimmt.
 
-Ein Dokument wird mit allen Chunks (hoechstens 16) in einem `/api/embed`-Aufruf eingebettet,
-eine Suche mit einem weiteren. Ein bereits vorhandenes Dokument wird nicht erneut eingebettet.
-Die Antwort muss das Modell spiegeln, darf keine Remote- oder Fehlerfelder tragen und liefert
-je Eingabe genau 1024 endliche Zahlen ohne Nullvektor. Es gibt nie einen Rueckfall auf den Fake.
+Vor dem ersten `/api/embed`-Aufruf (je Adapter-Instanz gecacht und bei Modellwechsel erneut
+geprueft) ruft der Adapter ueber denselben begrenzten Loopback-Client `/api/show` fuer
+`<modell>:local` auf und weist `remote_host`, `remote_model` sowie jede Cloud-Kennung mit
+`embedding_model_remote` ab, bevor Wissenstext an `/api/embed` gesendet wird. Der Body von
+`/api/show` wird nie geloggt. Ein Dokument wird danach mit allen Chunks (hoechstens 16) in
+einem `/api/embed`-Aufruf eingebettet, eine Suche mit einem weiteren. Ein bereits vorhandenes
+Dokument wird nicht erneut eingebettet. Die Antwort muss das Modell spiegeln, darf keine
+Remote- oder Fehlerfelder tragen und liefert je Eingabe genau 1024 endliche Zahlen ohne
+Nullvektor. Es gibt nie einen Rueckfall auf den Fake.
 
 ### Anfrage-Instruktion
 
@@ -140,14 +145,16 @@ nur fuer diesen kleinen oeffentlichen Satz, nicht fuer reale Bestaende.
 | `embedding_timeout` | Zeitbudget erschoepft |
 | `embedding_unavailable` | Verbindungsfehler oder anderer HTTP-Status |
 | `embedding_model_missing` | 404, Modell nicht lokal vorhanden |
+| `embedding_model_remote` | `/api/show` fuer `<modell>:local` meldet `remote_host`, `remote_model` oder eine Cloud-Kennung; kein `/api/embed`-Aufruf |
 | `embedding_input_too_long` | 400; bei `truncate: false` meist Eingabe laenger als der Kontext (API/UI: 422) |
-| `embedding_malformed` | kaputtes JSON, Uebergroesse, falsche Anzahl, Modell-Echo, Remote-Felder |
+| `embedding_malformed` | kaputtes JSON, Uebergroesse, Fehlerfeld, falsche Anzahl, Modell-Echo oder Remote-Felder in `/api/embed` |
 | `embedding_dimension_mismatch` | Vektor nicht 1024 lang |
 | `embedding_invalid` | nicht endlich, kein Zahlwert oder Nullvektor |
 | `knowledge_contract_mismatch` | Vertragszeile oder Spaltentyp passt nicht zur konfigurierten Spec |
 
 Jeder Aufruf schreibt eine JSON-Logzeile `kb_embedding_call` mit Zweck, Anzahl, Dimension,
-Dauer, Phase, Grund und Status, nie Text, Vektorwerte, URL oder Server-Fehlertext.
+Dauer, Phase, Grund und Status, nie Text, Vektorwerte, URL, `/api/show`-Body oder
+Server-Fehlertext.
 
 Index: keiner. Die Suche rangiert `min(Distanz)` je Dokument nach dem Klassenfilter und ist
 exakt. Ein HNSW-Index ist als spaetere Revision vorgesehen, sobald ein Messwert es verlangt

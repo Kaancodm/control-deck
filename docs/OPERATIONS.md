@@ -281,10 +281,13 @@ privaten Env-Datei, nie im Repo oder in Logs.
 0. **Preflight, nur lesend.** `alembic_kb_version` ist `kb_0001`; Vertragszeile
    (`deck_kb.v1`, `deck-fake-embedding-v1`, 8); Spalte `deck_kb.chunks.embedding` ist
    `vector(8)`; `deck_kb.documents` und `deck_kb.chunks` haben je 0 Zeilen; pgvector-Version
-   wie im letzten Backup-Manifest; `/api/tags` listet `qwen3-embedding:0.6b`. Zusätzlich
-   prüfen, ob `/api/embed` die Kennung mit Suffix `:local` annimmt und 1024 Dimensionen liefert
-   (siehe [LANES.md](LANES.md#embedding-vertrag-apiembed); am 2026-11-10 für Ollama `v0.40.14`
-   per `curl` am Server belegt, Status `proven` für diese Version; nach jedem Ollama-Update
+   wie im letzten Backup-Manifest; `/api/tags` listet `qwen3-embedding:0.6b`; `/api/show` für
+   `qwen3-embedding:0.6b:local` liefert keine Felder `remote_host` oder `remote_model` und keine
+   Cloud-Kennung (der Adapter prüft dies vor dem ersten `/api/embed` ebenfalls und bricht sonst
+   mit `embedding_model_remote` ab). Zusätzlich prüfen, ob `/api/embed` die Kennung mit Suffix
+   `:local` annimmt und 1024 Dimensionen liefert (siehe
+   [LANES.md](LANES.md#embedding-vertrag-apiembed); am 2026-11-10 für Ollama `v0.40.14` per
+   `curl` am Server belegt, Status `proven` für diese Version; nach jedem Ollama-Update
    wiederholen). Bei jeder Abweichung Stopp.
 1. **Backup mit dem alten Release:** `make backup`. Dieser Satz lässt sich nur mit altem Code
    zurückspielen, weil Restore eine passende Manifest-Revision verlangt.

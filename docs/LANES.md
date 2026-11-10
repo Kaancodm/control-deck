@@ -219,14 +219,22 @@ Die Wissens-DB nutzt `OllamaHTTPClient.embed` im API-Prozess, nicht den Runner (
 Der Aufruf erbt Loopback-only, keinen Proxy, keine Weiterleitung, `Connection: close`, die
 503-Wiederholung innerhalb desselben Budgets und den Abbruch aus dem HTTP-Vertrag oben.
 
+Vor dem ersten `/api/embed`-Aufruf (je Adapter-Instanz gecacht, bei Modellwechsel erneut
+geprueft) fuehrt `OllamaEmbeddings` ueber den gemeinsamen Helper der Chat-Lane (`show_local_model`,
+`is_remote_model_info` in `app/workers/lanes/ollama.py`) ein `POST /api/show` fuer
+`<modell>:local` aus. Meldet `/api/show` `remote_host`, `remote_model` oder eine Cloud-Kennung,
+bricht der Adapter fail-closed mit `embedding_model_remote` (HTTP 503) ab, bevor Wissenstext an
+`/api/embed` gesendet wird; schlaegt `/api/show` selbst fehl (404, 503, Timeout, defektes JSON),
+bricht der Adapter ebenfalls vor `/api/embed` ab. Der Body von `/api/show` wird nie geloggt.
+
 Request, nicht streamend: `POST /api/embed` mit `model` als konfigurierte Kennung plus `:local`,
 `input` als Liste nicht leerer Strings (hoechstens 16), `truncate: false` und optional
 `keep_alive`. Ein `dimensions`-Feld wird nie gesendet; die native Breite ist der Vertrag.
 Antworten sind auf 2 MiB begrenzt und werden mit dem strikten JSON-Leser geparst (doppelte
 Schluessel und nicht endliche Konstanten scheitern). Erwartet werden `model` (konfigurierte
 Kennung mit oder ohne `:local`) und `embeddings` mit genau einem Vektor je Eingabe; `error`,
-`remote_host` oder `remote_model` fuehren zu `embedding_malformed`. Es gibt keinen Pull,
-keinen Warmup und keinen periodischen Probe-Aufruf.
+`remote_host` oder `remote_model` in der `/api/embed`-Antwort fuehren zusaetzlich zu
+`embedding_malformed`. Es gibt keinen Pull, keinen Warmup und keinen periodischen Probe-Aufruf.
 
 Quellenstand `v0.40.14`, Commit `9a3e8177767245acc62b735eba7d5d8a553606d0`, gelesen am
 2026-11-10 ueber die oeffentlichen Rohdateien
@@ -238,8 +246,9 @@ am Server `unproven`.
 - `EmbedRequest` kennt `model`, `runner`, `input`, `keep_alive`, `truncate` (Zeiger auf bool),
   `dimensions` und `options`. Ohne Feld oder mit `true` wird gekuerzt; nur `false` ist strikt.
 - `EmbedResponse` kennt `model`, `embeddings` (`float32`), `total_duration`, `load_duration` und
-  `prompt_eval_count`, aber **keine** Remote-Felder. Die Remote-Pruefung im Adapter schuetzt nur
-  gegen eine kuenftige Formataenderung.
+  `prompt_eval_count`, aber **keine** Remote-Felder. Deshalb prueft der Adapter vor dem ersten
+  `/api/embed` `/api/show` auf `<modell>:local` (`embedding_model_remote`); die Remote-Pruefung
+  auf `EmbedResponse` bleibt als zweite Schranke fuer kuenftige Formataenderungen.
 - Mit `truncate: false` ergibt eine zu lange Eingabe HTTP 400 (im Deck
   `embedding_input_too_long`, API 422); der Handler laedt das Modell vorher trotzdem. Das Deck
   liest den Server-Fehlertext nie und ordnet nur nach Status zu; auch NaN oder Inf ergeben 400.

@@ -57,7 +57,11 @@ def test_login_lands_on_the_overview_and_ignores_next(ui_client):
 def test_overview_counts_real_approvals_lanes_and_events(ui_client, db_session):
     login(ui_client)
     first = _insert_task(db_session, approved=False)
-    _insert_task(db_session, approved=False)
+    # Separate transactions give separate now() values, so "oldest" is well defined.
+    db_session.commit()
+    second = _insert_task(db_session, approved=False)
+    db_session.commit()
+    assert first.created_at < second.created_at
     db_session.add(
         OperationEvent(
             operation_id=uuid4(),

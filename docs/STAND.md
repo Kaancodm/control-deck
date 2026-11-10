@@ -1,5 +1,15 @@
 # Stand des Repositorys
 
+## Nachtrag 2026-11-10: UI-Angleichung als Draft
+
+Der Zweig `feat/ui-command-center-shell` setzt PR 1 aus
+[plans/UI_MOCKUP_ANGLEICHUNG.md](plans/UI_MOCKUP_ANGLEICHUNG.md) um: neue Shell,
+Übersicht unter `/ui/overview`, Redirect von `/`, überarbeitete Anmelde- und
+Assistentenseite. Auth, Session, CSRF, Login-Limit und CSP sind unverändert; es gibt
+keine Migration und keine neue Abhängigkeit. Geprüft sind Unit- und
+PostgreSQL-Integrationstests lokal. Die Browser-Smokes laufen nur in der CI; ein
+Safari-Test auf einem echten iPhone steht aus. Nichts davon ist ausgerollt.
+
 ## Nachtrag 2026-11-08: Assistent offline
 
 Migration `20261108_0019` folgt auf `20261104_0018` und speichert Profilversionen,

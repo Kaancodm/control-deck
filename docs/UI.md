@@ -8,6 +8,9 @@ spätere Design aus den Owner-Komponenten wird separat getestet und abgenommen.
 
 | Ansicht | Verhalten |
 |---------|-----------|
+| `/` | 303 auf `/ui`; festes Ziel, liest weder Query noch Cookie noch Datenbank |
+| `/ui` | 303 auf `/ui/overview`; ohne Datenbank |
+| `/ui/overview` | Übersicht nach dem Login; nur lesend, jede Zahl aus gespeicherten oder konfigurierten Daten |
 | `/ui/login` | Lokales Passwort für genau einen Owner; kein Worker-Token-Login |
 | `/ui/tasks` | Titel-, Status-, Datenklassen- und Lane-Filter; 50 Aufträge pro Seite |
 | `/ui/tasks/new` | Auftrag mit Text und Dateien anlegen; `data_class` bleibt Pflicht |
@@ -41,6 +44,36 @@ autoritativen Text escaped an; sie wendet keine zweite Rückabbildung an. Die Ma
 nicht ins Template oder in den Download. Positionsmarkierungen brauchen zusätzliche
 Provenienz-Metadaten und bleiben ein Folgepunkt; die eingefrorenen Result-Schemas werden
 dafür nicht verändert.
+
+## Shell und Navigation
+
+Nach dem Login landet der Owner fest auf `/ui/overview` (`HOME_PATH` in `app/ui/views.py`).
+Es gibt weiterhin keinen `next`- oder `return_to`-Parameter; ein mitgeschicktes `next` wird
+ignoriert. `/ui/tasks` und alle übrigen Pfade bleiben direkt erreichbar. Ein Link von einer
+fremden Seite auf `/` ergibt wie jede Cross-Site-Anfrage 403; Lesezeichen funktionieren.
+
+Ab 861 CSS-Pixeln zeigt eine Seitenleiste alle zehn Ziele in zwei Gruppen (Workspace:
+Übersicht, Aufträge, Neuer Auftrag, Wissen; Steuerung: Lanes, Assistent, Meldungen, Offene
+Punkte, Lokaler Chat, Audit). Bis 860 Pixel ersetzt sie eine fixe Leiste am unteren Rand mit
+Übersicht, Lanes, Assistent, Meldungen und Offen; die übrigen Ziele liegen im «Menü» der
+Kopfzeile. So gibt es je Breite genau einen sichtbaren Link pro Ziel. «Meldungen» und
+«Offene Punkte» sind Abschnitte der Übersicht (`#meldungen`, `#offen`), keine eigenen Seiten.
+Die Kopfzeile ist ab 861 Pixeln `sticky`, darunter `static`, damit die Bildschirmtastatur
+nichts verdeckt. Die Anmeldeseite hat keine Navigation und kein `fixed`- oder
+`sticky`-Element. Der Zoom bleibt frei, Eingaben bleiben 16 Pixel gross, Bedienelemente
+mindestens 44 Pixel hoch; `env(safe-area-inset-*)` hält Abstand zu Notch und Home-Indikator.
+
+Die Übersicht zeigt nur Werte mit Quelle: offene Start- und Ergebnis-Freigaben, Claims des
+Tages und das lokale Tageslimit (nur wenn jede Lane eines hat), die drei Lanes mit
+Vorprüfungszeit, den Schrittweg des Fokus-Auftrags, das letzte erfasste Backup- und
+Restore-Ereignis aus dem Audit und die letzten fünf Audit-Ereignisse. Fehlt eine Quelle,
+steht «nicht verfügbar» oder «noch keines erfasst». Schalter wie `DECK_ASSISTANT_OLLAMA`,
+`DECK_ASSISTANT_WEB` und `DECK_ROUTINE_WAKE` erscheinen nur als Zustand (aus, unvollständig,
+an); Adressen, Schlüssel und Modellkennungen werden nie gerendert. Die offenen Punkte werden
+aus diesen Deck-Daten abgeleitet, sie sind keine Projektliste. Die Netzkarte ist ein
+statisches Inline-SVG ohne Skript; gestrichelte Knoten sind aus oder nicht erfasst.
+Anbieter-Kontingente, Backup-Uhrzeit, Offsite-Status, Modellname und Deploy-Stand zeigt
+die Übersicht bewusst nicht.
 
 ## Dateien
 
@@ -150,12 +183,32 @@ Anfang von `app/ui/static/app.css` zentralisiert. Layout und wiederkehrende Komp
 liegen in `base.html` und `templates/partials/`. Status erscheinen immer mit Text und Symbol.
 Die Oberfläche benötigt keinen Build-Schritt, kein CDN und keine externen Schriften.
 
+Die Token-Namen bleiben stabil, die Werte folgen der Command-Center-Palette:
+`--color-bg`, `--color-side`, `--color-panel`, `--color-raised`, `--color-text`,
+`--color-text-2`, `--color-muted`, `--color-line`, `--color-control-border`,
+`--color-accent`, `--color-brand`, `--color-action` (Primärbutton, weisse Schrift),
+`--color-on-warning` und `--color-on-danger` (Schrift auf `mark` und `.danger`),
+`--radius`, `--side-width` und `--tabbar-height`. Ein Unit-Test rechnet die
+WCAG-Kontraste dieser Werte nach (Text mindestens 4,5:1, Feldrahmen mindestens 3:1).
+Gewählt ist die Systemschrift: Die CSP hat kein `font-src`, `default-src 'none'` würde
+also auch selbst gehostete Webfonts blockieren. Icons sind Inline-SVG aus
+`partials/icons.html`. Unter `prefers-reduced-motion: reduce` entfallen Übergänge und
+Hover-Versatz.
+
 Chromium-Smokes verwenden eine isolierte temporäre App, eine ausdrückliche `_test`-DB,
 ein synthetisches Passwort und Fake-Worker. Bei 390 Pixeln mit JavaScript und 1024 Pixeln
 ohne JavaScript prüfen sie Login, Upload, Start-Freigabe, simulierten Lauf, Review, `done`,
 Chat-Entwurf, Logout, globale Abmeldung zweier Browser-Sessions sowie globale Sperre
 und lokale Entsperrung. Sie prüfen ferner fehlende externe Requests, horizontales Scrollen,
 semantische Überschriften und einen CSS-Variablenwechsel ohne Logikänderung.
+
+`tests/integration/test_ui_shell_browser.py` prüft die Shell bei 320, 390 und 1024 Pixeln:
+kein Quer-Scrollen, ein `h1`, Leiste oder Seitenleiste je Breite, Tap-Ziele, sichtbarer
+Fokus, Login ohne überdeckende Elemente und reduzierte Bewegung. Die optionale
+WebKit-Vorschau `tests/integration/test_ui_preview_webkit.py` schreibt Bildschirmfotos von
+Login, Übersicht und Assistent bei 390 × 844 nach `DECK_UI_PREVIEW_DIR` (sonst in das
+pytest-Temp-Verzeichnis) und überspringt ohne installiertes WebKit. Beides ist Emulation,
+kein Ergebnis auf einem echten iPhone.
 
 Browser-Tests brauchen Chromium: installiertes `chromium` oder `uv run playwright install
 chromium`. Die CI richtet den Browser nur in ihrem temporären Test-Runner ein. Pflichtchecks:

@@ -5,6 +5,23 @@
 Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
 
+### UI-Angleichung an das Command-Center-Mockup (PR 1, Draft)
+
+- Neue Shell: Seitenleiste ab 861 Pixeln, darunter fixe Leiste mit fünf Zielen und «Menü»
+  für den Rest; Anmeldeseite ohne Navigation. Token-Namen bleiben, Werte folgen der
+  Mockup-Palette; Systemschrift, weil die CSP kein `font-src` hat.
+- `GET /` leitet fest auf `/ui`, `/ui` und der Login auf die neue Übersicht `/ui/overview`.
+  Kein `next`-Parameter, kein neuer schreibender Endpunkt, keine Migration
+  (Head bleibt `20261108_0063`), keine neue Abhängigkeit.
+- Die Übersicht zeigt nur Daten mit Quelle (Freigaben, Claims, Lanes, letztes Backup- und
+  Restore-Ereignis, Audit) und Schalter nur als Zustand. Beispielzahlen, Namen, Hoster,
+  PR-Nummern, Modellname, Backup-Uhrzeit und 3D-Patch des Mockups entfallen.
+- Assistent zeigt Loopback, Web und Routine-Wake als Zustandschips; Texte und Formulare
+  bleiben unverändert.
+- Tests für Redirects, CSP-Pin, kein Inline-Code, Viewport, Kontrast, keine erfundenen
+  Zahlen, keine Konfigurationswerte im HTML, Übersicht gegen PostgreSQL, Chromium-Shell
+  bei 320/390/1024 Pixeln und optionale WebKit-Vorschau.
+
 ### Ollama Live-Adapter – Entscheid (#39, Draft)
 
 - ADR 0009 ersetzt für die lokale Live-Lane den CLI-Transport durch begrenztes

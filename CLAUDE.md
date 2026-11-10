@@ -125,6 +125,83 @@ These add to the human gates above; `AGENTS.md` still wins on conflict.
   or public URL; never internal hosts, URLs, or identifiers, see `AGENTS.md`), date, method,
   and status (`proven` / `unproven`). Never phrase unproven content as fact.
 
+## How we work with Claude (research-based)
+
+Owner research, 2026-10-29 (method: vendor docs read, re-verified; status: proven unless marked).
+Public sources: `code.claude.com/docs/en/best-practices`, `.../sub-agents`, `.../model-config`,
+`platform.claude.com/docs/en/build-with-claude/effort`, `.../models/fable-5-1/overview`.
+Role split, team rules, and handoff template below are owner decisions, not research findings.
+`AGENTS.md` and Human gates still win.
+
+### Roles per task (owner decision)
+
+Current team split (owner decision; model mechanics proven):
+
+- **Planning (Fable or another strong planner):** plans in Plan Mode and writes the
+  ticket/handoff; does not build. In Claude Code, select Fable explicitly (`/model fable`);
+  it is never the default. Default effort `high` applies only to Fable (proven);
+  Opus/Sonnet/Haiku start at `medium` (proven), and for other models set effort explicitly
+  per task. Recommendation: keep Fable at `high` and raise to `max`/`xhigh` only for hard
+  architecture or capacity-critical work.
+- **Building (Opus or Gemini):** implements and fixes from the ticket in a fresh session.
+- **Review/small-fix account:** in Claude Code, the account defaults to Opus (Opus 5.5 on
+  Pro/Max, proven), which is also the builder model. Therefore, reviews of Opus builds must
+  not use the default Opus model — run them with a different model or provider (e.g. a
+  read-only `sonnet`/`haiku` `reviewer` subagent limited to `Read, Grep, Glob` [proven], or a
+  Grok/Gemini worker), and small, scoped fixes written by the review account are themselves
+  reviewed afterward by another worker/model (owner decision / `[B principle]`).
+- **Security and code-quality reviews:** run by a different worker/model than the builder in a
+  fresh session without the build context (proven: fresh session, `/code-review`,
+  `/security-review`, `REVIEW.md`, or a read-only `reviewer` subagent on `sonnet`/`haiku`
+  limited to `Read, Grep, Glob`; owner decision / `[B principle]`: `builder != reviewer` —
+  builder and reviewer are never the same worker/model, and provider rotation follows
+  `AGENTS.md` and ADR 0008).
+- Do not run Fable in non-interactive `claude -p` runs: there it may bill usage credits
+  without asking (proven). Recommendation: pin models explicitly in scripts.
+
+### Keep context small
+
+- One task per session; `/clear` between unrelated tasks (`/clear` is free, `/compact` is a
+  large request of its own).
+- After a pause of more than about 1 h (prompt-cache lifetime), start fresh with a short
+  summary instead of resuming the old session.
+- **After two failed attempts:** `/clear` and write a better prompt instead of a third fix
+  (proven); in delegated builds, **stop and report to the coordinator** instead of guessing
+  (team rule).
+- Read targeted files and line ranges, not whole trees. Use subagents only for parallel work,
+  long outputs, or independent reviews; they share the same usage quota and return short
+  summaries.
+- Put long results in files (ticket, `SPEC.md`, report, `HANDOFF.md`), not in the chat.
+- CLAUDE.md is guidance only; hard limits belong in hooks and `permissions.deny`.
+
+### Handoff format (team format — owner decision)
+
+Proven mechanics: a subagent or fresh session sees only the handoff, not the planning chat,
+and built-in Explore/Plan agents do not load `CLAUDE.md`. The handoff must therefore be
+self-contained and repeat the rules that matter (including stating the goal as an outcome,
+"done when ...").
+
+The checklist below is **our team format (owner decision, not proven)** — write it with
+`/plan-ticket` (`tasks/TEMPLATE.md`) and cover:
+
+1. **Goal:** what is different afterwards, as an outcome ("done when ...").
+2. **Context/files:** files to change or create, with `file:line` where useful.
+3. **Non-goals:** files and areas not to touch, forbidden actions (no deps, no push, no prod).
+4. **Steps:** atomic.
+5. **Acceptance/tests:** exact commands (`make lint`, `make test`, ...) and expected result;
+   the build worker reports command plus output tail.
+6. **Risks:** what can break, rollback note for medium/high risk.
+7. **Open owner decisions (team-format field):** questions the build worker must not decide;
+   on doubt, stop and ask.
+
+After two failed attempts: `/clear` and write a better prompt (proven); in delegated builds,
+stop and report to the coordinator (team rule).
+
+### Provenance
+
+Research claims and knowledge entries follow the **Provenance** rule under Working rules
+(source, date, method, `proven`/`unproven`). Unproven tips stay out of rules.
+
 ## Gotchas
 
 - `ruff format --check` runs in CI. Run `uv run ruff format .` before committing.

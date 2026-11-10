@@ -32,7 +32,7 @@ Legende: **[B]** = in Code/Doku belegt (Pfad:Zeile), **[V]** = Vorschlag, **[U]*
 | F7 | `Sec-Fetch-Site: cross-site` ergibt 403 für alle Pfade. Das gilt künftig auch für `/`. | [B] `app/api/security.py:171-173` |
 | F8 | Session-Cookie `Path=/`, CSRF-Cookie `Path=/ui`, beide HttpOnly und SameSite=Strict. | [B] `app/ui/auth.py:165-189` |
 | F9 | Viewport ohne Zoomsperre, Eingaben 16 px, Bedienelemente 44 px. | [B] `app/ui/templates/base.html:5`, `app/ui/static/app.css:23,32,33` |
-| F10 | Es gibt drei Lanes: `ollama`, `claude`, `codex`. `agy` ist keine Lane. | [B] `app/core/schemas.py:46-49`, `docs/BETRIEB_OHNE_LAPTOP.md:32,51` |
+| F10 | Im Deck angebunden sind drei Lanes: `ollama`, `claude`, `codex` (Worker-Enum). **Nachtrag 10.11.2026, Owner-Entscheid vom 07.11.2026: agy ist die vierte Lane.** Sie ist im Deck noch nicht angebunden; ADR und Anbindung fehlen. Die UI zeigt sie als vierte Zeile ohne erfundene Daten. Enum und Schema bleiben in diesem PR unverändert. | [B] `app/core/schemas.py:46-49`, `docs/BETRIEB_OHNE_LAPTOP.md:32,51` |
 | F11 | Die Backup-Timer-Vorlage läuft um 03:15, nicht 04:00. Der Server-Timer ist aus dem Repo nicht lesbar. | [B] `deploy/systemd/deck-backup.timer:5` |
 | F12 | Wake: höchstens 3 POSTs. Wiederholt wird nur bei HTTP-Status ausser 200. Eine fehlende Antwort wird `unknown_start` und nicht erneut gesendet. Der Mockup-Satz «wiederholt, wenn keine kommt» stimmt nicht. | [B] `app/transport/outbox.py:36-38,173-179`, `docs/TRANSPORT.md:56-63` |
 | F13 | Verlauf und Profil gehen nur per Kästchen ins Prompt. «Gesprächskontext wird gehalten» ist zu stark. | [B] `app/ui/templates/assistant.html:46-48`, `docs/ASSISTENT.md:91-92` |
@@ -342,6 +342,7 @@ Die Sichtbarkeitsregel hinter K5: Bis 860 px sind Tabbar (Einträge mit `tab_lab
 ```python
 root_router = APIRouter(include_in_schema=False)
 
+
 @root_router.get("/")
 def root() -> Response:
     # Fixed internal target; no query, cookie or session is read here.
@@ -359,10 +360,12 @@ def overview(request: Request, session: DbSession) -> Response:
     _, blocked_total = list_owner_tasks(session, state=TaskState.BLOCKED, limit=1)
     latest, _ = list_owner_tasks(session, limit=1)
     recent = list_audit(session, AuditFilter(limit=5))
-    backups = list_audit(session, AuditFilter(
-        source="operation", event_type="operation.backup", limit=10))
-    restores = list_audit(session, AuditFilter(
-        source="operation", event_type="operation.restore", limit=10))
+    backups = list_audit(
+        session, AuditFilter(source="operation", event_type="operation.backup", limit=10)
+    )
+    restores = list_audit(
+        session, AuditFilter(source="operation", event_type="operation.restore", limit=10)
+    )
     ...
     return page(request, "overview.html", ...)
 ```

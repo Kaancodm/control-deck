@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from argon2 import PasswordHasher
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -1371,6 +1371,27 @@ def test_context_items_carry_evidence_status(db_session: Session) -> None:
 
 
 # --- backfill and audit views ---------------------------------------------------------
+
+
+def test_backfill_without_owner_account_writes_nothing(db_session: Session) -> None:
+    db_session.add(
+        AssistantTurn(
+            data_class="local_only",
+            owner_text="Synthetic owner question.",
+            reply_text="Synthetic reply.",
+            reply_origin="mock",
+        )
+    )
+    db_session.flush()
+    db_session.execute(
+        delete(ChannelAccount).where(
+            ChannelAccount.channel == "deck_ui", ChannelAccount.account_label == "owner"
+        )
+    )
+    with pytest.raises(ConversationError, match="account_missing"):
+        backfill_assistant_turns(db_session)
+    assert db_session.get(AssistantThread, COLLECTION_THREAD_ID) is None
+    assert db_session.scalar(select(func.count()).select_from(AssistantMessage)) == 0
 
 
 def test_backfill_copies_turns_as_quarantined_and_rerun_is_noop(db_session: Session) -> None:

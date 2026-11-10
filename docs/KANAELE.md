@@ -428,7 +428,8 @@ Ein zweiter Lauf trifft den Unique-Schluessel und fuegt nichts ein.
 `secret_rejected` im Bericht zaehlt Geheimnisse und zusaetzlich eine
 `data_class` ausserhalb der drei Werte. Audit
 `assistant.backfill_completed` nur, wenn etwas eingefuegt wurde oder der
-Sammel-Thread neu ist.
+Sammel-Thread neu ist. Fehlt das Konto `deck_ui`/`owner`, bricht der Backfill
+mit `account_missing` ab, bevor etwas geschrieben wird.
 
 ## Nicht in diesem Stand
 

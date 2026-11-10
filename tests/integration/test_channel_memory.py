@@ -7,6 +7,7 @@ import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from pathlib import Path
 
 import pytest
 from argon2 import PasswordHasher
@@ -90,6 +91,14 @@ _OWNER_PASSWORD_HASH = PasswordHasher().hash("synthetic-owner-password-for-memor
 def _owner_password_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     """Session checks need a configured owner password (synthetic, test-only)."""
     monkeypatch.setenv("DECK_OWNER_PASSWORD_HASH", _OWNER_PASSWORD_HASH)
+
+
+@pytest.fixture(autouse=True)
+def _blocklist_configured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Cloud classes fail closed without a blocklist; give tests an empty one."""
+    path = tmp_path / "empty-blocklist.txt"
+    path.write_text("# synthetic, empty\n", encoding="utf-8")
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(path))
 
 
 def _owner_session(
@@ -1416,3 +1425,88 @@ def test_task_audit_views_ignore_conversation_rows(db_session: Session) -> None:
     conversation = ("assistant.", "memory.")
     assert all(not item.event_type.startswith(conversation) for item in everything.items)
     assert db_session.scalar(select(func.count()).select_from(Event)) == 2
+
+
+def test_decided_rows_are_frozen_and_thread_attach_is_one_way(db_session: Session) -> None:
+    token = _owner_session(db_session)
+    thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="freeze-1",
+        thread_class="local_only",
+        rows=[("local_only", "Synthetic note about the shed key.")],
+    )
+    _approve_message(db_session, token, ids[0])
+    other = _owner_thread(db_session, token, "Other topic", "local_only")
+    for values in (
+        {"state": "rejected"},
+        {"evidence_status": "bewiesen"},
+        {"approval_id": None},
+        {"thread_id": other.id},
+    ):
+        nested = db_session.begin_nested()
+        with pytest.raises(DBAPIError, match="memory_content_immutable"):
+            db_session.execute(
+                update(AssistantMessage).where(AssistantMessage.id == ids[0]).values(**values)
+            )
+        nested.rollback()
+    stored = db_session.get(AssistantMessage, ids[0])
+    assert stored is not None
+    db_session.refresh(stored)
+    assert stored.state == "approved" and stored.thread_id == thread.id
+
+
+def test_missing_blocklist_fails_closed_for_cloud_but_keeps_local_context(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token = _owner_session(db_session)
+    thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="noblock-1",
+        thread_class="cloud_ok",
+        rows=[("cloud_ok", "Synthetic note: the rake hangs left.")],
+    )
+    _approve_message(db_session, token, ids[0])
+    monkeypatch.delenv("DECK_BLOCKLIST_PATH", raising=False)
+    refused = ingest_turn(
+        db_session, _turn(data_class="cloud_ok", text="Another synthetic cloud note.")
+    )
+    assert refused.status == "rejected" and refused.reason == "privacy_block"
+    local = ingest_turn(db_session, _turn(data_class="local_only", text="Local synthetic note."))
+    assert local.status == "accepted"
+    cloud = load_memory_context(
+        db_session, thread_id=thread.id, target="claude", data_class="cloud_ok"
+    )
+    assert cloud.items == () and cloud.dropped >= 1
+    on_box = load_memory_context(
+        db_session, thread_id=thread.id, target="ollama", data_class="cloud_ok"
+    )
+    assert [item.text for item in on_box.items] == ["Synthetic note: the rake hangs left."]
+
+
+def test_propose_fact_applies_the_privacy_block(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    term = "pumpkinledger"
+    token = _owner_session(db_session)
+    _thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="factpriv-1",
+        thread_class="cloud_ok",
+        rows=[("cloud_ok", "Synthetic note about squash.")],
+    )
+    path = tmp_path / "fact-blocklist.txt"
+    path.write_text(term + "\n", encoding="utf-8")
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(path))
+    with pytest.raises(ConversationError, match="privacy_block"):
+        propose_fact(
+            db_session,
+            source_message_id=ids[0],
+            original_sentence=f"Squash goes in the {term}.",
+            subject="squash",
+            predicate="goes_in",
+            object_=term,
+        )
+    assert _tables_containing(db_session, term) == []

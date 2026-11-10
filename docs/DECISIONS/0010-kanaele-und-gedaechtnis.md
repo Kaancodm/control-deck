@@ -125,10 +125,11 @@ freigeben; ein Test prueft, dass nur `approval.py` Freigabezeilen anlegt.
 
 ### Weitere Planregeln (Vertrag, kein Code in M1)
 
-- **Fremde KIs.** Auftraege, die nicht vom Owner kommen, sind ausgeschlossen.
-  `memory_eligible` ist fuer solche API-Auftraege `false`. Kein fremdes Modell
-  schreibt ins Gedaechtnis und keines gibt frei. M1 aendert die Auftragstabelle
-  nicht.
+- **Fremde KIs (Plan 3.6).** Fremde KIs duerfen hoechstens ueber die bestehende
+  API einen Auftrag anlegen (`requested_by=api`, Status `awaiting_approval`).
+  Solche Auftraege tragen `memory_eligible=false`: kein Gedaechtnis-Kontext
+  hinein, kein Ergebnis-Export ins Gedaechtnis. Kein fremdes Modell schreibt ins
+  Gedaechtnis und keines gibt frei. M1 aendert die Auftragstabelle nicht.
 - **Kanal gegen Worker (Plan 5.5).** Kanal-Adapter und Worker nutzen getrennte
   Tokens. Ein Kanal-Token arbeitet nicht, ein Worker-Token nimmt keine Turns an.
 - **Inhalte sind Daten (Plan 5.9).** Nachrichtentext, Titel und Fakten sind
@@ -137,6 +138,35 @@ freigeben; ein Test prueft, dass nur `approval.py` Freigabezeilen anlegt.
   automatisch wiederholt. Der Owner stoesst ihn neu an.
 - **Kanal-Aktionen nur als Entwurf (Plan 5.2).** Eine Aktion aus einem Kanal
   wird hoechstens ein Auftrag im Status `awaiting_approval`. M1 versendet nichts.
+
+### Datenschutz-Sperre (Zusatzregel aus dem Sicherheits-Review, Owner-Bestaetigung offen)
+
+- Fuer `cloud_ok` und `cloud_redacted` gilt bei der Annahme dasselbe Sperr-Praedikat
+  wie beim Auftrags-Gate (`findings_block`, Blockliste plus eingebaute Muster).
+  Ein Treffer weist den Turn ab (`privacy_block`); es bleibt nur der Hash, der
+  Text erscheint nicht in der Quarantaene. Das schraenkt 7.2 fuer Cloud-Klassen ein.
+- Ist keine Blockliste konfiguriert oder ist sie unlesbar, gilt das wie beim
+  Auftrags-Gate als gesperrt (fail-closed). Dann nimmt das Deck nur noch
+  `local_only`-Turns an, auf allen Kanaelen.
+- Dasselbe gilt fuer `propose_fact` (Klasse der Quellnachricht).
+- `load_memory_context` wendet die Sperre nur fuer Cloud-Ziele an (`claude`,
+  `claude_code`, `grok`). Das lokale Ziel `ollama` bekommt freigegebene Zeilen
+  auch ohne Blockliste; der Geheimnis-Scan gilt dort weiter.
+- Alternative fuer den Owner: Treffer markiert in die Quarantaene statt Abweisung.
+  Nicht gebaut; der Owner entscheidet.
+
+### Unveraenderlichkeit nach dem Entscheid
+
+- Nachrichten: `state`, `evidence_status` und `approval_id` sind nach dem Verlassen
+  von `quarantined` eingefroren; `thread_id` darf nur von leer auf ein Thema wechseln.
+- Fakten: `status`, `evidence_status`, `approval_id` nach `proposed` eingefroren.
+- Themen und Verknuepfungen: `status`/`state`, `approval_id` (bei Verknuepfungen auch
+  `thread_id`) nach `proposed` eingefroren.
+- Akzeptiertes Restrisiko: Der Ersatz-Dedup-Schluessel ohne Nachrichten-ID enthaelt
+  `source_date`. Ein Sender mit neuem Zeitstempel legt eine weitere Kopie in die
+  Quarantaene; ohne `source_date` wuerden echte Wiederholungen (z. B. «ok») verschluckt.
+- Betriebshinweis: `TRUNCATE` umgeht die Zeilen-Trigger. Das Recht dafuer soll der
+  Anwendungsrolle beim Prod-Rollout entzogen werden (Rollen liegen ausserhalb des Repos).
 
 ### Vertrag Slack Socket Mode (7.4, kein Code)
 

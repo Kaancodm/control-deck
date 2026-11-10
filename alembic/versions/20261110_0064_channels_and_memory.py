@@ -37,12 +37,13 @@ _EVENTS_SCOPE = (
     "(task_id IS NULL AND to_status IS NULL AND from_status IS NULL "
     "AND (event_type LIKE 'assistant.%' OR event_type LIKE 'memory.%'))"
 )
+# Lock order for downgrade matches live ingest: link, topic, message, then the rest.
 _CONTENT_TABLES = (
+    "assistant_thread_links",
+    "assistant_threads",
     "assistant_messages",
     "memory_facts",
     "memory_approvals",
-    "assistant_thread_links",
-    "assistant_threads",
 )
 
 
@@ -473,6 +474,12 @@ def _create_content_guards() -> None:
                        OR NEW.source_ref IS DISTINCT FROM OLD.source_ref
                        OR NEW.source_ref_sha256 IS DISTINCT FROM OLD.source_ref_sha256
                        OR NEW.method IS DISTINCT FROM OLD.method
+                       OR (OLD.thread_id IS NOT NULL
+                           AND NEW.thread_id IS DISTINCT FROM OLD.thread_id)
+                       OR (OLD.state <> 'quarantined'
+                           AND (NEW.state IS DISTINCT FROM OLD.state
+                                OR NEW.evidence_status IS DISTINCT FROM OLD.evidence_status
+                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
@@ -489,12 +496,19 @@ def _create_content_guards() -> None:
                        OR NEW.source_ref IS DISTINCT FROM OLD.source_ref
                        OR NEW.source_ref_sha256 IS DISTINCT FROM OLD.source_ref_sha256
                        OR NEW.method IS DISTINCT FROM OLD.method
+                       OR (OLD.status <> 'proposed'
+                           AND (NEW.status IS DISTINCT FROM OLD.status
+                                OR NEW.evidence_status IS DISTINCT FROM OLD.evidence_status
+                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
                 ELSIF TG_TABLE_NAME = 'assistant_threads' THEN
                     IF NEW.data_class IS DISTINCT FROM OLD.data_class
                        OR NEW.title IS DISTINCT FROM OLD.title
+                       OR (OLD.status <> 'proposed'
+                           AND (NEW.status IS DISTINCT FROM OLD.status
+                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
@@ -502,6 +516,10 @@ def _create_content_guards() -> None:
                     IF NEW.channel IS DISTINCT FROM OLD.channel
                        OR NEW.account IS DISTINCT FROM OLD.account
                        OR NEW.external_thread_id IS DISTINCT FROM OLD.external_thread_id
+                       OR (OLD.state <> 'proposed'
+                           AND (NEW.state IS DISTINCT FROM OLD.state
+                                OR NEW.thread_id IS DISTINCT FROM OLD.thread_id
+                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
@@ -540,6 +558,11 @@ def _drop_content_guards() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    # SHARE ROW EXCLUSIVE conflicts with INSERT, so a row that arrives after a
+    # count cannot commit before this downgrade drops the table. Content tables
+    # are locked in ingest order first and events last to avoid a lock cycle.
+    for table in _CONTENT_TABLES:
+        bind.execute(text(f"LOCK TABLE {table} IN SHARE ROW EXCLUSIVE MODE"))
     bind.execute(text("LOCK TABLE events IN SHARE ROW EXCLUSIVE MODE"))
     taskless = bind.execute(text("SELECT count(*) FROM events WHERE task_id IS NULL")).scalar_one()
     if taskless:
@@ -548,9 +571,6 @@ def downgrade() -> None:
             "refusing to restore NOT NULL. Rows are never deleted by this migration."
         )
     for table in _CONTENT_TABLES:
-        # SHARE ROW EXCLUSIVE conflicts with INSERT, so a row that arrives after
-        # the count cannot commit before this downgrade drops the table.
-        bind.execute(text(f"LOCK TABLE {table} IN SHARE ROW EXCLUSIVE MODE"))
         remaining = bind.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
         if remaining:
             raise RuntimeError(

@@ -492,3 +492,13 @@ entfernt er die Inhaltstrigger und `memory_content_immutable()`, dann
 `ix_events_conversation_created_at` und den CHECK, setzt `to_status` und
 `task_id` wieder auf NOT NULL und droppt die neuen Tabellen, den
 Append-only-Trigger und die Funktion `memory_approvals_append_only`.
+
+### Nachtrag `20261110_0064` (Review-Runde 3)
+
+- Der Trigger `memory_content_immutable` friert zusaetzlich Entscheid-Spalten ein:
+  Nachrichten (`state`, `evidence_status`, `approval_id` nach `quarantined`,
+  `thread_id` nur von leer auf gesetzt), Fakten (`status`, `evidence_status`,
+  `approval_id` nach `proposed`), Themen und Verknuepfungen (`status`/`state`,
+  `approval_id`, bei Verknuepfungen `thread_id`, nach `proposed`).
+- Downgrade sperrt zuerst `assistant_thread_links`, `assistant_threads`,
+  `assistant_messages`, `memory_facts`, `memory_approvals` und danach `events`.

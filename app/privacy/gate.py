@@ -142,7 +142,11 @@ def non_local_texts_blocked(data_class: str, texts: Sequence[str]) -> bool:
     if data_class == DataClass.LOCAL_ONLY.value:
         return False
     try:
-        blocklist = get_privacy_settings().blocklist
+        settings = get_privacy_settings()
+        if not settings.blocklist_configured:
+            # Same rule as inspect_task: no configured blocklist, no cloud class.
+            return True
+        blocklist = settings.blocklist
         findings: list[Finding] = []
         for value in texts:
             if value:

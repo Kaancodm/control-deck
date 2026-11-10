@@ -462,3 +462,14 @@ Sammel-Thread neu ist.
   die Redaktion an einem Auftrag haengt. Der Owner bestaetigt diese Grenze,
   oder ein spaeteres Ticket baut eine auftragsfreie Redaktion. Der Code bleibt
   bei `cloud_ok`.
+
+## Nachtrag Review-Runde 3
+
+- Ohne konfigurierte Blockliste sind `cloud_ok` und `cloud_redacted` gesperrt
+  (`privacy_block`), wie beim Auftrags-Gate. `load_memory_context` wendet die
+  Sperre nur fuer Cloud-Ziele an; `ollama` bleibt davon unberuehrt.
+- `propose_fact` prueft die Datenschutz-Sperre mit der Klasse der Quellnachricht.
+- Entschiedene Zeilen sind eingefroren (siehe ADR 0010, «Unveraenderlichkeit nach
+  dem Entscheid»).
+- Sperr-Reihenfolge: Verknuepfung, aktives Thema, Nachricht. Der Downgrade sperrt
+  die Inhaltstabellen in derselben Reihenfolge und `events` zuletzt.

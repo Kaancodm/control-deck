@@ -202,7 +202,9 @@ def load_memory_context(
 
     def fits(item: MemoryItem) -> bool:
         nonlocal used, dropped
-        if contains_secret(item.text) or non_local_texts_blocked(item.data_class, (item.text,)):
+        if contains_secret(item.text) or (
+            target != "ollama" and non_local_texts_blocked(item.data_class, (item.text,))
+        ):
             dropped += 1
             return False
         cost = estimate_dialogue_tokens(item.text)

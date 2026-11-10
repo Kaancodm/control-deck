@@ -431,7 +431,7 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
 def _lock_inbound(
     session: Session, message_id: uuid.UUID
 ) -> tuple[AssistantMessage | None, ThreadLink | None]:
-    """Lock the link, then the message. That is the order ``decide_thread_link`` uses."""
+    """Lock the link, then an active topic, then the message (same order as ingest)."""
     preview = session.get(AssistantMessage, message_id)
     if preview is None:
         return None, None
@@ -442,6 +442,12 @@ def _lock_inbound(
         preview.external_thread_id,
         lock=True,
     )
+    if link is not None and link.state == "active":
+        # Topic before message: ingest_turn locks the topic and then takes
+        # FOR KEY SHARE on a referenced message, so the reverse order can cycle.
+        session.execute(
+            select(AssistantThread.id).where(AssistantThread.id == link.thread_id).with_for_update()
+        )
     inbound = session.scalar(
         select(AssistantMessage)
         .where(AssistantMessage.id == message_id)

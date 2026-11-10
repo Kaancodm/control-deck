@@ -37,6 +37,7 @@ from app.memory.policy import (
     ConversationError,
     check_link_class,
 )
+from app.privacy.gate import non_local_texts_blocked
 
 Decision = Literal["approved", "rejected"]
 _HEX64 = re.compile(r"^[0-9a-f]{64}\Z")
@@ -313,6 +314,19 @@ def propose_fact(
     if contains_secret(sentence, subject_text, predicate_text, object_text, joined, rendered):
         _audit_secret(session, sentence, source)
         raise ConversationError("secret_rejected")
+    if non_local_texts_blocked(
+        source.data_class, (sentence, subject_text, predicate_text, object_text, rendered)
+    ):
+        record_conversation_event(
+            session,
+            "memory.fact_rejected_input",
+            {
+                "reason": "privacy_block",
+                "message_id": str(source.id),
+                "text_sha256": text_digest(sentence),
+            },
+        )
+        raise ConversationError("privacy_block")
     fact = MemoryFact(
         id=uuid.uuid4(),
         original_sentence=sentence,

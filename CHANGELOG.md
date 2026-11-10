@@ -5,6 +5,24 @@
 Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
 
+### Wissens-DB: echtes Embedding und Runtime-Profil (Draft)
+
+- Embedding-Spec als einzige Quelle: Schema-Breite 1024, Fake `deck-fake-embedding-v2` mit
+  1024 Dimensionen bleibt Standard; `deck-fake-embedding-v1` (8) bleibt historisch in `kb_0001`.
+- Migration `kb_0002`: `vector(8)` auf `vector(1024)` und Vertragszeile
+  (`deck_kb.v1`, `qwen3-embedding:0.6b`, 1024), nur auf leeren Tabellen mit erwarteter alter
+  Vertragszeile; Trigger unverändert, kein Index.
+- `OllamaHTTPClient.embed` (`/api/embed`, nicht streamend, `truncate: false`, Antwort bis 2 MiB)
+  und `OllamaEmbeddings` mit strikter Antwortprüfung und festen Fehlercodes; nie Rückfall auf
+  den Fake. Ein Dokument ist ein Aufruf, wiederholte Exporte betten nicht erneut ein.
+- Restore prüft den Wissensvertrag gegen die konfigurierte Spec.
+- Neues Profil `DECK_KB_PROFILE=runtime`: nur `DECK_KB_DATABASE_URL`, getrennt von der
+  zentralen DB, nur mit `ollama`. Prüfreihenfolge Profil, Embedding, Datenbank vor jeder
+  Verbindung; `simulation` bleibt auf der `_test`-DB. `scripts/kb_import.py` weist `runtime` ab.
+- Doku: Embedding-Vertrag und Profile in `docs/WISSENS_DB.md`, Rollout mit eigenem
+  KB-Migrationsschritt in `docs/OPERATIONS.md`, `/api/embed`-Quellenvertrag in `docs/LANES.md`,
+  ADR 0011. Keine neue Abhängigkeit. Nicht ausgerollt; Aktivierung nur mit Owner-GO.
+
 ### UI-Angleichung an das Command-Center-Mockup (PR 1, Draft)
 
 - Neue Shell: Seitenleiste ab 861 Pixeln, darunter fixe Leiste mit fünf Zielen und «Menü»

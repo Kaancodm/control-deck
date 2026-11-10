@@ -213,6 +213,42 @@ diesen Commit:
 - [Daemon-Cloud-Policy](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/internal/cloud/policy.go)
 - [Client-Konfiguration](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/api/client.go)
 
+### Embedding-Vertrag `/api/embed`
+
+Die Wissens-DB nutzt `OllamaHTTPClient.embed` im API-Prozess, nicht den Runner (ADR 0011).
+Der Aufruf erbt Loopback-only, keinen Proxy, keine Weiterleitung, `Connection: close`, die
+503-Wiederholung innerhalb desselben Budgets und den Abbruch aus dem HTTP-Vertrag oben.
+
+Request, nicht streamend: `POST /api/embed` mit `model` als konfigurierte Kennung plus `:local`,
+`input` als Liste nicht leerer Strings (hoechstens 16), `truncate: false` und optional
+`keep_alive`. Ein `dimensions`-Feld wird nie gesendet; die native Breite ist der Vertrag.
+Antworten sind auf 2 MiB begrenzt und werden mit dem strikten JSON-Leser geparst (doppelte
+Schluessel und nicht endliche Konstanten scheitern). Erwartet werden `model` (konfigurierte
+Kennung mit oder ohne `:local`) und `embeddings` mit genau einem Vektor je Eingabe; `error`,
+`remote_host` oder `remote_model` fuehren zu `embedding_malformed`. Es gibt keinen Pull,
+keinen Warmup und keinen periodischen Probe-Aufruf.
+
+Quellenstand `v0.40.14`, Commit `9a3e8177767245acc62b735eba7d5d8a553606d0`, gelesen am
+2026-11-10 ueber die oeffentlichen Rohdateien
+[api/types.go](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/api/types.go)
+und [server/routes.go](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/server/routes.go);
+Methode: Quelltextlektuere ohne Ausfuehrung. Status: Feldnamen `proven` am Quelltext, Verhalten
+am Server `unproven`.
+
+- `EmbedRequest` kennt `model`, `runner`, `input`, `keep_alive`, `truncate` (Zeiger auf bool),
+  `dimensions` und `options`. Ohne Feld oder mit `true` wird gekuerzt; nur `false` ist strikt.
+- `EmbedResponse` kennt `model`, `embeddings` (`float32`), `total_duration`, `load_duration` und
+  `prompt_eval_count`, aber **keine** Remote-Felder. Die Remote-Pruefung im Adapter schuetzt nur
+  gegen eine kuenftige Formataenderung.
+- Mit `truncate: false` ergibt eine zu lange Eingabe HTTP 400 (im Deck `embedding_unavailable`);
+  der Handler laedt das Modell vorher trotzdem.
+- Ein fehlendes Modell ergibt 404 (`embedding_model_missing`).
+- Vektoren werden serverseitig L2-normalisiert; NaN oder Inf ergeben 400.
+- `EmbedHandler` leitet nur Modelle mit Cloud-Quelle weiter; eine eigene Pruefung auf `:local`
+  oder auf lokale Aliase mit Remote-Ziel ist im Handler nicht ersichtlich. Ob die gemeinsame
+  Namensaufloesung den Suffix `:local` hier annimmt, ist **nicht belegt** und gehoert in den
+  Preflight des Owner-Rollouts. `OLLAMA_NO_CLOUD=1` am Dienst bleibt Voraussetzung.
+
 ## Claude in Etappe 12
 
 `ClaudeExecutor` unterstützt ausschliesslich das ausdrückliche Profil `simulation`.

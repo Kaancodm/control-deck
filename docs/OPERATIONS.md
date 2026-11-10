@@ -267,6 +267,66 @@ Betriebsfehler melden stabile Codes und Operation-IDs. Die geschützte Audit-Ans
 Etappe 17 kann diese Phasen anzeigen. Rohdaten, Passwörter, Dateipfade und Ausgabe von
 Unterprozessen gehören nicht in die Auditdetails.
 
+`make update` migriert nur die zentrale Kette. Die Wissens-DB hat eine eigene Alembic-Kette
+(`alembic_kb.ini`), die ein getrennter, ausdrücklicher Schritt bleibt.
+
+## Rollout echtes Embedding der Wissens-DB
+
+Umstellung von `deck-fake-embedding-v1` (8 Dimensionen) auf `qwen3-embedding:0.6b`
+(1024 Dimensionen) mit Migration `kb_0002`, siehe [WISSENS_DB.md](WISSENS_DB.md) und ADR 0011.
+Alle Schritte führt der Owner aus, einzeln und jeweils erst nach bestandenem Vorgänger; jeder
+Prod-Zugriff braucht ein ausdrückliches GO. Agents bereiten nur vor. Werte stehen nur in der
+privaten Env-Datei, nie im Repo oder in Logs.
+
+0. **Preflight, nur lesend.** `alembic_kb_version` ist `kb_0001`; Vertragszeile
+   (`deck_kb.v1`, `deck-fake-embedding-v1`, 8); Spalte `deck_kb.chunks.embedding` ist
+   `vector(8)`; `deck_kb.documents` und `deck_kb.chunks` haben je 0 Zeilen; pgvector-Version
+   wie im letzten Backup-Manifest; `/api/tags` listet `qwen3-embedding:0.6b`. Zusätzlich
+   prüfen, ob `/api/embed` die Kennung mit Suffix `:local` annimmt (siehe
+   [LANES.md](LANES.md#embedding-vertrag-apiembed), Status `unproven`). Bei jeder Abweichung Stopp.
+1. **Backup mit dem alten Release:** `make backup`. Dieser Satz lässt sich nur mit altem Code
+   zurückspielen, weil Restore eine passende Manifest-Revision verlangt.
+2. **KB-Migration, eigener Schritt,** als Tabelleneigentümer:
+   ```bash
+   uv run alembic -c alembic_kb.ini -x target=runtime upgrade head
+   uv run alembic -c alembic_kb.ini -x target=runtime current
+   uv run alembic -c alembic_kb.ini -x target=runtime check
+   ```
+   `kb_0002` sperrt Vertrag, Dokumente und Chunks, bricht bei vorhandenen Zeilen, fremder Vertragszeile oder
+   anderem Spaltentyp ohne Änderung ab und prüft danach die Unveränderlichkeits-Trigger. Ein
+   Runtime-Downgrade ist gesperrt und nicht nötig.
+3. **Private Env-Datei:** `DECK_KB_PROFILE=runtime`, `DECK_KB_EMBEDDING_PROVIDER=ollama`,
+   `DECK_KB_EMBEDDING_MODEL=qwen3-embedding:0.6b`, `DECK_KB_EMBEDDING_DIMENSION=1024`;
+   `DECK_KB_DATABASE_URL` und `DECK_OLLAMA_URL` sind gesetzt. Optional
+   `DECK_KB_EMBEDDING_TIMEOUT_S` (Standard 60) und `DECK_KB_EMBEDDING_KEEP_ALIVE`
+   (Standard `server`). Der Ollama-Dienst bleibt unverändert.
+4. **`make update` und Neustart.** Die Reihenfolge von 2 und 4 ist unkritisch: Jeder
+   Zwischenzustand endet in `knowledge_contract_mismatch` oder
+   `knowledge_embedding_configuration_invalid`, ohne Schreiben.
+5. **Backup mit dem neuen Release:** `make backup` (Manifest mit `kb_0002`).
+6. **Prod-Prüfung ohne Schreiben:** Suche über `/ui/knowledge` mit synthetischer Anfrage;
+   erwartet wird eine leere Trefferliste. Die Zähler bleiben 0.
+7. **Testdokument nur in einer isolierten Kopie:** Restore-Probe des Backups aus 5 in die
+   `_test`-Ziele oder frische `_test`-DB mit `upgrade head`; dort `DECK_KB_PROFILE=simulation`
+   mit `ollama` und `scripts/kb_import.py … --simulate` mit synthetischem Text; Suche mit
+   umformulierter Anfrage und `resolve` prüfen; danach verwirft der Owner die Kopie.
+   `kb_import.py` weist das Runtime-Profil ab (`knowledge_import_simulation_only`).
+8. **Kaltstart des Chat-Modells** nach Schritt 6 messen, als Grundlage für den Entscheid
+   zum Modellwechsel zwischen Chat und Embedding.
+
+Warum eine Kopie statt Prod: Die Trigger weisen UPDATE und DELETE für jede Rolle ab. Ein
+Testdokument in Prod liesse sich nur per `TRUNCATE`, deaktivierten Triggern oder Restore
+entfernen; alle drei heben die Unveränderlichkeit auf.
+
+**Backup-Kompatibilität.** Restore prüft den Wissensvertrag gegen die konfigurierte
+Embedding-Spec. Eine Restore-Probe eines Runtime-Backups nach `kb_0002` braucht deshalb
+dieselben `DECK_KB_EMBEDDING_*`-Variablen wie der Betrieb; mit Fake-Standard scheitert sie
+mit `knowledge_contract_mismatch`. Sätze vor `kb_0002` brauchen den alten Code.
+
+**Rückweg.** Vor Schritt 4: Env-Werte entfernen, Profil bleibt `disabled`. Nach Schritt 4:
+`DECK_KB_PROFILE` leeren und neu starten; die Wissens-DB bleibt leer und auf `kb_0002`.
+Alter Code gegen `kb_0002` liefert nur `knowledge_contract_mismatch`, kein Schreiben.
+
 ## Inbetriebnahme
 
 Offen bleiben der reale User-Manager mit Lingering, Bindung und TLS, Datei-/Backup-Ziele,

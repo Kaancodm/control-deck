@@ -72,7 +72,7 @@ async def export_result(request: Request, task_id: UUID, session: DbSession) -> 
         try:
             export_task(session, task_id, data_class=classification)
         except KnowledgeError as exc:
-            raise UiError(exc.code, 409) from None
+            raise UiError(exc.code, knowledge_error_status(exc.code)) from None
         return RedirectResponse(f"/ui/tasks/{task_id}", status_code=303)
     finally:
         await data.close()

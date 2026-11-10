@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.schemas import DataClass, Worker
 from app.db.models import Task
-from app.kb.contracts import EmbeddingSpec
+from app.kb.contracts import EmbeddingSpec, KnowledgeError
 from app.kb.state import KnowledgeExport
 from app.workers.runner import HostRunner
 from app.workers.runner_main import SimulationExecutor
@@ -135,3 +135,33 @@ def test_export_form_writes_only_after_separate_owner_submit(
     assert "Export abgeschlossen" in response.text
     assert db_session.get(Task, UUID(path.rsplit("/", 1)[-1])).status.value == "done"
     assert db_session.scalar(select(func.count()).select_from(KnowledgeExport)) == 1
+
+
+@pytest.mark.parametrize(
+    "code,expected_status",
+    [
+        ("export_class_forbidden", 409),
+        ("knowledge_export_conflict", 409),
+        ("secret_detected", 422),
+        ("embedding_input_too_long", 422),
+        ("embedding_timeout", 503),
+        ("embedding_unavailable", 503),
+        ("embedding_model_missing", 503),
+        ("knowledge_contract_mismatch", 503),
+    ],
+)
+def test_export_form_aligns_knowledge_error_statuses_with_api(
+    ui_client, db_session, knowledge_store, tmp_path, monkeypatch, code, expected_status
+):
+    csrf = login(ui_client)
+    path = done_task(ui_client, db_session, tmp_path, csrf)
+
+    def fail_export(*_args, **_kwargs):
+        raise KnowledgeError(code)
+
+    monkeypatch.setattr("app.ui.knowledge.export_task", fail_export)
+    response = ui_client.post(
+        path + "/export", data={"csrf": csrf, "confirm": "yes", "data_class": "local_only"}
+    )
+    assert response.status_code == expected_status
+    assert code in response.text

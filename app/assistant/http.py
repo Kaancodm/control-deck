@@ -47,15 +47,14 @@ from app.assistant.status import CHANNEL_GAPS, heartbeat_is_current, project_ord
 from app.db.models import Event, Task
 from app.db.session import get_background_session_factory
 from app.db.state_machine import TaskState
-from app.ui.overview import feature_flags
+from app.ui.overview import assistant_facts, feature_flags
 from app.ui.routes import ParsedForm, csrf, owner
 from app.ui.views import page, preview_context, preview_redirect
 
 router = APIRouter(prefix="/ui/assistant", include_in_schema=False)
 
 _CHANNEL = {
-    "name": "Kaan",
-    "state": "missing",
+    "state": "nicht angebunden",
     "detail": "Kein Transport. Keine Quittung und keine erfundene Freigabe.",
 }
 
@@ -86,6 +85,7 @@ def _context(session: DbSession) -> dict[str, Any]:
         "notice": None,
         "activation": activation_status(),
         "flags": feature_flags(),
+        "assistant_facts": assistant_facts(),
     }
 
 

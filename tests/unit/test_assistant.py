@@ -338,6 +338,10 @@ def test_status_projection_does_not_invent_progress() -> None:
     )
     assert cancelled.label == "Abgebrochen" and cancelled.running is False
     assert all("60" not in gap or "nicht gebaut" in gap for gap in CHANNEL_GAPS)
+    # app/channels/receipt.py exists: the 60 s receipt is built, only a transport is missing.
+    receipt_gap = next(gap for gap in CHANNEL_GAPS if "60 Sekunden" in gap)
+    assert "Quittung nach 60 Sekunden ist gebaut" in receipt_gap
+    assert "Zustell-Transport ist nicht gebaut" in receipt_gap
 
 
 def test_benchmark_is_free_offline_and_hides_the_fixture_secret(

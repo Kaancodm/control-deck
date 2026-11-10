@@ -34,14 +34,22 @@ def adapter(stub, *, keep_alive="server", timeout_s=2.0, spec=SPEC, **client_opt
     )
 
 
+def show_requests(stub):
+    return [request for request in stub.requests if request["path"] == "/api/show"]
+
+
+def embed_requests(stub):
+    return [request for request in stub.requests if request["path"] == "/api/embed"]
+
+
 def test_batch_is_one_request_with_local_suffix_and_no_dimensions_field():
     with OllamaStub() as stub:
         vectors = adapter(stub).embed_documents(["one", "two", "three"])
         assert len(vectors) == 3 and all(len(vector) == 1024 for vector in vectors)
         assert vectors[0] == tuple(embedding_vector("one", 1024))
-        assert len(stub.requests) == 1
-        assert stub.requests[0]["path"] == "/api/embed"
-        assert stub.requests[0]["body"] == {
+        assert [request["path"] for request in stub.requests] == ["/api/show", "/api/embed"]
+        assert stub.requests[0]["body"] == {"model": "embed-fixture:0.6b:local"}
+        assert stub.requests[1]["body"] == {
             "model": "embed-fixture:0.6b:local",
             "input": ["one", "two", "three"],
             "truncate": False,
@@ -52,8 +60,9 @@ def test_query_is_single_input_and_keep_alive_is_forwarded():
     with OllamaStub() as stub:
         vector = adapter(stub, keep_alive="5m").embed_query("question")
         assert vector == tuple(embedding_vector("question", 1024))
-        assert stub.requests[0]["body"]["input"] == ["question"]
-        assert stub.requests[0]["body"]["keep_alive"] == "5m"
+        assert [request["path"] for request in stub.requests] == ["/api/show", "/api/embed"]
+        assert embed_requests(stub)[0]["body"]["input"] == ["question"]
+        assert embed_requests(stub)[0]["body"]["keep_alive"] == "5m"
 
 
 QWEN3_SPEC = EmbeddingSpec("ollama", "qwen3-embedding:0.6b", 1024)
@@ -75,31 +84,162 @@ def test_query_instruction_is_a_fixed_constant_bound_to_the_model_tag():
 def test_qwen3_query_carries_the_instruction():
     with OllamaStub(embed_model="qwen3-embedding:0.6b:local") as stub:
         vector = adapter(stub, spec=QWEN3_SPEC).embed_query("question")
-        assert stub.requests[0]["body"]["input"] == [QWEN3_PREFIX + "question"]
+        assert embed_requests(stub)[0]["body"]["input"] == [QWEN3_PREFIX + "question"]
         assert vector == tuple(embedding_vector(QWEN3_PREFIX + "question", 1024))
 
 
 def test_qwen3_documents_stay_unprefixed():
     with OllamaStub(embed_model="qwen3-embedding:0.6b:local") as stub:
         adapter(stub, spec=QWEN3_SPEC).embed_documents(["one", "two"])
-        assert stub.requests[0]["body"]["input"] == ["one", "two"]
+        assert embed_requests(stub)[0]["body"]["input"] == ["one", "two"]
 
 
 def test_other_models_get_no_query_instruction():
     with OllamaStub() as stub:
         adapter(stub).embed_query("question")
-        assert stub.requests[0]["body"]["input"] == ["question"]
+        assert embed_requests(stub)[0]["body"]["input"] == ["question"]
 
 
 def test_query_bound_applies_to_caller_text_not_prefix():
     limit_text = "x" * MAX_DOCUMENT_BYTES
     with OllamaStub(embed_model="qwen3-embedding:0.6b:local") as stub:
-        adapter(stub, spec=QWEN3_SPEC).embed_query(limit_text)
-        assert stub.requests[0]["body"]["input"] == [QWEN3_PREFIX + limit_text]
+        embeddings = adapter(stub, spec=QWEN3_SPEC)
+        embeddings.embed_query(limit_text)
+        assert embed_requests(stub)[0]["body"]["input"] == [QWEN3_PREFIX + limit_text]
         with pytest.raises(KnowledgeError) as error:
-            adapter(stub, spec=QWEN3_SPEC).embed_query(limit_text + "x")
+            embeddings.embed_query(limit_text + "x")
         assert error.value.code == "embedding_input_invalid"
-        assert len(stub.requests) == 1
+        assert len(embed_requests(stub)) == 1
+        assert len(show_requests(stub)) == 1
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"show_extra": {"remote_host": "https://remote-marker.invalid:11434"}},
+        {"show_extra": {"remote_model": "cloud-secret-marker"}},
+        {
+            "show_extra": {
+                "remote_host": "https://remote-marker.invalid",
+                "remote_model": "cloud-secret-marker",
+            }
+        },
+        {"show_extra": {"model": "embed-fixture:cloud"}},
+        {"show_extra": {"model": "embed-fixture-cloud:0.6b"}},
+        {"show_extra": {"modelfile": "FROM embed-fixture:cloud\n"}},
+        {"show_extra": {"details": {"parent_model": "embed-fixture:cloud"}}},
+        {"show_extra": {"details": {"parent_model": "embed-fixture-cloud:0.6b"}}},
+        {"show_extra": {"model_info": {"general.basename": "embed-fixture:cloud"}}},
+        {"show_extra": {"remote": True}},
+        {"show_extra": {"cloud": True}},
+        {"capabilities": ("embedding", "cloud")},
+    ],
+)
+def test_show_remote_or_cloud_markers_abort_before_embed(caplog, options):
+    caplog.set_level(logging.INFO, logger="app.kb.ollama_embeddings")
+    with OllamaStub(**options) as stub:
+        embeddings = adapter(stub)
+        with pytest.raises(KnowledgeError) as error:
+            embeddings.embed_documents([SECRET_TEXT])
+        assert error.value.code == "embedding_model_remote"
+        assert embed_requests(stub) == []
+        assert [request["body"] for request in show_requests(stub)] == [
+            {"model": "embed-fixture:0.6b:local"}
+        ]
+        with pytest.raises(KnowledgeError) as second_error:
+            embeddings.embed_query(SECRET_TEXT)
+        assert second_error.value.code == "embedding_model_remote"
+        assert embed_requests(stub) == []
+        assert len(show_requests(stub)) == 2
+    for rendered in (caplog.text, str(error.value), repr(error.value)):
+        assert SECRET_TEXT not in rendered
+        assert "remote-marker.invalid" not in rendered
+        assert "cloud-secret-marker" not in rendered
+        assert "embed-fixture:cloud" not in rendered
+    record = json.loads(caplog.records[0].getMessage())
+    assert record["status"] == "embedding_model_remote"
+
+
+@pytest.mark.parametrize(
+    "bad_model",
+    ["embed-fixture:cloud", "embed-fixture-cloud:0.6b", "embed-fixture:0.6b:local", ""],
+)
+def test_cloud_marker_on_spec_is_rejected_without_network(bad_model):
+    with OllamaStub() as stub:
+        embeddings = adapter(stub, spec=EmbeddingSpec("ollama", bad_model, 1024))
+        with pytest.raises(KnowledgeError) as error:
+            embeddings.embed_query(SECRET_TEXT)
+        assert error.value.code == "embedding_model_remote"
+        assert stub.requests == []
+
+
+@pytest.mark.parametrize(
+    "stub_options,client_options,code",
+    [
+        ({"status_by_path": {"/api/show": 404}}, {}, "embedding_model_missing"),
+        ({"status_by_path": {"/api/show": 500}}, {}, "embedding_unavailable"),
+        ({"status_by_path": {"/api/show": 400}}, {}, "embedding_unavailable"),
+        (
+            {"status_by_path": {"/api/show": 503}},
+            {"busy_attempts": 2, "busy_backoff_s": 0.01},
+            "embedding_busy",
+        ),
+        ({"raw_by_path": {"/api/show": b"not JSON"}}, {}, "embedding_malformed"),
+        ({"show_extra": {"error": "synthetic show failure"}}, {}, "embedding_malformed"),
+    ],
+)
+def test_show_failures_fail_closed_without_embed(caplog, stub_options, client_options, code):
+    caplog.set_level(logging.INFO, logger="app.kb.ollama_embeddings")
+    with OllamaStub(**stub_options) as stub:
+        embeddings = adapter(stub, timeout_s=1.0, **client_options)
+        with pytest.raises(KnowledgeError) as error:
+            embeddings.embed_documents([SECRET_TEXT])
+        assert error.value.code == code
+        assert embed_requests(stub) == []
+        assert len(show_requests(stub)) >= 1
+    assert SECRET_TEXT not in caplog.text
+    assert "synthetic show failure" not in caplog.text
+    assert "synthetic provider error marker" not in caplog.text
+
+
+def test_show_precheck_is_cached_per_adapter_and_rechecked_on_model_change():
+    remote_spec = EmbeddingSpec("ollama", "remote-alias:1b", 1024)
+    with OllamaStub(
+        show_by_model={"remote-alias:1b:local": {"remote_model": "cloud-target:1b"}}
+    ) as stub:
+        embeddings = adapter(stub)
+        embeddings.embed_documents(["first"])
+        embeddings.embed_query("second")
+        embeddings.embed_documents(["third"])
+        assert [request["path"] for request in stub.requests] == [
+            "/api/show",
+            "/api/embed",
+            "/api/embed",
+            "/api/embed",
+        ]
+        # A second adapter instance maintains its own cache.
+        adapter(stub).embed_query("fresh")
+        assert len(show_requests(stub)) == 2
+        assert len(embed_requests(stub)) == 4
+
+        # Changing the model on the instance forces a new /api/show pre-check.
+        embeddings._spec = QWEN3_SPEC
+        embeddings.embed_query("switched")
+        embeddings.embed_query("switched-cached")
+        assert [request["body"]["model"] for request in show_requests(stub)] == [
+            "embed-fixture:0.6b:local",
+            "embed-fixture:0.6b:local",
+            "qwen3-embedding:0.6b:local",
+        ]
+        assert len(embed_requests(stub)) == 6
+
+        # Switching to a remote alias fails closed without calling /api/embed.
+        embeddings._spec = remote_spec
+        with pytest.raises(KnowledgeError) as error:
+            embeddings.embed_documents([SECRET_TEXT])
+        assert error.value.code == "embedding_model_remote"
+        assert len(show_requests(stub)) == 4
+        assert len(embed_requests(stub)) == 6
 
 
 @pytest.mark.parametrize("options", [{}, {"status_by_path": {"/api/embed": 500}}])
@@ -292,6 +432,7 @@ def test_logs_and_errors_never_contain_text_vectors_or_url(caplog, options):
         "embedding_timeout",
         "embedding_unavailable",
         "embedding_model_missing",
+        "embedding_model_remote",
         "embedding_malformed",
         "embedding_dimension_mismatch",
         "embedding_invalid",
@@ -314,7 +455,7 @@ def test_too_long_input_has_its_own_code_and_safe_log(caplog):
         with pytest.raises(KnowledgeError) as error:
             adapter(stub).embed_documents([SECRET_TEXT])
         assert error.value.code == "embedding_input_too_long"
-        assert len(stub.requests) == 1
+        assert [request["path"] for request in stub.requests] == ["/api/show", "/api/embed"]
     record = json.loads(caplog.records[0].getMessage())
     assert record["status"] == "embedding_input_too_long"
     assert record["http_status"] == 400 and record["phase"] == "status"

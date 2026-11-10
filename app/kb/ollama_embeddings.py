@@ -1,9 +1,13 @@
 """Loopback Ollama embeddings for the knowledge store; never a fallback to the fake.
 
-One ``/api/embed`` request per document (all chunks) or query. The response must
-echo the model, carry no remote fields, and return one finite, non-zero vector of
-the contract width per input. Logs carry counts, width, timing and reason codes
-only: never input text, vector values, the URL, or server error text.
+Before the first ``/api/embed`` call (cached per adapter instance and re-checked on
+model change), the adapter queries ``/api/show`` for ``<model>:local`` over the
+bounded loopback client and rejects ``remote_host``, ``remote_model``, or any cloud
+marker with ``embedding_model_remote``. One ``/api/embed`` request then embeds a
+document (all chunks) or query. The response must echo the model, carry no remote
+fields, and return one finite, non-zero vector of the contract width per input.
+Logs carry counts, width, timing and reason codes only: never input text, vector
+values, the URL, ``/api/show`` bodies, or server error text.
 """
 
 from __future__ import annotations
@@ -17,6 +21,11 @@ from typing import Literal
 
 from app.kb.contracts import EmbeddingSpec, KnowledgeError
 from app.kb.embeddings import check_inputs, validate_vector
+from app.workers.lanes.ollama import (
+    has_cloud_marker,
+    is_remote_model_info,
+    show_local_model,
+)
 from app.workers.lanes.ollama_http import OllamaHTTPClient, OllamaHTTPError
 from app.workers.lanes.ollama_keep_alive import KeepAliveSetting
 
@@ -79,6 +88,7 @@ class OllamaEmbeddings:
         self._timeout_s = timeout_s
         self._keep_alive = keep_alive
         self._query_prefix = query_instruction(spec)
+        self._verified_model: str | None = None
 
     def __repr__(self) -> str:
         return f"OllamaEmbeddings(model={self._spec.model!r}, dimension={self._spec.dimension})"
@@ -93,7 +103,24 @@ class OllamaEmbeddings:
     def embed_query(self, text: str) -> tuple[float, ...]:
         # Bound the caller's text first; the fixed prefix is not counted against it.
         (checked,) = check_inputs((text,))
-        return self._embed((self._query_prefix + checked,), purpose="query")[0]
+        prefix = query_instruction(self._spec)
+        return self._embed((prefix + checked,), purpose="query")[0]
+
+    def _ensure_local_model(self, *, timeout_s: float) -> str:
+        model = self._spec.model
+        local_model = f"{model}:local"
+        if self._verified_model == model:
+            return local_model
+        self._verified_model = None
+        if not model or has_cloud_marker(model) or model.casefold().endswith(":local"):
+            raise KnowledgeError("embedding_model_remote")
+        info = show_local_model(self._client, model, timeout_s=timeout_s)
+        if "error" in info:
+            raise KnowledgeError("embedding_malformed")
+        if is_remote_model_info(info):
+            raise KnowledgeError("embedding_model_remote")
+        self._verified_model = model
+        return local_model
 
     def _embed(self, texts: tuple[str, ...], *, purpose: Purpose) -> tuple[tuple[float, ...], ...]:
         detail: dict[str, object] = {
@@ -102,16 +129,22 @@ class OllamaEmbeddings:
             "dimension": self._spec.dimension,
         }
         started = time.monotonic()
+        deadline = started + self._timeout_s
+        in_show = True
         try:
+            local_model = self._ensure_local_model(timeout_s=_remaining_budget(deadline))
+            in_show = False
             response = self._client.embed(
-                model=f"{self._spec.model}:local",
+                model=local_model,
                 inputs=texts,
-                timeout_s=self._timeout_s,
+                timeout_s=_remaining_budget(deadline),
                 keep_alive=self._keep_alive.wire,
             )
             vectors = self._validate(response, len(texts))
         except OllamaHTTPError as exc:
-            code = failure_code(exc)
+            code = (
+                "embedding_unavailable" if in_show and exc.status_code == 400 else failure_code(exc)
+            )
             _log_call(
                 detail
                 | {
@@ -154,8 +187,7 @@ class OllamaEmbeddings:
         if (
             model not in {self._spec.model, f"{self._spec.model}:local"}
             or "error" in response
-            or response.get("remote_host")
-            or response.get("remote_model")
+            or is_remote_model_info(response)
         ):
             raise KnowledgeError("embedding_malformed")
         embeddings = response.get("embeddings")
@@ -167,6 +199,13 @@ class OllamaEmbeddings:
                 raise KnowledgeError("embedding_malformed")
             vectors.append(validate_vector(item, dimension=self._spec.dimension))
         return tuple(vectors)
+
+
+def _remaining_budget(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise OllamaHTTPError("timeout", phase="connect")
+    return remaining
 
 
 def _elapsed_ms(started: float) -> int:

@@ -74,6 +74,7 @@ def test_namespaced_model_is_accepted():
         {"DECK_KB_EMBEDDING_MODEL": "embed-fixture"},
         {"DECK_KB_EMBEDDING_MODEL": "embed-fixture:cloud"},
         {"DECK_KB_EMBEDDING_MODEL": "embed-fixture:0.6b-cloud"},
+        {"DECK_KB_EMBEDDING_MODEL": "embed-fixture-cloud:0.6b"},
         {"DECK_KB_EMBEDDING_MODEL": "embed-fixture:0.6b:local"},
         {"DECK_KB_EMBEDDING_MODEL": "host.example/a/b:1"},
         {"DECK_KB_EMBEDDING_MODEL": "https://host/model:1"},

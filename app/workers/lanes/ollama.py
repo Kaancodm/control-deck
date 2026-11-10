@@ -9,7 +9,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -78,12 +78,63 @@ _BEHAVIORS = frozenset(
 )
 
 
+def has_cloud_marker(value: str) -> bool:
+    """True when a model identifier or metadata string names a cloud source or alias."""
+    folded = value.casefold()
+    return ":cloud" in folded or "-cloud" in folded
+
+
+def is_remote_model_info(info: Mapping[str, object]) -> bool:
+    """True when ``/api/show`` metadata indicates a remote host, remote model, or cloud alias."""
+    if (
+        info.get("remote_host") not in (None, "")
+        or info.get("remote_model") not in (None, "")
+        or info.get("remote") not in (None, "", False)
+        or info.get("cloud") not in (None, "", False)
+    ):
+        return True
+    for key in ("model", "modelfile", "remote_host", "remote_model"):
+        value = info.get(key)
+        if isinstance(value, str) and has_cloud_marker(value):
+            return True
+    for section_key in ("details", "model_info"):
+        section = info.get(section_key)
+        if not isinstance(section, Mapping):
+            continue
+        if section.get("remote_host") not in (None, "") or section.get("remote_model") not in (
+            None,
+            "",
+        ):
+            return True
+        for item in section.values():
+            if isinstance(item, str) and has_cloud_marker(item):
+                return True
+            if isinstance(item, Sequence) and not isinstance(item, (str, bytes)):
+                if any(isinstance(entry, str) and has_cloud_marker(entry) for entry in item):
+                    return True
+    capabilities = info.get("capabilities")
+    if isinstance(capabilities, Sequence) and not isinstance(capabilities, (str, bytes)):
+        for cap in capabilities:
+            if isinstance(cap, str) and (
+                cap.casefold() in {"cloud", "remote"} or has_cloud_marker(cap)
+            ):
+                return True
+    return False
+
+
+def show_local_model(
+    client: OllamaHTTPClient,
+    model: str,
+    *,
+    timeout_s: float = 5,
+    cancelled: Callable[[], bool] = lambda: False,
+) -> dict[str, object]:
+    """Query ``/api/show`` for ``<model>:local`` over the bounded loopback client."""
+    return client.show(f"{model}:local", timeout_s=timeout_s, cancelled=cancelled)
+
+
 def _supported_model(model: str) -> bool:
-    return (
-        bool(_MODEL.fullmatch(model))
-        and ":cloud" not in model.lower()
-        and not model.lower().endswith("-cloud")
-    )
+    return bool(_MODEL.fullmatch(model)) and not has_cloud_marker(model)
 
 
 def _model_context(info: dict[str, object]) -> int:
@@ -302,15 +353,15 @@ class OllamaExecutor:
                 if model not in installed:
                     continue
                 try:
-                    info = self.client.show(
-                        f"{model}:local", timeout_s=budget(), cancelled=cancelled
+                    info = show_local_model(
+                        self.client, model, timeout_s=budget(), cancelled=cancelled
                     )
                 except OllamaHTTPError as exc:
                     if exc.reason in {"timeout", "cancelled"}:
                         raise
                     reason = f"inventory_{exc.reason}"
                     continue
-                if info.get("remote_host") or info.get("remote_model"):
+                if "error" in info or is_remote_model_info(info):
                     reason = "model_unsupported"
                     continue
                 capabilities = info.get("capabilities")

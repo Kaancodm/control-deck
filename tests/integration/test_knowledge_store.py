@@ -277,6 +277,9 @@ def test_ollama_store_puts_searches_and_resolves_on_real_contract(real_contract)
     [
         ({"embed_dimension": 8}, "embedding_dimension_mismatch"),
         ({"status_by_path": {"/api/embed": 404}}, "embedding_model_missing"),
+        ({"status_by_path": {"/api/show": 404}}, "embedding_model_missing"),
+        ({"show_extra": {"remote_model": "cloud-model"}}, "embedding_model_remote"),
+        ({"show_extra": {"remote_host": "https://remote.invalid"}}, "embedding_model_remote"),
         ({"embed_count_delta": -1}, "embedding_malformed"),
     ],
 )
@@ -284,6 +287,8 @@ def test_ollama_failures_store_nothing(real_contract, options, code):
     with OllamaStub(**options) as stub:
         with pytest.raises(KnowledgeError) as error:
             insert(ollama_store(real_contract, stub))
+        if code == "embedding_model_remote":
+            assert embed_requests(stub) == []
     assert error.value.code == code
     assert counts(real_contract) == (0, 0)
 

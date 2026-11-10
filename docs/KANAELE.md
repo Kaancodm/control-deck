@@ -472,4 +472,5 @@ Sammel-Thread neu ist.
 - Entschiedene Zeilen sind eingefroren (siehe ADR 0010, «Unveraenderlichkeit nach
   dem Entscheid»).
 - Sperr-Reihenfolge: Verknuepfung, aktives Thema, Nachricht. Der Downgrade sperrt
-  die Inhaltstabellen in derselben Reihenfolge und `events` zuletzt.
+  zuerst `assistant_channel_accounts`, dann die Inhaltstabellen in derselben
+  Reihenfolge und `events` zuletzt.

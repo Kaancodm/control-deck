@@ -501,5 +501,6 @@ Append-only-Trigger und die Funktion `memory_approvals_append_only`.
   `thread_id` nur von leer auf gesetzt), Fakten (`status`, `evidence_status`,
   `approval_id`, `valid_from`, `valid_to`, `superseded_by` nach `proposed`), Themen und Verknuepfungen (`status`/`state`,
   `approval_id`, bei Verknuepfungen `thread_id`, nach `proposed`).
-- Downgrade sperrt zuerst `assistant_thread_links`, `assistant_threads`,
-  `assistant_messages`, `memory_facts`, `memory_approvals` und danach `events`.
+- Downgrade setzt `lock_timeout` auf 10 s und sperrt `assistant_channel_accounts`,
+  dann `assistant_thread_links`, `assistant_threads`, `assistant_messages`,
+  `memory_facts`, `memory_approvals` und zuletzt `events` (siehe «Downgrade» oben).

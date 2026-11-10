@@ -37,7 +37,8 @@ _EVENTS_SCOPE = (
     "(task_id IS NULL AND to_status IS NULL AND from_status IS NULL "
     "AND (event_type LIKE 'assistant.%' OR event_type LIKE 'memory.%'))"
 )
-# Lock order for downgrade matches live ingest: link, topic, message, then the rest.
+# Downgrade locks assistant_channel_accounts first, then these in live-ingest order
+# (link, topic, message, then the rest), and events last.
 _CONTENT_TABLES = (
     "assistant_thread_links",
     "assistant_threads",

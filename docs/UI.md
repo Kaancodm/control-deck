@@ -58,22 +58,60 @@ Punkte, Lokaler Chat, Audit). Bis 860 Pixel ersetzt sie eine fixe Leiste am unte
 Übersicht, Lanes, Assistent, Meldungen und Offen; die übrigen Ziele liegen im «Menü» der
 Kopfzeile. So gibt es je Breite genau einen sichtbaren Link pro Ziel. «Meldungen» und
 «Offene Punkte» sind Abschnitte der Übersicht (`#meldungen`, `#offen`), keine eigenen Seiten.
-Die Kopfzeile ist ab 861 Pixeln `sticky`, darunter `static`, damit die Bildschirmtastatur
-nichts verdeckt. Die Anmeldeseite hat keine Navigation und kein `fixed`- oder
-`sticky`-Element. Der Zoom bleibt frei, Eingaben bleiben 16 Pixel gross, Bedienelemente
-mindestens 44 Pixel hoch; `env(safe-area-inset-*)` hält Abstand zu Notch und Home-Indikator.
+Die Kopfzeile ist ab 861 Pixeln `sticky`, darunter eine einzige deckende Zeile (Seitentitel,
+«Abmelden», «Menü») ohne `sticky` und ohne Unschärfe-Filter. Sie bildet mit `z-index: 7`
+einen eigenen Stapelkontext, damit das geöffnete Menü über allen Abschnitten und über der
+unteren Leiste liegt. Die untere Leiste ist deckend und verschwindet, solange ein Text-,
+Auswahl- oder Mehrzeilenfeld den Fokus hat (nur CSS, `body:has(...)`), damit sie nicht mit
+der Bildschirmtastatur ins Bild rückt. Der Runner-Zustand steht als kompakte Pill-Zeile mit
+dem Link «Steuerung →» unter der Kopfzeile. Die Anmeldeseite hat keine Navigation und kein
+`fixed`- oder `sticky`-Element. Der Zoom bleibt frei, Eingaben bleiben 16 Pixel gross,
+Bedienelemente mindestens 44 Pixel hoch; `env(safe-area-inset-*)` hält Abstand zu Notch und
+Home-Indikator.
+
+Die Übersicht ist für das Telefon zuerst gebaut. Die DOM-Reihenfolge ist die Lesefolge:
+Titel mit genau einer gefüllten Hauptaktion («Freigaben öffnen», wenn etwas wartet, sonst
+«＋ Neuer Auftrag»), Status-Leiste (Freigaben, Claims heute, Lanes, Backup), offene Punkte,
+Fokus-Auftrag, Lanes, danach eingeklappt Assistent, Meldungen und Audit. Bis 860 Pixel
+entfallen Hero und Netzkarte. Fokus ist der älteste wartende Auftrag.
 
 Die Übersicht zeigt nur Werte mit Quelle: offene Start- und Ergebnis-Freigaben, Claims des
-Tages und das lokale Tageslimit (nur wenn jede Lane eines hat), die drei Lanes mit
+Tages und das lokale Tageslimit (nur wenn jede Lane eines hat), die Lanes mit
 Vorprüfungszeit, den Schrittweg des Fokus-Auftrags, das letzte erfasste Backup- und
-Restore-Ereignis aus dem Audit und die letzten fünf Audit-Ereignisse. Fehlt eine Quelle,
-steht «nicht verfügbar» oder «noch keines erfasst». Schalter wie `DECK_ASSISTANT_OLLAMA`,
-`DECK_ASSISTANT_WEB` und `DECK_ROUTINE_WAKE` erscheinen nur als Zustand (aus, unvollständig,
-an); Adressen, Schlüssel und Modellkennungen werden nie gerendert. Die offenen Punkte werden
-aus diesen Deck-Daten abgeleitet, sie sind keine Projektliste. Die Netzkarte ist ein
-statisches Inline-SVG ohne Skript; gestrichelte Knoten sind aus oder nicht erfasst.
-Anbieter-Kontingente, Backup-Uhrzeit, Offsite-Status, Modellname und Deploy-Stand zeigt
-die Übersicht bewusst nicht.
+Restore-Ereignis aus dem Audit, die letzten fünf Audit-Ereignisse und lesend den
+Schema-Stand aus `alembic_version`. Fehlt eine Quelle, steht «nicht verfügbar» oder «noch
+keines erfasst»; scheitert eine Datenbanklesung, antwortet die Seite mit 503 und dem Code
+`temporarily_unavailable` und behauptet keinen leeren Zustand. Schalter wie
+`DECK_ASSISTANT_OLLAMA`, `DECK_ASSISTANT_WEB` und `DECK_ROUTINE_WAKE` erscheinen nur als
+Zustand (aus, unvollständig, an); Adressen, Schlüssel und Modellkennungen werden nie
+gerendert.
+
+Lanes: Owner-Entscheid vom 07.11.2026, agy ist die vierte Lane. Die Kachel zeigt 4 und
+darunter, wie viele Lanes laut Gesundheitsdaten im Deck angebunden sind. agy steht als
+vierte Zeile ohne Daten mit «eigene Lane · im Deck noch nicht angebunden»; Worker-Enum,
+Schema und Runner bleiben unverändert, bis ADR und Anbindung vorliegen.
+
+Offene Punkte zählen nur Warnungen. Reine Konfigurationszustände (ein ausgeschalteter
+Schalter, keine Restore-Probe) stehen eingeklappt unter «Hinweise zur Konfiguration». Darunter
+folgt eingeklappt der «Projekt-Stand (statisch, Stand 10.11.2026)»; er ist ausdrücklich als
+feste Notiz und nicht als Live-Datum gekennzeichnet.
+
+Die Assistent- und Meldungskarten nennen Fakten aus Code-Konstanten: Kontextbudget aus
+`DECK_ASSISTANT_OLLAMA_NUM_CTX` und `..._NUM_PREDICT` (Standard 4096 und 400), Dialog im
+Browser per Server-Sent Events, Denkphase aus, Verhalten bei Ollama-503 (bis zu vier
+Versuche, dann «Ollama ausgelastet.»), Router-Golden-Set nur offline. Antwortzeiten stehen
+nur mit Messdatum und Quelle (`docs/ASSISTENT.md`) und ohne Zusage da. Meldungen: höchstens
+drei Sendeversuche nur bei Ablehnung (ausser HTTP 200), ohne Antwort kein automatischer
+Neuversand, nur `cloud_ok`, Rückweg über das lokale Quittungskommando.
+
+Die Netzkarte (nur ab 861 Pixeln) ist ein statisches Inline-SVG ohne Skript; die Zustände
+stehen als Text in einer Liste darunter. Fehlen Lane-Daten, heisst der Zustand «nicht
+verfügbar», nie «aus». Anbieter-Kontingente, Backup-Uhrzeit, Offsite-Status, Modellname und
+Commit-Stand zeigt die Übersicht bewusst nicht.
+
+Die Assistentenseite beginnt mit dem Dialog: Nachricht, Datenklasse, «Mehr Optionen» mit den
+drei Kästchen und «Dialog senden» als einzigem gefüllten Button. Erklärtexte, Kanal, Profil,
+neue Karte, Import und die erweiterten Suchoptionen sind eingeklappt.
 
 ## Dateien
 
@@ -187,7 +225,9 @@ Die Token-Namen bleiben stabil, die Werte folgen der Command-Center-Palette:
 `--color-bg`, `--color-side`, `--color-panel`, `--color-raised`, `--color-text`,
 `--color-text-2`, `--color-muted`, `--color-line`, `--color-control-border`,
 `--color-accent`, `--color-brand`, `--color-action` (Primärbutton, weisse Schrift),
-`--color-on-warning` und `--color-on-danger` (Schrift auf `mark` und `.danger`),
+`--color-on-warning` und `--color-on-danger` (Schrift auf `mark` und `.danger`), die
+Verlaufstöne `--color-panel-*`, `--color-tile-*`, `--color-note-*`, `--color-step-*` sowie
+`--color-on-brand`; ausserhalb von `:root` stehen keine festen Hex-Werte,
 `--radius`, `--side-width` und `--tabbar-height`. Ein Unit-Test rechnet die
 WCAG-Kontraste dieser Werte nach (Text mindestens 4,5:1, Feldrahmen mindestens 3:1).
 Gewählt ist die Systemschrift: Die CSP hat kein `font-src`, `default-src 'none'` würde
@@ -207,8 +247,14 @@ kein Quer-Scrollen, ein `h1`, Leiste oder Seitenleiste je Breite, Tap-Ziele, sic
 Fokus, Login ohne überdeckende Elemente und reduzierte Bewegung. Die optionale
 WebKit-Vorschau `tests/integration/test_ui_preview_webkit.py` schreibt Bildschirmfotos von
 Login, Übersicht und Assistent bei 390 × 844 nach `DECK_UI_PREVIEW_DIR` (sonst in das
-pytest-Temp-Verzeichnis) und überspringt ohne installiertes WebKit. Beides ist Emulation,
-kein Ergebnis auf einem echten iPhone.
+pytest-Temp-Verzeichnis) und überspringt ohne installiertes WebKit.
+`tests/integration/test_ui_fold_browser.py` misst bei 390 × 844 den Falz (Übersicht: `h1`
+bis 150, Hauptaktion bis 260, Status-Leiste bis 430, offene Punkte ab höchstens 450,
+Seitenhöhe bis 2000; Assistent: «Nachricht» ab höchstens 380, «Dialog senden» bis 740,
+Seitenhöhe bis 2200), prüft mit `elementFromPoint`, dass das geöffnete Menü auf
+`/ui/overview` und `/ui/lanes` oben liegt, und bei 340 Pixeln Höhe, dass die untere Leiste
+deckend ist und bei Fokus im Feld verschwindet. Alles ist Emulation, kein Ergebnis auf einem
+echten iPhone.
 
 Browser-Tests brauchen Chromium: installiertes `chromium` oder `uv run playwright install
 chromium`. Die CI richtet den Browser nur in ihrem temporären Test-Runner ein. Pflichtchecks:

@@ -451,8 +451,8 @@ Sammel-Thread neu ist.
 - **M3, Adapter n8n und Kanal `grok`.** Kein Eingang, kein HMAC, kein Versand.
 - **M4, Import-Parser.** `import_file` ist ein Wert im Umschlag. Es gibt keinen
   Parser, der eine Exportdatei in `channel_turn.v1` schreibt. Konten legt der
-  Owner an. Der Seed ist nur `deck_ui/owner`. `grok1`, `grok2`, `grokbuch` und
-  `claude2` entstehen inaktiv als Standard. `memory_approvals.kind` kennt
+  Owner an. Der Seed ist nur `deck_ui/owner`. Die vier Worker-Konten
+  (zwei Grok-, zwei Claude-Konten) entstehen inaktiv als Standard. `memory_approvals.kind` kennt
   keinen Import-Stapel; M4 braucht ihn fuer den Manifest-Hash. `claude_code`
   bleibt per CHECK `local_only`, bis ein Umstufungsweg existiert.
 - **M5, Slack Socket Mode.** Kein Socket und kein Slack-Adapter. Der Vertrag

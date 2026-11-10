@@ -1,9 +1,18 @@
 {% extends 'base.html' %}
 {% block title %}Assistent · Control Deck{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="/ui/static/assistant.css"><script src="/ui/static/assistant_talk.js" defer></script>{% endblock %}
+{% block crumb %}Assistent{% endblock %}
 {% block content %}
 <div class="assistant-page">
   <h1>Persönlicher Assistent</h1>
+  {% if flags is defined %}
+  {% set switch_text = {'on': 'an', 'incomplete': 'unvollständig', 'off': 'aus'} %}
+  <ul class="chip-row" aria-label="Schalter">
+    {% for label, state in [('Loopback', flags.assistant_loopback), ('Web', flags.assistant_web), ('Routine-Wake', flags.routine_wake)] %}
+    <li class="chip chip--{{ 'on' if state == 'on' else 'warn' if state == 'incomplete' else 'off' }}">{{ label }}: {{ switch_text[state] }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   <p class="notice">Standard ist der Mock, kein Live-Modell. Ein normaler Satz bleibt Dialog. Ein Auftrag entsteht erst, wenn du eine Karte, ein Preset oder die Suche als Auftrag absendest. Die sechs Bestätigungsfelder schreibt die Anwendung; sie sind keine Chat-Pflicht.</p>
   <ul>{% for line in activation %}<li>{{ line }}</li>{% endfor %}</ul>
   <section class="panel" aria-label="Kanal">
@@ -102,7 +111,7 @@
         {% include 'partials/csrf.html' %}
         <button>Kopie</button>
       </form>
-      <p><a href="/ui/assistant/cards/{{ card.id }}/export">Export</a></p>
+      <p><a class="button quiet" href="/ui/assistant/cards/{{ card.id }}/export">Export</a></p>
     </details>
     {% endfor %}
     <h3>Neue Karte</h3>

@@ -47,6 +47,7 @@ from app.assistant.status import CHANNEL_GAPS, heartbeat_is_current, project_ord
 from app.db.models import Event, Task
 from app.db.session import get_background_session_factory
 from app.db.state_machine import TaskState
+from app.ui.overview import feature_flags
 from app.ui.routes import ParsedForm, csrf, owner
 from app.ui.views import page, preview_context, preview_redirect
 
@@ -84,6 +85,7 @@ def _context(session: DbSession) -> dict[str, Any]:
         "search": None,
         "notice": None,
         "activation": activation_status(),
+        "flags": feature_flags(),
     }
 
 

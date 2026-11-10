@@ -123,14 +123,23 @@ Reihenfolge im Code:
    `reply_path_required`. Speichern nur ueber `record_deck_reply`. Auf
    `n8n`, `grok`, `claude` und `claude_code` darf die Rolle `assistant` durch
    `ingest_turn`.
-7. **Datenschutz, nur ausserhalb `local_only`.** Dieselbe Sperre wie
-   `GateReport` (`findings_block` in `app/privacy/gate.py`), mit der Blockliste
-   aus `get_privacy_settings`. `cloud_ok` sperrt jeden Befund. `cloud_redacted`
+7. **Datenschutz-Markierung, nur ausserhalb `local_only`.** `memory_privacy_hold`
+   in `app/privacy/gate.py` wendet dasselbe Sperr-Praedikat wie `GateReport`
+   (`findings_block`) auf die Texte aus Schritt 2 an, mit der Blockliste aus
+   `get_privacy_settings`. `cloud_ok` sperrt jeden Befund. `cloud_redacted`
    sperrt Geheimnisse und Regeln ausserhalb der schwaerzbaren Menge; ein
    Blocklisten-Treffer allein sperrt `cloud_redacted` nicht. `local_only` liest
-   die Blockliste nicht. Fehlt die Konfiguration oder weist der Normalisierer
-   den Text ab, gilt die Zeile als gesperrt (`privacy_block`). Nichts gespeichert.
-   Das Audit traegt den Grund und die schon gesetzten Felder, nicht den Text.
+   die Blockliste nicht. Eine Sperre weist **nicht** ab (Owner-Entscheid vom
+   2026-11-10): die Zeile wird in Schritt 10 normal gespeichert und traegt
+   `privacy_hold`:
+   - `privacy_block`: Befund, oder der Normalisierer weist den Text ab.
+   - `blocklist_unavailable`: Blockliste konfiguriert, aber unlesbar; oder keine
+     Blockliste konfiguriert und der Kanal ist nicht `deck_ui`.
+   Auf `deck_ui` ohne konfigurierte Blockliste pruefen nur die eingebauten
+   Muster; markiert wird nur bei einem echten Befund
+   (`BLOCKLIST_OPTIONAL_CHANNELS` in `app/memory/policy.py`). Das Audit
+   `assistant.turn_accepted` traegt `privacy_hold`, nie den Text. Das
+   Auftrags-Gate (`inspect_task`) aendert sich dadurch nicht.
 8. **Thema, unter Sperre.** Die offene Verknuepfung (`state <> rejected`) wird
    mit `FOR UPDATE` geladen, danach das Thema. `thread_id` wird nur gesetzt,
    wenn die Verknuepfung `active` ist, das Thema `active` ist und `class_admits`
@@ -147,7 +156,8 @@ Reihenfolge im Code:
     Ohne Quellen-ID gilt der partielle Unique-Index auf
     `(source_channel, source_account, external_thread_id, role, text_sha256, source_date)`
     (`source_date` ist der geparste `occurred_at`). `source_date` bleibt im
-    Schluessel: derselbe Text zu einer spaeteren Quellzeit ist ohne Nachrichten-ID
+    Schluessel (vom Owner am 2026-11-10 bestaetigt): derselbe Text zu einer
+    spaeteren Quellzeit ist ohne Nachrichten-ID
     ein eigener Turn und bleibt in Quarantaene. Die Quelluhr ordnet nicht; das
     tut `seq`. Ein anderer Text mit derselben Quellen-ID ueberschreibt die erste
     Zeile nicht. Das Audit ist dann `duplicate_body_mismatch` und enthaelt nur
@@ -166,7 +176,8 @@ Reihenfolge im Code:
     danach keine Verknuepfung sichtbar ist). Ergebnis `accepted` mit
     `reason = thread_unmapped`. Mit gesetztem `thread_id`: `accepted`,
     `reason` leer. Audit `assistant.turn_accepted` mit `message_id` und, wenn
-    vorhanden, `thread_id` und `link_id`.
+    vorhanden, `thread_id`, `link_id` und `privacy_hold`. `IngestOutcome`
+    traegt `privacy_hold` der neuen Zeile.
 
 `class_admits` folgt `allowed_classes`: ein Thema `local_only` nimmt alle drei
 Klassen auf, `cloud_redacted` nimmt `cloud_redacted` und `cloud_ok`,
@@ -178,8 +189,8 @@ Schritt 3 weist `local_only` auf Cloud-Kanaelen schon vorher ab.
 
 Gespeichert wird zusaetzlich: `text_sha256` als sha256 der UTF-8-Bytes,
 `source_channel`, `source_account`, `source_ref`, optionales
-`source_ref_sha256`, `method = ingest_method`. `reply_for_message_id` bleibt
-leer.
+`source_ref_sha256`, `method = ingest_method`, `privacy_hold` aus Schritt 7.
+`reply_for_message_id` bleibt leer.
 
 ### Grundcodes von `ingest_turn`
 
@@ -192,12 +203,23 @@ leer.
 | `invalid_method` | `rejected` | `assistant.turn_rejected` |
 | `reply_path_required` | `rejected` | `assistant.turn_rejected` |
 | `secret_rejected` | `rejected` | `assistant.turn_rejected` (nur `reason` und `text_sha256`) |
-| `privacy_block` | `rejected` | `assistant.turn_rejected` |
 | `thread_class_block` | `rejected` | `assistant.turn_rejected` |
 | `duplicate` | `duplicate` | `assistant.turn_duplicate` |
 | `duplicate_body_mismatch` | `duplicate` | `assistant.turn_duplicate` (nur die zwei Hashes) |
 | `thread_unmapped` | `accepted` | `assistant.turn_accepted` |
 | leer | `accepted` | `assistant.turn_accepted` |
+
+`privacy_block` ist kein Abweisungsgrund mehr. Eine angenommene Zeile kann
+zusaetzlich `privacy_hold` tragen:
+
+| `privacy_hold` | Bedingung |
+| --- | --- |
+| leer | `local_only`, oder kein Befund |
+| `privacy_block` | Befund nach `findings_block` oder Normalisierer weist ab |
+| `blocklist_unavailable` | Blockliste unlesbar; oder nicht konfiguriert auf einem anderen Kanal als `deck_ui` |
+
+Die Spalte ist eine Inhaltsspalte: der Trigger verweigert jede Aenderung. Ein CHECK
+erlaubt nur `NULL` und die zwei Codes.
 
 ### `record_deck_reply`
 
@@ -216,8 +238,10 @@ nicht mit `thread_class_block` abgewiesen. `reply_for_message_id` und
 `in_reply_to_message_id` zeigen auf die Quelle. `external_message_id` ist
 `deck-reply:` plus die Id. `source_ref` ist `{kanal}:reply/{id}`.
 `source_date` ist `clock_timestamp()`. Methode `deck_ui` auf `deck_ui`, sonst
-`live_push`. `evidence_status` ist `unbewiesen`. Dieselbe Datenschutz-Sperre
-wie bei `ingest_turn` gilt fuer die Klasse der Quelle.
+`live_push`. `evidence_status` ist `unbewiesen`. Dieselbe Datenschutz-Markierung
+wie bei `ingest_turn` gilt fuer Klasse und Kanal der Quelle (auf `deck_ui` ohne
+Blockliste nur die eingebauten Muster). Traegt die Quelle `privacy_hold`, erbt die
+Antwort diesen Code, wenn sie selbst keinen eigenen hat.
 
 `UNIQUE (reply_for_message_id)` laesst eine zweite Antwort zum Duplikat werden.
 Ein anderer Text ueberschreibt den ersten nicht (`duplicate_body_mismatch`,
@@ -231,10 +255,9 @@ vergeben.
 | `reply_target_rejected` | Ziel hat `state = rejected`. Audit `assistant.reply_rejected` |
 | `invalid_reply` | Text kein String, nach `strip` leer, oder laenger als 16000 Zeichen. Audit `assistant.reply_rejected` |
 | `secret_rejected` | Geheimnis in Text oder kopiertem Feld. Nichts Neues gespeichert. Audit nur Grund und Hash |
-| `privacy_block` | Datenschutz-Sperre fuer die Klasse der Quelle. Nichts Neues gespeichert |
 | `duplicate` | zweite Antwort, gleicher Text. Audit `assistant.reply_duplicate` |
 | `duplicate_body_mismatch` | zweite Antwort, anderer Text. Audit nur die zwei Hashes |
-| `accepted`, `reason` leer | erste Antwort, bleibt `quarantined`. Audit `assistant.reply_recorded` |
+| `accepted`, `reason` leer | erste Antwort, bleibt `quarantined`, gegebenenfalls mit `privacy_hold`. Audit `assistant.reply_recorded` (mit `privacy_hold`) |
 
 Ein Ziel in `quarantined` oder `approved` darf eine Antwort bekommen. Die
 Antwort selbst bleibt `quarantined`. Der gespeicherte Text wird nicht
@@ -243,9 +266,10 @@ nicht und nimmt ein Leerzeichen an, weil das Schema nur `minLength` 1 verlangt.
 
 ## Freigabe
 
-Nur `app/memory/approval.py` setzt eine Zeile aus dem Wartestatus. Es gibt dort
-keine Loeschfunktion. `memory_approvals` verweigert `UPDATE` und `DELETE`.
-Abgelehnt bleibt `rejected` beziehungsweise `abgelehnt`.
+Nur `app/memory/approval.py` setzt eine Zeile aus dem Wartestatus oder korrigiert
+einen Entscheid. Es gibt dort keine Loeschfunktion. `memory_approvals` verweigert
+`UPDATE` und `DELETE`. Abgelehnt bleibt `rejected` beziehungsweise `abgelehnt`,
+bis der Owner es korrigiert.
 
 Jede Entscheidung verlangt:
 
@@ -264,17 +288,23 @@ Jede Entscheidung verlangt:
 
 Die Bytes beginnen mit der Zeile `memory-shown.v1`, dann Kopfzeilen
 `schluessel=wert`, dann eine Leerzeile, dann der Text. `mark_proven` ist `1`
-oder `0`.
+oder `0`. `privacy_hold` ist der Code oder `none`.
 
 | Ziel | Kopfzeilen, dann Text |
 | --- | --- |
-| Nachricht | `kind=message`, `data_class`, `channel`, `account`, `role`, `decision`, `mark_proven`. Text ist `text` |
-| Faktum | `kind=fact`, `data_class`, `channel`, `account`, `decision`, `mark_proven`. Text ist Satz, Subjekt, Praedikat, Objekt, je eine Zeile |
+| Nachricht | `kind=message`, `data_class`, `channel`, `account`, `role`, `privacy_hold`, `decision`, `mark_proven`. Text ist `text` |
+| Faktum | `kind=fact`, `data_class`, `channel`, `account`, `privacy_hold`, `decision`, `mark_proven`. Text ist Satz, Subjekt, Praedikat, Objekt, je eine Zeile |
 | Thema | `kind=thread`, `data_class`, `decision`, `mark_proven`. Text ist `title`. `create_owner_thread` hasht den Titel, bevor die Zeile existiert, mit `decision=approved` und `mark_proven=0` |
 | Verknuepfung | `kind=thread_link`, `data_class` des Themas, `channel`, `account`, `thread_id`, `decision`, `mark_proven`. Text ist die Aussen-Kennung, Zeilenumbruch, Titel |
 
+Eine Korrektur haengt nach `mark_proven` die Kopfzeilen `correction=1` und
+`corrects_approval_id=<bisherige Freigabe>` an. Beim Faktum folgen
+`valid_to` (ISO-Zeit in UTC oder `none`) und `superseded_by` (Id oder `none`),
+jeweils der Wert nach der Korrektur.
+
 `decision` ist `approved` oder `rejected`, sonst `invalid_decision`. Ein zweiter
-Entscheid auf dasselbe `(kind, target_id)` ist `already_decided`.
+erster Entscheid auf dasselbe `(kind, target_id)` ist `already_decided`; spaeter
+aendert nur eine Korrektur den Entscheid.
 
 | Funktion | Uebergang |
 | --- | --- |
@@ -283,6 +313,20 @@ Entscheid auf dasselbe `(kind, target_id)` ist `already_decided`.
 | `decide_thread_topic` | `proposed` nach `active` oder `rejected`. Kein Nachweis-Feld |
 | `decide_thread_link` | `proposed` nach `active` oder `rejected`. Annahme nur auf ein Thema mit `status = active` (`thread_not_active`). `local_only` auf einem Cloud-Kanal: `local_only_cloud_link`. Optionales `target_thread_id` muss bei Ablehnung das Thema der Verknuepfung sein (`invalid_decision`). Die gezeigten Bytes gehoeren zum gewaehlten Thema. Bei Annahme haengt der Code ungemappte Nachrichten dieses Aussen-Threads an, deren Klasse das Thema aufnimmt, und zaehlt sie als `attached` |
 | `create_owner_thread` | legt sofort `active` an (`title_origin = owner`) und eine Freigabe `approved`. Der Hash deckt den getrimmten Titel |
+| `correct_message` | entschiedene Nachricht nach `approved` (mit oder ohne `mark_proven`) oder `rejected`. Text, Klasse und `privacy_hold` bleiben |
+| `correct_fact` | entschiedenes Faktum widerrufen (`rejected`), wieder annehmen (Quelle nicht `rejected`, sonst `source_rejected`), optional `valid_to` setzen (mit Zeitzone, nicht vor `valid_from`) oder `superseded_by` auf ein anderes freigegebenes, selbst nicht ersetztes Faktum (sonst `invalid_fact`). `None` laesst den Wert stehen; Leeren ist nicht moeglich; `valid_from` bleibt |
+| `correct_thread_topic` | Thema `active` <-> `rejected`. Ein abgelehntes Thema liefert keinen Verlauf und mappt keine neuen Turns |
+| `correct_thread_link` | Verknuepfung loesen (`active` -> `rejected`) oder wieder aktivieren. Aktivieren nur mit aktivem Thema, passender Klasse (`local_only_cloud_link`) und ohne andere offene Verknuepfung desselben Aussen-Threads (`link_conflict`); haengt dann ungemappte Nachrichten an. `thread_id` der Verknuepfung bleibt |
+
+Jede Korrektur verlangt Session und gezeigte Bytes wie oben, sperrt dieselben Zeilen
+in derselben Reihenfolge wie der erste Entscheid (Nachricht; Faktum, dann Quelle;
+Thema; Verknuepfung, dann Thema), schreibt eine neue Zeile in `memory_approvals` mit
+`corrects_approval_id` = bisherige `approval_id` und setzt die `approval_id` des
+Ziels darauf. Fehler: `not_decided` (Zeile noch offen), `no_change` (Ergebnis wie
+bisher), `already_corrected` (die bisherige Freigabe hat schon eine Korrektur).
+Angehaengte Nachrichten behalten ihr Thema; `thread_id` wechselt nie zurueck auf leer.
+Die Datenbank prueft dasselbe im Inhalts-Trigger (siehe
+[DATENBANK.md](DATENBANK.md)).
 
 `bewiesen` entsteht hier nur mit `mark_proven=True`. Ein Klick ohne das Flag
 laesst `unbewiesen` stehen. Die Datenbank verlangt fuer `bewiesen` eine
@@ -300,7 +344,10 @@ Vorschlaege ohne Session, jeder Aufrufer:
   Objekt, die vier Felder mit Zeilenumbruch verbunden und die Form
   `{subject} | {predicate} | {object} ({sentence})`. Geheimnis:
   Audit `memory.fact_rejected_input` mit `secret_rejected` und Hash, dann
-  Fehler `secret_rejected`, nichts gespeichert. `decide_fact` liest die Quelle
+  Fehler `secret_rejected`, nichts gespeichert. Danach die Datenschutz-Markierung
+  wie in Schritt 7 mit Klasse und Kanal der Quelle; traegt die Quelle schon
+  `privacy_hold`, erbt das Faktum diesen Code. Kein Abweisen, das Audit
+  `memory.fact_proposed` traegt den Code. `decide_fact` liest die Quelle
   auf dem Annahme-Pfad erneut mit `FOR UPDATE` und verweigert `rejected` mit
   demselben Code. Eine Ablehnung des Faktums bleibt moeglich.
 - `propose_thread_topic` speichert `proposed`, `title_origin = assistant_proposed`.
@@ -308,7 +355,8 @@ Vorschlaege ohne Session, jeder Aufrufer:
   Audit-Zeile, nichts gespeichert.
 
 Weitere Fehler: `not_found`, `invalid_fact`, `invalid_title`,
-`invalid_data_class`.
+`invalid_data_class`, `not_decided`, `no_change`, `already_corrected`,
+`link_conflict`.
 
 Akteur der Entscheidungs-Audits ist `operator`. `system` schreibt nur
 `memory.fact_proposed`, `memory.topic_proposed` und `memory.fact_rejected_input`.
@@ -319,6 +367,9 @@ Geschrieben werden:
 - `memory.topic_proposed`, `memory.topic_created`, `memory.topic_approved`,
   `memory.topic_rejected`
 - `memory.link_approved`, `memory.link_rejected`
+- `memory.message_corrected`, `memory.fact_corrected`, `memory.topic_corrected`,
+  `memory.link_corrected` (mit `decision`, `approval_id`, `corrects_approval_id`,
+  `shown_sha256`, kein Text)
 
 ### Audit-Schreiber
 
@@ -330,7 +381,7 @@ ergibt `invalid_audit_detail`. Beides schreibt keine Zeile. Erlaubte Schluessel:
 `reason`, `channel`, `account`, `role`, `method`, `data_class`, `kind`,
 `decision`, `evidence_status`, `message_id`, `existing_message_id`,
 `reply_for_message_id`, `thread_id`, `link_id`, `fact_id`, `approval_id`,
-`text_sha256`, `existing_text_sha256`, `shown_sha256`, `class_forced`, `thread_unmapped`,
+`corrects_approval_id`, `privacy_hold`, `text_sha256`, `existing_text_sha256`, `shown_sha256`, `class_forced`, `thread_unmapped`,
 `in_reply_to_unresolved`, `inserted`, `duplicates`, `secret_rejected`,
 `attached`. Werte: `null`, Boolean, Ganzzahl von 0 bis 2^31, oder ein Token
 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$`. Nachrichtentext ist keiner dieser Werte.
@@ -351,9 +402,11 @@ Lesend, sendet nichts. Signatur: `thread_id` (darf leer sein), `target`,
 | `claude`, `claude_code`, `grok` | nur `cloud_ok` |
 | `codex` | keine |
 
-`cloud_redacted` ist fuer die drei Cloud-Ziele ausgeschlossen: die Redaktion
-in `app/redaction/` haengt an einem Auftrag und seinen `redaction_maps`.
-Gespraechsgedaechtnis hat keinen Auftrag.
+Im Stand M1 liefert der Lader `cloud_redacted` noch nicht an die drei
+Cloud-Ziele: die Redaktion in `app/redaction/` haengt an einem Auftrag und seinen
+`redaction_maps`, Gespraechsgedaechtnis hat keinen Auftrag. Das ist eine
+voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, verfolgt in Issue
+[#76](https://github.com/Kaancodm/control-deck/issues/76) (auftragsfreie Redaktion).
 
 `context_classes` schneidet `allowed_classes(data_class)` mit dieser Decke.
 `local_only` am Cloud-Ziel wirft `data_class_block`, bevor gelesen wird.
@@ -370,7 +423,9 @@ Gespraechsgedaechtnis hat keinen Auftrag.
 Leere Klassenschnittmenge: Rueckgabe ohne Lesen (`codex`).
 
 Ist die Menge nicht leer, in dieser Reihenfolge, der Klassenfilter in SQL vor
-Rang und Text:
+Rang und Text. Fuer `claude`, `claude_code` und `grok` schliesst SQL zusaetzlich
+Nachrichten und Fakten mit `privacy_hold` aus, ebenso Fakten, deren Quellnachricht
+`privacy_hold` traegt, auch nach der Freigabe. `ollama` erhaelt markierte Zeilen.
 
 1. **Profil**, nur wenn `local_only` in der Menge liegt. `current_profile`,
    Notizen getrimmt, Klasse im Ergebnis `local_only`, Referenz
@@ -403,9 +458,9 @@ Wert der Zeile (`bewiesen`, `unbewiesen`, `abgelehnt`), beim Profil
 
 Zuerst das Profil, dann der Verlauf, dann die Fakten. Ein Verlaufseintrag, der
 nicht passt, beendet den Verlauf; aeltere Eintraege fallen mit. Geprueft wird
-ein Geheimnis im Text, dann fuer jede Klasse ausser `local_only` dieselbe
-Datenschutz-Sperre wie bei der Annahme (Blockliste; fehlende Konfiguration
-sperrt), dann das Budget. Fakten werden danach einzeln weitergeprueft: ein zu
+ein Geheimnis im Text, dann nur fuer Cloud-Ziele und jede Klasse ausser
+`local_only` das Sperr-Praedikat erneut (`non_local_texts_blocked`, Blockliste;
+fehlende oder unlesbare Konfiguration sperrt, auch auf `deck_ui`), dann das Budget. Fakten werden danach einzeln weitergeprueft: ein zu
 grosser, ein gesperrter oder ein Geheimnis-Fakt faellt, ein spaeterer kleinerer
 kann bleiben. Verworfene Eintraege zaehlen in `dropped` und kommen nicht in
 `items`. Der Verlauf im Ergebnis steht chronologisch. `tokens` ist die Summe
@@ -429,24 +484,30 @@ Ein zweiter Lauf trifft den Unique-Schluessel und fuegt nichts ein.
 `data_class` ausserhalb der drei Werte. Audit
 `assistant.backfill_completed` nur, wenn etwas eingefuegt wurde oder der
 Sammel-Thread neu ist. Fehlt das Konto `deck_ui`/`owner`, bricht der Backfill
-mit `account_missing` ab, bevor etwas geschrieben wird.
+mit `account_missing` ab, bevor etwas geschrieben wird. Ein Datenschutz-Befund
+ausserhalb `local_only` setzt `privacy_hold` wie `ingest_turn` auf `deck_ui`; die
+Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
+`blocklist_unavailable`). `privacy_held` im Bericht zaehlt markierte neue Zeilen.
 
 ## Nicht in diesem Stand
 
-- **M1b, offen.** «Dialog nutzt Thread» ist nicht erledigt. Der Live-Dialog
+- **M1b, offen (Issue #77).** «Dialog nutzt Thread» ist nicht erledigt. Der Live-Dialog
   liest weiter die letzten Saetze aus `assistant_turns`. M1b haengt den Dialog
   an den Themen-Thread, nach dem Merge des UI-PR und vor G2.
   `app/assistant/http.py` bleibt in M1 unveraendert und ruft weder
   `ingest_turn` noch `load_memory_context`.
-- **M2, Oberflaeche.** Keine Quarantaene-Inbox und keine Freigabe-Klicks.
+- **M2, Oberflaeche (Issue #78).** Keine Quarantaene-Inbox, keine Freigabe- und
+  keine Korrektur-Klicks. M2 zeigt `privacy_hold` (`privacy_block`,
+  `blocklist_unavailable`) bei der Freigabe an.
   Deck-Antworten bleiben `quarantined`, bis M2 entscheidet, ob `persist` sie
   mit abdeckt oder ein zweiter Klick gilt. Der Plan-Code `unknown_source`
   erscheint in der UI als `unknown_account`, `account_inactive` oder
   `invalid_envelope`. Weitere M1-Codes fuer dieselben Labels:
-  `privacy_block`, `thread_class_block`, `duplicate_body_mismatch`,
+  `thread_class_block`, `duplicate_body_mismatch`,
   `secret_rejected`, `data_class_block`, `invalid_method`,
   `reply_path_required`, `reply_channel`, `reply_target_rejected`,
-  `invalid_reply`, `source_rejected`. Die Audit-Auswahl blendet taskfreie
+  `invalid_reply`, `source_rejected`, `not_decided`, `no_change`,
+  `already_corrected`, `link_conflict`. Die Audit-Auswahl blendet taskfreie
   Zeilen aus; M2 braucht einen Leser fuer `assistant.*` und `memory.*`.
   Der Verlauf sortiert nach `seq`, nicht nach `occurred_at`.
 - **M3, Adapter n8n und Kanal `grok`.** Kein Eingang, kein HMAC, kein Versand.
@@ -455,23 +516,25 @@ mit `account_missing` ab, bevor etwas geschrieben wird.
   Owner an. Der Seed ist nur `deck_ui/owner`. Die vier Worker-Konten
   (zwei Grok-, zwei Claude-Konten) entstehen inaktiv als Standard. `memory_approvals.kind` kennt
   keinen Import-Stapel; M4 braucht ihn fuer den Manifest-Hash. `claude_code`
-  bleibt per CHECK `local_only`, bis ein Umstufungsweg existiert.
+  bleibt per CHECK `local_only`, bis ein Umstufungsweg existiert (Issue #79,
+  M4/N3).
 - **M5, Slack Socket Mode.** Kein Socket und kein Slack-Adapter. Der Vertrag
   dafuer und der Rueckweg stehen nur in ADR 0010.
-- **`cloud_redacted` an Cloud-Ziele.** Der Lader liefert an `claude`,
-  `claude_code` und `grok` nur `cloud_ok`. Das ist strenger als der Plan, weil
-  die Redaktion an einem Auftrag haengt. Der Owner bestaetigt diese Grenze,
-  oder ein spaeteres Ticket baut eine auftragsfreie Redaktion. Der Code bleibt
-  bei `cloud_ok`.
+- **`cloud_redacted` an Cloud-Ziele (Issue #76).** Der Lader liefert an `claude`,
+  `claude_code` und `grok` im Stand M1 nur `cloud_ok`. Das ist eine
+  voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, weil die Redaktion an
+  einem Auftrag haengt. Issue #76 baut eine auftragsfreie Redaktion; bis dahin
+  bleibt der Code bei `cloud_ok`.
 
 ## Nachtrag Review-Runde 3
 
-- Ohne konfigurierte Blockliste sind `cloud_ok` und `cloud_redacted` gesperrt
-  (`privacy_block`), wie beim Auftrags-Gate. `load_memory_context` wendet die
-  Sperre nur fuer Cloud-Ziele an; `ollama` bleibt davon unberuehrt.
-- `propose_fact` prueft die Datenschutz-Sperre mit der Klasse der Quellnachricht.
-- Entschiedene Zeilen sind eingefroren (siehe ADR 0010, «Unveraenderlichkeit nach
-  dem Entscheid»).
+- Ohne konfigurierte Blockliste wendet `load_memory_context` die Sperre fuer
+  Cloud-Ziele weiter fail-closed an; `ollama` bleibt davon unberuehrt. Bei der
+  Annahme gilt seit dem Owner-Entscheid vom 2026-11-10 die Markierung (Schritt 7).
+- `propose_fact` prueft die Datenschutz-Markierung mit Klasse und Kanal der
+  Quellnachricht.
+- Entschiedene Zeilen sind eingefroren; nur eine Owner-Korrektur aendert sie (siehe
+  ADR 0010, «Unveraenderlichkeit nach dem Entscheid»).
 - Sperr-Reihenfolge: Konto (FOR SHARE), Verknuepfung, aktives Thema, Nachricht;
   Antwort und Backfill sperren das Konto ebenfalls zuerst. Der Downgrade sperrt
   (ACCESS EXCLUSIVE) zuerst `assistant_channel_accounts`, dann die Inhaltstabellen

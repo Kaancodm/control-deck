@@ -327,8 +327,10 @@ mit allen drei Klassen.
 
 ### `memory_approvals`
 
-Append-only. Primärschlüssel `id` (UUID). Eindeutig `(kind, target_id)`
-(`uq_memory_approvals_target`). `target_id` hat keinen Fremdschlüssel.
+Append-only. Primärschlüssel `id` (UUID). `target_id` hat keinen Fremdschlüssel.
+Höchstens ein erster Entscheid pro `(kind, target_id)`: partieller Unique-Index
+`uq_memory_approvals_target` WHERE `corrects_approval_id IS NULL`. Weitere Zeilen
+für dasselbe Ziel sind Korrekturen.
 
 | Spalte | Bedeutung |
 |--------|-----------|
@@ -336,7 +338,19 @@ Append-only. Primärschlüssel `id` (UUID). Eindeutig `(kind, target_id)`
 | `decision` | `approved` oder `rejected` |
 | `shown_sha256` | 64 Hexzeichen der versionierten UTF-8-Nutzlast, nicht der Text-Hash |
 | `approver_ref` | 64 Hexzeichen. sha256 über das Präfix `deck-memory-approver`, ein NUL-Byte und den Session-Digest. Nicht der Digest, kein Nachschlageschlüssel, kein Fremdschlüssel (`ck_memory_approvals_approver_ref`) |
+| `corrects_approval_id` | nullable. Nur bei einer Owner-Korrektur: die Freigabe, die diese Zeile ablöst |
 | `created_at` | `clock_timestamp()` |
+
+Korrektur-Regeln (Owner-Entscheid vom 2026-11-10):
+
+- `uq_memory_approvals_identity`: UNIQUE `(id, kind, target_id)`, Ziel des
+  folgenden Fremdschlüssels.
+- `fk_memory_approvals_corrects`: `(corrects_approval_id, kind, target_id)`
+  verweist auf `memory_approvals (id, kind, target_id)`, `ON DELETE RESTRICT`. Eine
+  Korrektur hat also dieselbe Art und dasselbe Ziel wie die korrigierte Freigabe.
+- `uq_memory_approvals_corrects`: UNIQUE `(corrects_approval_id)`. Jede Freigabe
+  wird höchstens einmal korrigiert; Korrekturen bilden eine Kette.
+- `ck_memory_approvals_corrects_not_self`: keine Korrektur ihrer selbst.
 
 Die Freigabe prüft das rohe UI-Cookie über `get_ui_session`: Owner, kein
 Widerruf, Ablauf, Passwort-Fingerabdruck, Leerlaufzeit, Zeile gesperrt.
@@ -394,6 +408,13 @@ Herkunft, NOT NULL ausser `source_ref_sha256` und `approval_id`: `source_date`,
 `approval_id` (`ck_assistant_messages_proven_needs_approval`). Dieselben
 Herkunfts-Checks gelten für `memory_facts` mit dem Präfix `memory_facts`.
 
+`privacy_hold` (varchar(32), nullable, in `assistant_messages` und `memory_facts`):
+`NULL`, `privacy_block` oder `blocklist_unavailable`
+(`ck_assistant_messages_privacy_hold`, `ck_memory_facts_privacy_hold`). Eine
+markierte Zeile liegt mit vollem Text in der Quarantäne; Cloud-Ziele bekommen sie
+nie, auch nach der Freigabe. Die Spalte ist eine Inhaltsspalte und unveränderlich.
+Bedeutung der Codes: [KANAELE.md](KANAELE.md), Schritt 7.
+
 `ck_assistant_messages_decision`:
 
 - `quarantined`: `approval_id` leer und `evidence_status = unbewiesen`
@@ -415,9 +436,10 @@ WHERE `external_message_id IS NULL`. Weitere Indizes:
 `ix_assistant_messages_thread_seq` auf `(thread_id, seq)`,
 `ix_assistant_messages_quarantine` auf `seq` WHERE `state = 'quarantined'`.
 `ck_assistant_messages_external_scheme` verbietet `://` in beiden
-Aussen-Kennungen. Der partielle Fallback-Index behält `source_date`: ohne
-Nachrichten-ID ist derselbe Text zu einer späteren Quellzeit ein eigener
-Quarantäne-Turn. Die Quelluhr ordnet nicht.
+Aussen-Kennungen. Der partielle Fallback-Index behält `source_date` (vom Owner am
+2026-11-10 bestätigt): ohne Nachrichten-ID ist derselbe Text zu einer späteren
+Quellzeit ein eigener Quarantäne-Turn, dieselbe Quellzeit ein Duplikat. Die
+Quelluhr ordnet nicht.
 
 ### Inhaltssperren
 
@@ -427,19 +449,39 @@ an `assistant_messages`, `memory_facts`, `assistant_threads` und
 `memory_content_immutable`. `UPDATE` wirft denselben Fehler, wenn eine
 Inhaltsspalte sich ändert:
 
-- Nachrichten: `text`, `text_sha256`, `data_class`, `role`, Aussen-Kennungen,
-  `source_date`, Kanal, Konto, `source_ref`, `source_ref_sha256`, `method`
+- Nachrichten: `text`, `text_sha256`, `data_class`, `privacy_hold`, `role`,
+  Aussen-Kennungen, `source_date`, Kanal, Konto, `source_ref`, `source_ref_sha256`,
+  `method`
 - Fakten: `original_sentence`, `subject`, `predicate`, `object`, `data_class`,
-  `source_message_id` und dieselben Herkunftsspalten
+  `privacy_hold`, `source_message_id` und dieselben Herkunftsspalten
 - Themen: `data_class` und `title` (der Titel steckt in den gezeigten Bytes)
 - Verknüpfungen: `channel`, `account`, `external_thread_id`
 
-Erlaubt bleibt nur der eine Entscheid aus dem offenen Zustand (`quarantined`
+Erlaubt bleibt der eine Entscheid aus dem offenen Zustand (`quarantined`
 bzw. `proposed`): `state`/`status`, `evidence_status`, `approval_id`, bei
 Verknüpfungen `thread_id`, bei Fakten zusätzlich `valid_from`, `valid_to` und
-`superseded_by`. Danach sind diese Spalten eingefroren (siehe Nachtrag unten);
-bei Nachrichten wechselt `thread_id` nur von leer auf ein Thema. `TRUNCATE` feuert diese
-Zeilentrigger nicht. `memory_approvals` behält den eigenen Append-only-Trigger.
+`superseded_by`. Danach sind diese Spalten eingefroren; bei Nachrichten wechselt
+`thread_id` nur von leer auf ein Thema, bei Verknüpfungen bleibt `thread_id` fest,
+bei Fakten bleibt `valid_from` fest.
+
+Einzige Ausnahme ist eine Owner-Korrektur. Die Hilfsfunktion
+`memory_is_correction(kind, target, old_approval, new_approval, decision)` (SQL,
+`STABLE`) ist wahr, wenn `new_approval <> old_approval` und in `memory_approvals`
+eine Zeile `id = new_approval` mit `corrects_approval_id = old_approval`, passender
+Art, `target_id` = Id der Zeile und `decision` existiert. Eine eingefrorene
+Entscheid-Spalte (Nachrichten `state`, `evidence_status`, `approval_id`; Fakten
+`status`, `evidence_status`, `approval_id`, `valid_to`, `superseded_by`; Themen
+`status`, `approval_id`; Verknüpfungen `state`, `approval_id`) darf sich nur
+ändern, wenn
+
+- der neue Zustand entschieden ist (`approved`/`rejected` bzw. `active`/`rejected`,
+  nie zurück nach `quarantined` oder `proposed`) und
+- `memory_is_correction(...)` mit `decision = rejected` für einen abgelehnten und
+  `approved` für jeden anderen neuen Zustand wahr ist.
+
+Inhaltsspalten, `data_class` und `privacy_hold` bleiben auch dabei unveränderlich.
+`TRUNCATE` feuert diese Zeilentrigger nicht. `memory_approvals` behält den eigenen
+Append-only-Trigger.
 
 ### `memory_facts`
 
@@ -490,7 +532,8 @@ und bricht ab, wenn welche existieren:
 
 Dann zählt er jede Inhaltstabelle. Die erste nicht leere Tabelle bricht ab mit
 `conversation_rows: {tabelle} is not empty; refusing to drop owner memory.` Es wird nichts gelöscht. Nur wenn beide Prüfungen leer sind,
-entfernt er die Inhaltstrigger und `memory_content_immutable()`, dann
+entfernt er die Inhaltstrigger, `memory_content_immutable()` und
+`memory_is_correction(...)`, dann
 `ix_events_conversation_created_at` und den CHECK, setzt `to_status` und
 `task_id` wieder auf NOT NULL und droppt die neuen Tabellen, den
 Append-only-Trigger und die Funktion `memory_approvals_append_only`.
@@ -501,7 +544,9 @@ Append-only-Trigger und die Funktion `memory_approvals_append_only`.
   Nachrichten (`state`, `evidence_status`, `approval_id` nach `quarantined`,
   `thread_id` nur von leer auf gesetzt), Fakten (`status`, `evidence_status`,
   `approval_id`, `valid_from`, `valid_to`, `superseded_by` nach `proposed`), Themen und Verknuepfungen (`status`/`state`,
-  `approval_id`, bei Verknuepfungen `thread_id`, nach `proposed`).
+  `approval_id`, bei Verknuepfungen `thread_id`, nach `proposed`). Seit dem
+  Owner-Entscheid vom 2026-11-10 lockert nur eine passende Korrekturzeile in
+  `memory_approvals` diese Sperre (siehe «Inhaltssperren»).
 - Downgrade setzt `lock_timeout` auf 10 s und sperrt (ACCESS EXCLUSIVE)
   `assistant_channel_accounts`, dann `assistant_thread_links`, `assistant_threads`, `assistant_messages`,
   `memory_facts`, `memory_approvals` und zuletzt `events` (siehe «Downgrade» oben).

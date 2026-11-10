@@ -2,7 +2,9 @@
 
 Every accept, reject, and duplicate writes exactly one taskless audit row. A turn with
 a secret finding is not stored anywhere: only its sha256 and ``secret_rejected``
-reach the audit. Nothing here sends a message to any channel.
+reach the audit. A privacy finding outside ``local_only`` does not reject: the row is
+stored with an immutable ``privacy_hold`` code (owner decision 2026-11-10) and never
+reaches a cloud context target. Nothing here sends a message to any channel.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from app.memory.models import (
     ThreadLink,
 )
 from app.memory.policy import (
+    BLOCKLIST_OPTIONAL_CHANNELS,
     CHANNEL_CLASS_CEILING,
     CHANNELS,
     EVIDENCE_DEFAULT,
@@ -37,7 +40,7 @@ from app.memory.policy import (
     check_link_class,
     class_admits,
 )
-from app.privacy.gate import non_local_texts_blocked
+from app.privacy.gate import memory_privacy_hold, strongest_hold
 from app.privacy.scanner import FindingKind, scan_text
 
 Status = Literal["accepted", "duplicate", "rejected"]
@@ -57,10 +60,19 @@ class IngestOutcome:
     message_id: uuid.UUID | None = None
     thread_id: uuid.UUID | None = None
     link_id: uuid.UUID | None = None
+    # Hold code of a newly stored row (``privacy_block``/``blocklist_unavailable``).
+    privacy_hold: str | None = None
 
 
 def text_digest(value: str) -> str:
     return sha256(value.encode("utf-8")).hexdigest()
+
+
+def privacy_hold_for(channel: str, data_class: str, texts: tuple[str, ...]) -> str | None:
+    """Hold code for a row about to be stored on ``channel`` (owner decision 2026-11-10)."""
+    return memory_privacy_hold(
+        data_class, texts, blocklist_required=channel not in BLOCKLIST_OPTIONAL_CHANNELS
+    )
 
 
 def contains_secret(*values: str | None) -> bool:
@@ -348,8 +360,8 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
     if turn.role == "assistant" and turn.channel in REPLY_CHANNELS:
         # Deck replies go through record_deck_reply, which enforces one reply per message.
         return _reject(session, "reply_path_required", detail)
-    if non_local_texts_blocked(data_class, _identity_texts(turn)):
-        return _reject(session, "privacy_block", detail)
+    # Privacy finding: store marked (owner decision 2026-11-10), never reject.
+    hold = privacy_hold_for(turn.channel, data_class, _identity_texts(turn))
 
     # Known accepted link maps to its thread. Lock it before the insert so an
     # accept that commits first is visible, and a later accept sees this row.
@@ -382,6 +394,7 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
             source_ref_sha256=turn.source_ref.sha256,
             method=turn.ingest_method,
             evidence_status=EVIDENCE_DEFAULT,
+            privacy_hold=hold,
         )
         .on_conflict_do_nothing()
         .returning(AssistantMessage.id)
@@ -410,6 +423,8 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
         )
 
     detail["message_id"] = str(message_id)
+    if hold is not None:
+        detail["privacy_hold"] = hold
     link_id: uuid.UUID | None = link.id if link is not None else None
     if thread_id is None:
         detail["thread_unmapped"] = True
@@ -425,6 +440,7 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
         message_id=message_id,
         thread_id=thread_id,
         link_id=link_id,
+        privacy_hold=hold,
     )
 
 
@@ -506,11 +522,15 @@ def record_deck_reply(
         return _reject(session, "invalid_reply", detail, event="reply_rejected")
     digest = text_digest(text)
     detail["text_sha256"] = digest
-    if non_local_texts_blocked(
-        inbound.data_class,
-        (text, inbound.source_account, inbound.external_thread_id, source_ref),
-    ):
-        return _reject(session, "privacy_block", detail, event="reply_rejected")
+    # Privacy finding: store marked, never reject. A reply to a held message is held too.
+    hold = strongest_hold(
+        privacy_hold_for(
+            inbound.source_channel,
+            inbound.data_class,
+            (text, inbound.source_account, inbound.external_thread_id, source_ref),
+        ),
+        inbound.privacy_hold,
+    )
     mapped, _blocked = _active_topic(session, link, inbound.data_class)
     thread_id = mapped if mapped is not None else inbound.thread_id
     channel = inbound.source_channel
@@ -534,6 +554,7 @@ def record_deck_reply(
             source_ref=source_ref,
             method="deck_ui" if channel == "deck_ui" else "live_push",
             evidence_status=EVIDENCE_DEFAULT,
+            privacy_hold=hold,
         )
         .on_conflict_do_nothing()
         .returning(AssistantMessage.id)
@@ -571,5 +592,9 @@ def record_deck_reply(
             message_id=None if existing is None else existing.id,
         )
     detail["message_id"] = str(message_id)
+    if hold is not None:
+        detail["privacy_hold"] = hold
     record_conversation_event(session, "assistant.reply_recorded", detail)
-    return IngestOutcome(status="accepted", message_id=message_id, thread_id=thread_id)
+    return IngestOutcome(
+        status="accepted", message_id=message_id, thread_id=thread_id, privacy_hold=hold
+    )

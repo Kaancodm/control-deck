@@ -7,6 +7,8 @@ Order of operations:
    ``redaction_maps``; conversation memory has no task, so no redaction applies here.
 2. class filter via ``allowed_classes`` in SQL, BEFORE any ranking or text handling.
 3. only ``approved`` rows; quarantined, proposed and rejected rows never appear.
+   For cloud targets, rows with a ``privacy_hold`` (and facts whose source message
+   has one) are excluded in SQL as well, even after approval. ``ollama`` gets them.
 4. budget: profile, then thread history (newest kept, oldest dropped first), then
    facts (exact-thread first, then simple keyword hits). Same token estimate as
    ``compose_dialogue_messages``. No embeddings. ``num_ctx`` is not changed here.
@@ -19,7 +21,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.assistant.dialogue import current_profile, estimate_dialogue_tokens
@@ -137,17 +139,22 @@ def load_memory_context(
                 row.notes.strip(),
             )
 
+    # Rows with a privacy hold never reach a cloud target, even after approval.
+    cloud = target in CLOUD_TARGETS
     history: list[MemoryItem] = []
     if thread_id is not None:
         thread = session.get(AssistantThread, thread_id)
         if thread is not None and thread.status == "active" and thread.data_class in classes:
+            history_filter: list[ColumnElement[bool]] = [
+                AssistantMessage.thread_id == thread_id,
+                AssistantMessage.state == "approved",
+                AssistantMessage.data_class.in_(classes),
+            ]
+            if cloud:
+                history_filter.append(AssistantMessage.privacy_hold.is_(None))
             rows = session.scalars(
                 select(AssistantMessage)
-                .where(
-                    AssistantMessage.thread_id == thread_id,
-                    AssistantMessage.state == "approved",
-                    AssistantMessage.data_class.in_(classes),
-                )
+                .where(*history_filter)
                 .order_by(AssistantMessage.seq.desc())
                 .limit(_HISTORY_LIMIT)
             )
@@ -167,16 +174,20 @@ def load_memory_context(
     facts: list[MemoryItem] = []
     if thread_id is not None or words:
         now = func.clock_timestamp()
+        fact_filter: list[ColumnElement[bool]] = [
+            MemoryFact.status == "approved",
+            MemoryFact.superseded_by.is_(None),
+            MemoryFact.data_class.in_(classes),
+            or_(MemoryFact.valid_to.is_(None), MemoryFact.valid_to > now),
+            AssistantMessage.state != "rejected",
+        ]
+        if cloud:
+            fact_filter.append(MemoryFact.privacy_hold.is_(None))
+            fact_filter.append(AssistantMessage.privacy_hold.is_(None))
         statement = (
             select(MemoryFact, AssistantMessage.thread_id)
             .join(AssistantMessage, AssistantMessage.id == MemoryFact.source_message_id)
-            .where(
-                MemoryFact.status == "approved",
-                MemoryFact.superseded_by.is_(None),
-                MemoryFact.data_class.in_(classes),
-                or_(MemoryFact.valid_to.is_(None), MemoryFact.valid_to > now),
-                AssistantMessage.state != "rejected",
-            )
+            .where(*fact_filter)
             .order_by(MemoryFact.created_at.desc(), MemoryFact.id)
             .limit(_FACT_CANDIDATES)
         )

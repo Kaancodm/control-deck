@@ -42,6 +42,11 @@ CHANNEL_CLASS_CEILING: dict[str, tuple[str, ...]] = {
 # Decision 7.7: claude_code imports are forced to local_only until the owner reviews them.
 FORCED_CLASS: dict[str, str] = {"claude_code": DataClass.LOCAL_ONLY.value}
 
+# Owner decision 2026-11-10: without a configured blocklist, rows from these channels
+# are scanned with the built-in patterns only and held only on a real finding. Every
+# other channel gets the ``blocklist_unavailable`` hold. Cloud egress stays fail-closed.
+BLOCKLIST_OPTIONAL_CHANNELS = frozenset({"deck_ui"})
+
 # Memory context targets (decision 7.3). Codex never receives memory.
 TARGETS = ("ollama", "claude", "claude_code", "grok", "codex")
 CLOUD_TARGETS = frozenset({"claude", "claude_code", "grok"})

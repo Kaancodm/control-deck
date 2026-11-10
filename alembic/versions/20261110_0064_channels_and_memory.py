@@ -32,6 +32,8 @@ _LABEL = "~ '^[a-z][a-z0-9_]{0,31}$'"
 _HEX64 = "~ '^[0-9a-f]{64}$'"
 _METHOD = "method IN ('deck_ui', 'live_push', 'import_file', 'owner_typed')"
 _EVIDENCE = "evidence_status IN ('bewiesen', 'unbewiesen', 'abgelehnt')"
+# Owner decision 2026-11-10: a privacy finding marks the row instead of rejecting it.
+_PRIVACY_HOLD = "privacy_hold IS NULL OR privacy_hold IN ('privacy_block', 'blocklist_unavailable')"
 _EVENTS_SCOPE = (
     "(task_id IS NOT NULL AND to_status IS NOT NULL) OR "
     "(task_id IS NULL AND to_status IS NULL AND from_status IS NULL "
@@ -67,6 +69,7 @@ def _provenance(prefix: str) -> list[sa.CheckConstraint]:
             "evidence_status <> 'bewiesen' OR approval_id IS NOT NULL",
             name=f"ck_{prefix}_proven_needs_approval",
         ),
+        sa.CheckConstraint(_PRIVACY_HOLD, name=f"ck_{prefix}_privacy_hold"),
     ]
 
 
@@ -80,6 +83,8 @@ def _provenance_columns() -> list[sa.Column[object]]:
         sa.Column("method", sa.String(16), nullable=False),
         sa.Column("evidence_status", sa.String(16), nullable=False),
         sa.Column("approval_id", postgresql.UUID(as_uuid=True), nullable=True),
+        # Immutable content column; cloud context targets never see a held row.
+        sa.Column("privacy_hold", sa.String(32), nullable=True),
     ]
 
 
@@ -133,6 +138,8 @@ def upgrade() -> None:
         sa.Column("decision", sa.String(16), nullable=False),
         sa.Column("shown_sha256", sa.String(64), nullable=False),
         sa.Column("approver_ref", sa.String(64), nullable=False),
+        # Set only on an owner correction: the approval this row supersedes.
+        sa.Column("corrects_approval_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -140,7 +147,21 @@ def upgrade() -> None:
             server_default=sa.func.clock_timestamp(),
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("kind", "target_id", name="uq_memory_approvals_target"),
+        # Target of the composite self-reference below.
+        sa.UniqueConstraint("id", "kind", "target_id", name="uq_memory_approvals_identity"),
+        # Each approval is corrected at most once, so corrections form one chain.
+        sa.UniqueConstraint("corrects_approval_id", name="uq_memory_approvals_corrects"),
+        # A correction must name an approval of the same kind and target.
+        sa.ForeignKeyConstraint(
+            ["corrects_approval_id", "kind", "target_id"],
+            ["memory_approvals.id", "memory_approvals.kind", "memory_approvals.target_id"],
+            name="fk_memory_approvals_corrects",
+            ondelete="RESTRICT",
+        ),
+        sa.CheckConstraint(
+            "corrects_approval_id IS NULL OR corrects_approval_id <> id",
+            name="ck_memory_approvals_corrects_not_self",
+        ),
         sa.CheckConstraint(
             "kind IN ('message', 'fact', 'thread_topic', 'thread_link')",
             name="ck_memory_approvals_kind",
@@ -150,6 +171,14 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(f"shown_sha256 {_HEX64}", name="ck_memory_approvals_shown_sha256"),
         sa.CheckConstraint(f"approver_ref {_HEX64}", name="ck_memory_approvals_approver_ref"),
+    )
+    # One first decision per target; later rows for the same target are corrections.
+    op.create_index(
+        "uq_memory_approvals_target",
+        "memory_approvals",
+        ["kind", "target_id"],
+        unique=True,
+        postgresql_where=sa.text("corrects_approval_id IS NULL"),
     )
     op.execute(
         text(
@@ -450,12 +479,38 @@ def upgrade() -> None:
 def _create_content_guards() -> None:
     """Freeze shown content, freeze the decision after the pending state, forbid deletes.
 
-    Exactly one decision update leaves ``quarantined``/``proposed``; afterwards the
-    decision columns are frozen. A message ``thread_id`` may only move from NULL.
+    Exactly one decision update leaves ``quarantined``/``proposed``. Afterwards the
+    decision columns change only through an owner correction: the new
+    ``approval_id`` must name a ``memory_approvals`` row of the same kind and
+    target whose ``corrects_approval_id`` is the old ``approval_id`` and whose
+    decision matches the new state, and the new state must be a decided state.
+    Content columns, ``data_class`` and ``privacy_hold`` never change. A message
+    ``thread_id`` may only move from NULL; a link ``thread_id`` is fixed after
+    the first decision.
 
     ``TRUNCATE`` does not fire these row triggers, so test cleanup can still
     empty the tables. ``memory_approvals`` keeps its own append-only trigger.
     """
+    op.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION memory_is_correction(
+                p_kind text, p_target uuid, p_old uuid, p_new uuid, p_decision text
+            )
+            RETURNS boolean AS $$
+                SELECT p_old IS NOT NULL AND p_new IS NOT NULL AND p_new <> p_old
+                   AND EXISTS (
+                       SELECT 1 FROM memory_approvals AS a
+                       WHERE a.id = p_new
+                         AND a.corrects_approval_id = p_old
+                         AND a.kind = p_kind
+                         AND a.target_id = p_target
+                         AND a.decision = p_decision
+                   );
+            $$ LANGUAGE sql STABLE;
+            """
+        )
+    )
     op.execute(
         text(
             """
@@ -469,6 +524,7 @@ def _create_content_guards() -> None:
                     IF NEW.text IS DISTINCT FROM OLD.text
                        OR NEW.text_sha256 IS DISTINCT FROM OLD.text_sha256
                        OR NEW.data_class IS DISTINCT FROM OLD.data_class
+                       OR NEW.privacy_hold IS DISTINCT FROM OLD.privacy_hold
                        OR NEW.role IS DISTINCT FROM OLD.role
                        OR NEW.external_thread_id IS DISTINCT FROM OLD.external_thread_id
                        OR NEW.external_message_id IS DISTINCT FROM OLD.external_message_id
@@ -483,7 +539,12 @@ def _create_content_guards() -> None:
                        OR (OLD.state <> 'quarantined'
                            AND (NEW.state IS DISTINCT FROM OLD.state
                                 OR NEW.evidence_status IS DISTINCT FROM OLD.evidence_status
-                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id))
+                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id)
+                           AND NOT (NEW.state IN ('approved', 'rejected')
+                                    AND memory_is_correction(
+                                        'message', OLD.id, OLD.approval_id, NEW.approval_id,
+                                        CASE WHEN NEW.state = 'rejected'
+                                             THEN 'rejected' ELSE 'approved' END)))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
@@ -493,6 +554,7 @@ def _create_content_guards() -> None:
                        OR NEW.predicate IS DISTINCT FROM OLD.predicate
                        OR NEW.object IS DISTINCT FROM OLD.object
                        OR NEW.data_class IS DISTINCT FROM OLD.data_class
+                       OR NEW.privacy_hold IS DISTINCT FROM OLD.privacy_hold
                        OR NEW.source_message_id IS DISTINCT FROM OLD.source_message_id
                        OR NEW.source_date IS DISTINCT FROM OLD.source_date
                        OR NEW.source_channel IS DISTINCT FROM OLD.source_channel
@@ -501,12 +563,18 @@ def _create_content_guards() -> None:
                        OR NEW.source_ref_sha256 IS DISTINCT FROM OLD.source_ref_sha256
                        OR NEW.method IS DISTINCT FROM OLD.method
                        OR (OLD.status <> 'proposed'
+                           AND NEW.valid_from IS DISTINCT FROM OLD.valid_from)
+                       OR (OLD.status <> 'proposed'
                            AND (NEW.status IS DISTINCT FROM OLD.status
                                 OR NEW.evidence_status IS DISTINCT FROM OLD.evidence_status
                                 OR NEW.approval_id IS DISTINCT FROM OLD.approval_id
-                                OR NEW.valid_from IS DISTINCT FROM OLD.valid_from
                                 OR NEW.valid_to IS DISTINCT FROM OLD.valid_to
-                                OR NEW.superseded_by IS DISTINCT FROM OLD.superseded_by))
+                                OR NEW.superseded_by IS DISTINCT FROM OLD.superseded_by)
+                           AND NOT (NEW.status IN ('approved', 'rejected')
+                                    AND memory_is_correction(
+                                        'fact', OLD.id, OLD.approval_id, NEW.approval_id,
+                                        CASE WHEN NEW.status = 'rejected'
+                                             THEN 'rejected' ELSE 'approved' END)))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
@@ -515,7 +583,13 @@ def _create_content_guards() -> None:
                        OR NEW.title IS DISTINCT FROM OLD.title
                        OR (OLD.status <> 'proposed'
                            AND (NEW.status IS DISTINCT FROM OLD.status
-                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id))
+                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id)
+                           AND NOT (NEW.status IN ('active', 'rejected')
+                                    AND memory_is_correction(
+                                        'thread_topic', OLD.id, OLD.approval_id,
+                                        NEW.approval_id,
+                                        CASE WHEN NEW.status = 'rejected'
+                                             THEN 'rejected' ELSE 'approved' END)))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
@@ -524,9 +598,16 @@ def _create_content_guards() -> None:
                        OR NEW.account IS DISTINCT FROM OLD.account
                        OR NEW.external_thread_id IS DISTINCT FROM OLD.external_thread_id
                        OR (OLD.state <> 'proposed'
+                           AND NEW.thread_id IS DISTINCT FROM OLD.thread_id)
+                       OR (OLD.state <> 'proposed'
                            AND (NEW.state IS DISTINCT FROM OLD.state
-                                OR NEW.thread_id IS DISTINCT FROM OLD.thread_id
-                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id))
+                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id)
+                           AND NOT (NEW.state IN ('active', 'rejected')
+                                    AND memory_is_correction(
+                                        'thread_link', OLD.id, OLD.approval_id,
+                                        NEW.approval_id,
+                                        CASE WHEN NEW.state = 'rejected'
+                                             THEN 'rejected' ELSE 'approved' END)))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
@@ -561,6 +642,7 @@ def _drop_content_guards() -> None:
     ):
         op.execute(text(f"DROP TRIGGER IF EXISTS trg_{table}_content ON {table}"))
     op.execute(text("DROP FUNCTION IF EXISTS memory_content_immutable()"))
+    op.execute(text("DROP FUNCTION IF EXISTS memory_is_correction(text, uuid, uuid, uuid, text)"))
 
 
 def downgrade() -> None:
@@ -613,5 +695,6 @@ def downgrade() -> None:
     op.drop_table("assistant_threads")
     op.execute(text("DROP TRIGGER trg_memory_approvals_append_only ON memory_approvals"))
     op.execute(text("DROP FUNCTION memory_approvals_append_only()"))
+    op.drop_index("uq_memory_approvals_target", table_name="memory_approvals")
     op.drop_table("memory_approvals")
     op.drop_table("assistant_channel_accounts")

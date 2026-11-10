@@ -15,13 +15,42 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - `ingest_turn` speichert neue Nachrichten als `quarantined`. Freigabe nur mit
   authentisierter UI-Session und sha256 der gezeigten Bytes.
   `load_memory_context` liest freigegebene Nachrichten und Fakten innerhalb der
-  Ziel-Klassen. Der Live-Dialog ist noch nicht angeschlossen (M1b, nach dem UI-PR, vor G2).
+  Ziel-Klassen. Der Live-Dialog ist noch nicht angeschlossen (M1b, #77, nach dem UI-PR,
+  vor G2).
 - Refactor ohne Verhaltensänderung: `app/privacy/gate.py` zieht das Sperr-Prädikat
   in `findings_block`, das `inspect_task` und das Gedächtnis teilen. Die bestehenden
-  Gate-Tests bleiben grün. Neu ist `non_local_texts_blocked`: ohne konfigurierte
-  Blockliste sind Cloud-Klassen gesperrt (wie beim Auftrags-Gate).
+  Gate-Tests bleiben grün. Neu ist `non_local_texts_blocked` für den Versand an
+  Cloud-Ziele: ohne konfigurierte Blockliste sind Cloud-Klassen gesperrt (wie beim
+  Auftrags-Gate).
 - Entschiedene Zeilen sind per Trigger eingefroren; kein hartes Löschen.
-- Nicht in diesem Stand: Oberfläche (M2), n8n- und Grok-Adapter (M3),
+- Owner-Entscheide vom 2026-11-10 (zweite Runde):
+  - Ein Datenschutz-Befund bei `cloud_ok`/`cloud_redacted` weist nicht mehr ab
+    (`privacy_block` als Abweisung entfällt). Die Zeile liegt mit vollem Text in der
+    Quarantäne und trägt die unveränderliche Spalte `privacy_hold`
+    (`privacy_block` oder `blocklist_unavailable`). Gilt für Turns, Deck-Antworten
+    und `propose_fact`; ein Faktum aus einer markierten Nachricht erbt die
+    Markierung. Geheimnisse bleiben eine Abweisung ohne Speicherung.
+    `load_memory_context` liefert markierte Zeilen nie an `claude`, `claude_code`
+    oder `grok`, auch nach der Freigabe; `ollama` erhält sie.
+  - Ohne Blockliste prüft `deck_ui` mit den eingebauten Mustern und markiert nur bei
+    einem Befund; andere Kanäle und eine unlesbare Blockliste markieren
+    `blocklist_unavailable`. Neue Funktion `memory_privacy_hold`; das Auftrags-Gate
+    bleibt unverändert. Der Versand an Cloud-Ziele bleibt ohne Blockliste gesperrt.
+  - `cloud_redacted` geht in M1 noch nicht an Cloud-Ziele: eine vorübergehende
+    Abweichung von 7.3 und Plan 3.5, verfolgt in #76 (auftragsfreie Redaktion).
+  - Korrekturweg: `memory_approvals.corrects_approval_id` und `correct_message`,
+    `correct_fact`, `correct_thread_topic`, `correct_thread_link`. Der Inhalts-Trigger
+    lässt eine eingefrorene Entscheid-Spalte nur mit einer passenden Korrekturzeile
+    ändern; Inhalt, Klasse und `privacy_hold` bleiben fest.
+  - Folgetickets: M1b #77, M2 #78, Umstufung von `data_class` (M4/N3) #79,
+    Redaktion #76.
+  - `source_date` bleibt im Ersatz-Dedup-Schlüssel (vom Owner bestätigt).
+  - Der Backfill markiert Altzeilen wie `ingest_turn` auf `deck_ui`.
+  - Migration `20261110_0064` ist noch nicht in Produktion und wurde an Ort und Stelle
+    angepasst. Eine Testdatenbank, die schon auf dem alten Stand `20261110_0064` steht,
+    muss mit der alten Datei herabgestuft und neu aufgebaut werden; `upgrade head`
+    allein ergänzt die neuen Spalten nicht.
+- Nicht in diesem Stand: Oberfläche (M2, #78), n8n- und Grok-Adapter (M3),
   Import-Parser (M4), Slack Socket Mode (M5). Beschreibung in
   [KANAELE.md](docs/KANAELE.md) und [ADR 0010](docs/DECISIONS/0010-kanaele-und-gedaechtnis.md).
 

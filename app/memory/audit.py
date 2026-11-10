@@ -35,6 +35,8 @@ _ALLOWED_KEYS: Final = frozenset(
         "link_id",
         "fact_id",
         "approval_id",
+        "corrects_approval_id",
+        "privacy_hold",
         "text_sha256",
         "existing_text_sha256",
         "shown_sha256",

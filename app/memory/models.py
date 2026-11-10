@@ -61,11 +61,36 @@ class MemoryApproval(Base):
     # sha256(domain prefix + ui session token hash). Not the token hash, and not a
     # foreign key: sessions are pruned, and the hash must not be a lookup key.
     approver_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Set only on an owner correction: the approval of the same kind and target
+    # that this row supersedes. Each approval is corrected at most once.
+    corrects_approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
     )
 
-    __table_args__ = (UniqueConstraint("kind", "target_id", name="uq_memory_approvals_target"),)
+    __table_args__ = (
+        UniqueConstraint("id", "kind", "target_id", name="uq_memory_approvals_identity"),
+        UniqueConstraint("corrects_approval_id", name="uq_memory_approvals_corrects"),
+        ForeignKeyConstraint(
+            ["corrects_approval_id", "kind", "target_id"],
+            [
+                "memory_approvals.id",
+                "memory_approvals.kind",
+                "memory_approvals.target_id",
+            ],
+            name="fk_memory_approvals_corrects",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "uq_memory_approvals_target",
+            "kind",
+            "target_id",
+            unique=True,
+            postgresql_where=sql_text("corrects_approval_id IS NULL"),
+        ),
+    )
 
 
 class AssistantThread(Base):
@@ -153,6 +178,8 @@ class AssistantMessage(Base):
     approval_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("memory_approvals.id", ondelete="RESTRICT"), nullable=True
     )
+    # ``privacy_block`` or ``blocklist_unavailable``; immutable. Cloud targets never see it.
+    privacy_hold: Mapped[str | None] = mapped_column(String(32), nullable=True)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
     )
@@ -219,6 +246,8 @@ class MemoryFact(Base):
     approval_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("memory_approvals.id", ondelete="RESTRICT"), nullable=True
     )
+    # Own finding or inherited from the source message; immutable.
+    privacy_hold: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
     )

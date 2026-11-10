@@ -1,6 +1,8 @@
 """Copy legacy ``assistant_turns`` into ``assistant_messages``. Never runs automatically.
 
 Rows land as ``quarantined`` in one collection thread; the owner re-confirms them.
+A privacy finding outside ``local_only`` sets ``privacy_hold`` like ``ingest_turn``
+on ``deck_ui``; a reply inherits the hold of its owner row.
 External ids are derived from the turn id, so a second run inserts nothing and
 writes no audit row. ``assistant_turns`` stays unchanged.
 """
@@ -17,9 +19,10 @@ from sqlalchemy.orm import Session
 from app.assistant.records import AssistantTurn
 from app.core.schemas import DataClass
 from app.memory.audit import record_conversation_event
-from app.memory.ingest import contains_secret, text_digest
+from app.memory.ingest import contains_secret, privacy_hold_for, text_digest
 from app.memory.models import AssistantMessage, AssistantThread, ChannelAccount
 from app.memory.policy import EVIDENCE_DEFAULT, ConversationError
+from app.privacy.gate import strongest_hold
 
 # Fixed id so a re-run finds the same collection thread.
 COLLECTION_THREAD_ID = uuid.UUID("5a3c1d0e-6b7f-4e21-9c4d-0000000c0064")
@@ -33,6 +36,7 @@ class BackfillReport:
     duplicates: int
     secret_rejected: int
     thread_id: uuid.UUID | None
+    privacy_held: int = 0
 
 
 def _collection_thread(session: Session) -> AssistantThread:
@@ -61,6 +65,7 @@ def _insert(
     suffix: str,
     thread_id: uuid.UUID,
     reply_for: uuid.UUID | None,
+    hold: str | None,
 ) -> uuid.UUID | None:
     return session.scalar(
         pg_insert(AssistantMessage)
@@ -82,6 +87,7 @@ def _insert(
             source_ref=f"backfill:assistant_turns/{turn.id}/{suffix}",
             method="deck_ui",
             evidence_status=EVIDENCE_DEFAULT,
+            privacy_hold=hold,
         )
         .on_conflict_do_nothing()
         .returning(AssistantMessage.id)
@@ -115,12 +121,13 @@ def backfill_assistant_turns(session: Session) -> BackfillReport:
         raise ConversationError("account_missing")
     thread_existed = session.get(AssistantThread, COLLECTION_THREAD_ID) is not None
     thread = _collection_thread(session)
-    inserted = duplicates = rejected = 0
+    inserted = duplicates = rejected = held = 0
     for turn in turns:
         if turn.data_class not in _CLASSES:
             rejected += 1
             continue
         owner_id: uuid.UUID | None = None
+        owner_hold = privacy_hold_for("deck_ui", turn.data_class, (turn.owner_text,))
         if contains_secret(turn.owner_text):
             rejected += 1
         else:
@@ -132,15 +139,20 @@ def backfill_assistant_turns(session: Session) -> BackfillReport:
                 suffix="owner",
                 thread_id=thread.id,
                 reply_for=None,
+                hold=owner_hold,
             )
             if owner_id is None:
                 duplicates += 1
                 owner_id = _existing(session, turn, "owner")
             else:
                 inserted += 1
+                held += owner_hold is not None
         if contains_secret(turn.reply_text):
             rejected += 1
             continue
+        reply_hold = strongest_hold(
+            privacy_hold_for("deck_ui", turn.data_class, (turn.reply_text,)), owner_hold
+        )
         reply_id = _insert(
             session,
             turn=turn,
@@ -149,11 +161,13 @@ def backfill_assistant_turns(session: Session) -> BackfillReport:
             suffix="reply",
             thread_id=thread.id,
             reply_for=owner_id,
+            hold=reply_hold,
         )
         if reply_id is None:
             duplicates += 1
         else:
             inserted += 1
+            held += reply_hold is not None
     if inserted or not thread_existed:
         record_conversation_event(
             session,
@@ -165,4 +179,4 @@ def backfill_assistant_turns(session: Session) -> BackfillReport:
                 "secret_rejected": rejected,
             },
         )
-    return BackfillReport(inserted, duplicates, rejected, thread.id)
+    return BackfillReport(inserted, duplicates, rejected, thread.id, held)

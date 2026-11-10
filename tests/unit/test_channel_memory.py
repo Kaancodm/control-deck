@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import uuid
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,7 @@ from app.memory.policy import (
     ConversationError,
     check_link_class,
 )
+from app.privacy.gate import MEMORY_HOLD_CODES, memory_privacy_hold, strongest_hold
 
 MEMORY = Path("app/memory")
 
@@ -223,7 +225,7 @@ def test_every_decision_function_requires_session_and_shown_hash() -> None:
         node
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
-        and (node.name.startswith("decide_") or node.name == "create_owner_thread")
+        and (node.name.startswith(("decide_", "correct_")) or node.name == "create_owner_thread")
     ]
     assert {node.name for node in deciders} == {
         "decide_message",
@@ -231,6 +233,10 @@ def test_every_decision_function_requires_session_and_shown_hash() -> None:
         "decide_thread_topic",
         "decide_thread_link",
         "create_owner_thread",
+        "correct_message",
+        "correct_fact",
+        "correct_thread_topic",
+        "correct_thread_link",
     }
     for node in deciders:
         names = {arg.arg for arg in node.args.kwonlyargs}
@@ -302,9 +308,72 @@ def test_shown_bytes_bind_decision_class_and_account() -> None:
     assert b"data_class=cloud_ok\n" in approved
     assert b"account=owner\n" in approved
     assert b"role=owner\n" in approved
+    assert b"privacy_hold=none\n" in approved
     assert b"decision=approved\n" in approved
     assert b"mark_proven=1\n" in approved
     assert approved.endswith(b"\n\nHello")
     topic = thread_shown_bytes(title="Garden", data_class="local_only", decision="approved")
     assert b"kind=thread\n" in topic and topic.endswith(b"\n\nGarden")
     assert shown_sha256(approved) != shown_sha256(rejected)
+
+
+def test_shown_bytes_carry_the_hold_and_the_correction_marker() -> None:
+    held = AssistantMessage(
+        data_class="cloud_ok",
+        source_channel="slack",
+        source_account="owner",
+        role="owner",
+        text="Hello",
+        privacy_hold="blocklist_unavailable",
+    )
+    first = message_shown_bytes(held, decision="approved")
+    assert b"privacy_hold=blocklist_unavailable\n" in first
+    assert b"correction=" not in first
+    previous = uuid.uuid4()
+    corrected = message_shown_bytes(held, decision="rejected", corrects=previous)
+    assert b"correction=1\n" in corrected
+    assert f"corrects_approval_id={previous}\n".encode() in corrected
+    assert corrected.endswith(b"\n\nHello")
+    plain = message_shown_bytes(held, decision="rejected")
+    assert shown_sha256(corrected) != shown_sha256(plain)
+
+
+def test_memory_privacy_hold_codes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("DECK_BLOCKLIST_PATH", raising=False)
+    clean = ("Plain note about the garden.",)
+    assert memory_privacy_hold("local_only", clean, blocklist_required=True) is None
+    assert memory_privacy_hold("cloud_ok", clean, blocklist_required=False) is None
+    assert (
+        memory_privacy_hold("cloud_ok", clean, blocklist_required=True) == "blocklist_unavailable"
+    )
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(tmp_path / "missing-blocklist.txt"))
+    assert (
+        memory_privacy_hold("cloud_ok", clean, blocklist_required=False) == "blocklist_unavailable"
+    )
+    path = tmp_path / "blocklist.txt"
+    path.write_text("gardenword\n", encoding="utf-8")
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(path))
+    assert memory_privacy_hold("cloud_ok", clean, blocklist_required=True) is None
+    hit = ("A gardenword note.",)
+    assert memory_privacy_hold("cloud_ok", hit, blocklist_required=True) == "privacy_block"
+    # A blocklist hit alone is redactable and does not hold cloud_redacted.
+    assert memory_privacy_hold("cloud_redacted", hit, blocklist_required=True) is None
+    assert memory_privacy_hold("local_only", hit, blocklist_required=True) is None
+
+
+def test_strongest_hold_prefers_privacy_block() -> None:
+    assert strongest_hold(None, None) is None
+    assert strongest_hold("blocklist_unavailable", None) == "blocklist_unavailable"
+    assert strongest_hold("blocklist_unavailable", "privacy_block") == "privacy_block"
+    assert strongest_hold(None, "privacy_block") == "privacy_block"
+
+
+def test_hold_codes_match_migration_check() -> None:
+    migration = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "20261110_0064_channels_and_memory.py"
+    ).read_text(encoding="utf-8")
+    listed = ", ".join(f"'{code}'" for code in MEMORY_HOLD_CODES)
+    assert f"privacy_hold IN ({listed})" in migration

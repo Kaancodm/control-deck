@@ -137,27 +137,58 @@ def non_local_texts_blocked(data_class: str, texts: Sequence[str]) -> bool:
 
     ``local_only`` returns false without reading the blocklist. A missing or
     unreadable blocklist, or text the normalizer refuses, fails closed for every
-    other class. Matched text is not returned.
+    other class. Matched text is not returned. Same predicate as
+    :func:`memory_privacy_hold` with ``blocklist_required=True``.
+    """
+    return memory_privacy_hold(data_class, texts, blocklist_required=True) is not None
+
+
+MEMORY_HOLD_FINDING = "privacy_block"
+MEMORY_HOLD_NO_BLOCKLIST = "blocklist_unavailable"
+MEMORY_HOLD_CODES = (MEMORY_HOLD_FINDING, MEMORY_HOLD_NO_BLOCKLIST)
+
+
+def strongest_hold(*codes: str | None) -> str | None:
+    """Combine own and inherited hold codes; ``privacy_block`` wins over the rest."""
+    present = [code for code in codes if code is not None]
+    if MEMORY_HOLD_FINDING in present:
+        return MEMORY_HOLD_FINDING
+    return present[0] if present else None
+
+
+def memory_privacy_hold(
+    data_class: str, texts: Sequence[str], *, blocklist_required: bool
+) -> str | None:
+    """Hold code for conversation memory, or ``None``. Never used by the task gate.
+
+    Same blocked predicate as :func:`findings_block`, but the caller stores the row
+    marked instead of rejecting it (owner decision 2026-11-10). ``local_only``
+    returns ``None`` without reading the blocklist. A configured but unreadable
+    blocklist is ``blocklist_unavailable``. Without a configured blocklist the
+    result is ``blocklist_unavailable`` when ``blocklist_required``; otherwise the
+    built-in patterns alone decide. A finding or a normalizer refusal is
+    ``privacy_block``. Secrets are rejected by the caller before this runs.
     """
     if data_class == DataClass.LOCAL_ONLY.value:
-        return False
-    try:
-        settings = get_privacy_settings()
-        if not settings.blocklist_configured:
-            # Same rule as inspect_task: no configured blocklist, no cloud class.
-            return True
-        blocklist = settings.blocklist
-        findings: list[Finding] = []
-        for value in texts:
-            if value:
-                findings.extend(scan_text(value, source="memory", blocklist=blocklist))
-    except (PrivacyConfigurationError, NormalizationError):
-        return True
+        return None
     try:
         checked = DataClass(data_class)
     except ValueError:
-        return True
-    return findings_block(checked, findings)
+        return MEMORY_HOLD_FINDING
+    try:
+        settings = get_privacy_settings()
+    except PrivacyConfigurationError:
+        return MEMORY_HOLD_NO_BLOCKLIST
+    if not settings.blocklist_configured and blocklist_required:
+        return MEMORY_HOLD_NO_BLOCKLIST
+    findings: list[Finding] = []
+    try:
+        for value in texts:
+            if value:
+                findings.extend(scan_text(value, source="memory", blocklist=settings.blocklist))
+    except NormalizationError:
+        return MEMORY_HOLD_FINDING
+    return MEMORY_HOLD_FINDING if findings_block(checked, findings) else None
 
 
 def inspect_task(

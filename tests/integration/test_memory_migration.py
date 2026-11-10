@@ -48,6 +48,54 @@ def _nullable(connection: Connection, column: str) -> bool:
     return value == "YES"
 
 
+_NEW_COLUMNS = (
+    ("assistant_messages", "privacy_hold"),
+    ("memory_facts", "privacy_hold"),
+    ("memory_approvals", "corrects_approval_id"),
+)
+_CORRECTION_FUNCTION = "memory_is_correction(text, uuid, uuid, uuid, text)"
+
+
+def _has_column(connection: Connection, table: str, column: str) -> bool:
+    count = connection.scalar(
+        text(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name = :table AND column_name = :column"
+        ),
+        {"table": table, "column": column},
+    )
+    return count == 1
+
+
+def _assert_correction_schema(connection: Connection, *, present: bool) -> None:
+    for table, column in _NEW_COLUMNS:
+        if present:
+            assert _has_column(connection, table, column)
+        else:
+            assert connection.scalar(text(f"SELECT to_regclass('{table}')")) is None
+    function = connection.scalar(
+        text("SELECT to_regprocedure(:name)"), {"name": _CORRECTION_FUNCTION}
+    )
+    assert (function is not None) is present
+    constraints = set(
+        connection.scalars(
+            text(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conname IN ('fk_memory_approvals_corrects', "
+                "'uq_memory_approvals_corrects', 'ck_assistant_messages_privacy_hold', "
+                "'ck_memory_facts_privacy_hold')"
+            )
+        )
+    )
+    expected = {
+        "fk_memory_approvals_corrects",
+        "uq_memory_approvals_corrects",
+        "ck_assistant_messages_privacy_hold",
+        "ck_memory_facts_privacy_hold",
+    }
+    assert constraints == (expected if present else set())
+
+
 def _seed_task_event(engine: Engine) -> uuid.UUID:
     task_id = uuid.uuid4()
     payload = json.dumps(
@@ -102,6 +150,7 @@ def test_upgrade_check_downgrade_roundtrip_empty_and_seeded() -> None:
                 )
             ).all()
             assert [tuple(row) for row in seeded] == [("deck_ui", "owner", True)]
+            _assert_correction_schema(connection, present=True)
         # Empty database: down and up again.
         command.downgrade(config, PREVIOUS)
         with engine.connect() as connection:
@@ -110,8 +159,11 @@ def test_upgrade_check_downgrade_roundtrip_empty_and_seeded() -> None:
                 assert connection.scalar(text(f"SELECT to_regclass('{table}')")) is None
             assert not _nullable(connection, "task_id")
             assert not _nullable(connection, "to_status")
+            _assert_correction_schema(connection, present=False)
         command.upgrade(config, "head")
         command.check(config)
+        with engine.connect() as connection:
+            _assert_correction_schema(connection, present=True)
         # Seeded database: task rows and task events survive both directions.
         task_id = _seed_task_event(engine)
         command.downgrade(config, PREVIOUS)

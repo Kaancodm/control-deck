@@ -9,7 +9,7 @@
     <h2>{{ view.label }}</h2>
     <p>Datenklasse {{ task.data_class.value }} · Zustand {{ task.status.value }}</p>
     <ul>{% for gap in gaps %}<li>{{ gap }}</li>{% endfor %}</ul>
-    <p>{{ channel.name }}: {{ channel.state }}. {{ channel.detail }}</p>
+    <p>Kanal: {{ channel.state }}. {{ channel.detail }}</p>
   </section>
   <section class="panel" aria-label="Bestaetigung">
     <h2>Bestätigung der Anwendung</h2>

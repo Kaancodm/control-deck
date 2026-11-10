@@ -5,6 +5,49 @@
 Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
 
+### UI-Angleichung an das Command-Center-Mockup (PR 1, Draft)
+
+- Neue Shell: Seitenleiste ab 861 Pixeln, darunter fixe Leiste mit fünf Zielen und «Menü»
+  für den Rest; Anmeldeseite ohne Navigation. Token-Namen bleiben, Werte folgen der
+  Mockup-Palette; Systemschrift, weil die CSP kein `font-src` hat.
+- `GET /` leitet fest auf `/ui`, `/ui` und der Login auf die neue Übersicht `/ui/overview`.
+  Kein `next`-Parameter, kein neuer schreibender Endpunkt, keine neue Abhängigkeit. Dieser
+  PR legt keine Alembic-Revision an; der Kopf ist nach dem Merge von M0/M1
+  `20261110_0064`. Steht eine DB noch auf `20261108_0063`, braucht der Deploy das Upgrade
+  aus M0/M1.
+- Die Übersicht zeigt nur Daten mit Quelle (Freigaben, Claims, Lanes, letztes Backup- und
+  Restore-Ereignis, Audit) und Schalter nur als Zustand. Beispielzahlen, Namen, Hoster,
+  PR-Nummern, Modellname, Backup-Uhrzeit und 3D-Patch des Mockups entfallen.
+- Assistent zeigt Loopback, Web und Routine-Wake als Zustandschips; Feldnamen und
+  Formularreihenfolge bleiben unverändert.
+- Fix-Runde 1: Telefon zuerst. Einzeilige deckende Kopfzeile mit eigenem Stapelkontext
+  (Menü liegt oben), Runner-Zustand als Pill, deckende Leiste, die bei Fokus im Feld
+  verschwindet. Übersicht mit Status-Leiste direkt unter dem Titel, genau einer gefüllten
+  Hauptaktion, offenen Punkten nur aus Warnungen und eingeklappten Hinweisen, Assistent,
+  Meldungen und Audit. Fehlende Lane-Daten heissen «nicht verfügbar», agy erscheint als
+  vierte, noch nicht angebundene Lane (Owner-Entscheid), ein Datenbankfehler ergibt 503
+  statt eines unbehandelten Fehlers. Assistentenseite beginnt mit dem Dialog; der Kanal
+  trägt keinen Personennamen mehr. Neuer Chromium-Test für Falz, Menü und Tastatur.
+- Fix-Runde 2: Der 503-Pfad der Übersicht umfasst alle Lesezugriffe nach der
+  Session-Prüfung, auch Runner-Steuerung und Lane-Health, und schreibt eine Logzeile nur mit
+  dem Fehlertyp. Fokus ist nur der älteste wartende Auftrag. Der agy-Punkt ist ein Hinweis
+  statt Warnung, der Lane-Titel heisst nur «agy». Die Leiste erscheint nach Fokus im Feld
+  erst verzögert wieder, damit kein Klick verloren geht. Der Tab «Meldungen» öffnet den
+  Abschnitt serverseitig ohne JS. Der Projekt-Stand steht am Seitenende neben «Schema»,
+  statisch markiert und ohne PR-Nummern. Lane-Warnungen nennen Lane und Grund, die
+  Backup-Kachel zeigt am Telefon das Datum. Schalterzustände der Übersicht und der
+  Aktivierungstext teilen eine Quelle; Alpha-Töne hängen per `color-mix` an den Tokens.
+- Fix-Runde 3: Mit «Bewegung reduzieren» bleibt die verzögerte Rückkehr der Leiste
+  erhalten (Klicktest auch mit `reduced_motion="reduce"`). Browser ohne `color-mix()`
+  erhalten feste Rückfallwerte für Linien, Rahmen und Netzlinien. Die Assistentenseite
+  zeigt die Fakten wie die Übersicht unter «Loopback-Dialog, wenn eingeschaltet». Die
+  WebKit-Vorschau überspringt nur bei fehlendem Browser.
+- Die Übersicht zeigt zusätzlich lesend den Schema-Stand aus `alembic_version`, einen
+  statischen, datierten Projekt-Stand und Fakten zu Assistent und Meldungen aus
+  Code-Konstanten (Kontextbudget, Server-Sent Events, Ollama-503, Wake-Sendeversuche).
+- Tests für Redirects, CSP-Pin, kein Inline-Code, Viewport, Kontrast, keine erfundenen
+  Zahlen, keine Konfigurationswerte im HTML, Übersicht gegen PostgreSQL, Chromium-Shell
+  bei 320/390/1024 Pixeln und optionale WebKit-Vorschau.
 ### Einheits-Chat M0/M1 (Draft)
 
 - Vertrag `channel_turn.v1` und Migration `20261110_0064`: Kanäle, Nachrichten in

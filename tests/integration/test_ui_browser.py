@@ -95,7 +95,8 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         page.goto(base + "/ui/tasks")
         page.get_by_label("Passwort", exact=True).fill(password)
         page.get_by_role("button", name="Anmelden", exact=True).click()
-        assert page.url.endswith("/ui/tasks"), (
+        # The fixed landing page after login is the overview; there is no next parameter.
+        assert page.url.endswith("/ui/overview"), (
             page.url,
             page.locator("main").inner_text(),
             [item["name"] for item in context.cookies()],
@@ -139,7 +140,15 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         # Changing a central theme token does not change the task flow or markup.
         page.evaluate("document.documentElement.style.setProperty('--color-bg', 'rgb(9, 20, 35)')")
         assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(9, 20, 35)"
-        for path in ("/ui/tasks", "/ui/failed", "/ui/lanes", "/ui/chat", "/ui/tasks/new"):
+        for path in (
+            "/ui/overview",
+            "/ui/tasks",
+            "/ui/failed",
+            "/ui/lanes",
+            "/ui/chat",
+            "/ui/assistant",
+            "/ui/tasks/new",
+        ):
             page.goto(base + path)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), path
             assert page.get_by_role("heading", level=1).count() == 1
@@ -159,14 +168,14 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         page.wait_for_url("**/ui/login")
         page.get_by_label("Passwort", exact=True).fill(password)
         page.get_by_role("button", name="Anmelden", exact=True).click()
-        page.wait_for_url("**/ui/tasks")
+        page.wait_for_url("**/ui/overview")
         second_context = browser.new_context(java_script_enabled=javascript)
         second = second_context.new_page()
         second.route("**/*", allowed)
         second.goto(base + "/ui/login")
         second.get_by_label("Passwort", exact=True).fill(password)
         second.get_by_role("button", name="Anmelden", exact=True).click()
-        second.wait_for_url("**/ui/tasks")
+        second.wait_for_url("**/ui/overview")
         # Exactly one logout button is visible; "Überall abmelden" lives in the menu.
         assert page.get_by_role("button", name="Abmelden", exact=True).is_visible()
         assert not page.get_by_role("button", name="Überall abmelden", exact=True).is_visible()
@@ -189,7 +198,7 @@ def test_owner_browser_flow_at_phone_and_desktop_widths(browser_app, tmp_path, w
         page.reload()
         page.get_by_label("Passwort", exact=True).fill(password)
         page.get_by_role("button", name="Anmelden", exact=True).click()
-        page.wait_for_url("**/ui/tasks")
+        page.wait_for_url("**/ui/overview")
         assert not external and not errors
         second_context.close()
         context.close()

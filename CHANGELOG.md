@@ -5,6 +5,21 @@
 Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
 
+### Einheits-Chat M0/M1 (Draft)
+
+- Vertrag `channel_turn.v1` und Migration `20261110_0064`: Kanäle, Nachrichten in
+  Quarantäne, Owner-Freigabe und taskfreie Audit-Zeilen. `events.task_id` und
+  `events.to_status` sind nullable; ein CHECK trennt Task-Zeilen von
+  `assistant.*`- und `memory.*`-Zeilen. Ein Downgrade verweigert, solange solche
+  Zeilen existieren, und löscht nichts.
+- `ingest_turn` speichert neue Nachrichten als `quarantined`. Freigabe nur mit
+  authentisierter UI-Session und sha256 der gezeigten Bytes.
+  `load_memory_context` liest freigegebene Nachrichten und Fakten innerhalb der
+  Ziel-Klassen. Der Live-Dialog ist noch nicht angeschlossen (M2).
+- Nicht in diesem Stand: Oberfläche (M2), n8n- und Grok-Adapter (M3),
+  Import-Parser (M4), Slack Socket Mode (M5). Beschreibung in
+  [KANAELE.md](docs/KANAELE.md) und [ADR 0010](docs/DECISIONS/0010-kanaele-und-gedaechtnis.md).
+
 ### Ollama Live-Adapter – Entscheid (#39, Draft)
 
 - ADR 0009 ersetzt für die lokale Live-Lane den CLI-Transport durch begrenztes

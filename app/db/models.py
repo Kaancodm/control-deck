@@ -29,6 +29,7 @@ from app.core.schemas import DataClass
 from app.db.base import Base
 from app.db.state_machine import TaskState
 from app.kb import state as _knowledge_state  # noqa: F401 — register local snapshot metadata
+from app.memory import models as _memory_models  # noqa: F401 — register conversation memory
 from app.operations import models as _operation_models  # noqa: F401
 
 _task_state_enum = Enum(
@@ -184,28 +185,46 @@ class Result(Base):
 
 
 class Event(Base):
-    """Append-only audit log for task lifecycle transitions."""
+    """Append-only audit log for task transitions and taskless conversation audit.
+
+    Task rows always carry ``task_id`` and ``to_status``. Conversation and memory
+    rows (``assistant.*`` / ``memory.*``) carry neither; a CHECK enforces the split.
+    Task views must filter ``task_id IS NOT NULL``.
+    """
 
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    task_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=True
     )
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     actor: Mapped[str | None] = mapped_column(String(32), nullable=True)
     attempt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     lease_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     from_status: Mapped[TaskState | None] = mapped_column(_task_state_enum, nullable=True)
-    to_status: Mapped[TaskState] = mapped_column(_task_state_enum, nullable=False)
+    to_status: Mapped[TaskState | None] = mapped_column(_task_state_enum, nullable=True)
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    task: Mapped[Task] = relationship(back_populates="events")
+    task: Mapped[Task | None] = relationship(back_populates="events")
 
-    __table_args__ = (Index("ix_events_task_id_created_at", "task_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_events_task_id_created_at", "task_id", "created_at"),
+        Index(
+            "ix_events_conversation_created_at",
+            "created_at",
+            postgresql_where=text("task_id IS NULL"),
+        ),
+        CheckConstraint(
+            "(task_id IS NOT NULL AND to_status IS NOT NULL) OR "
+            "(task_id IS NULL AND to_status IS NULL AND from_status IS NULL "
+            "AND (event_type LIKE 'assistant.%' OR event_type LIKE 'memory.%'))",
+            name="ck_events_task_or_conversation",
+        ),
+    )
 
 
 class Lease(Base):

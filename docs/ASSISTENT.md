@@ -234,8 +234,12 @@ Offsite-Restore und ein physisches iPhone bleiben offen. Dieser Integrationszwei
 enthaelt den Assistenten, den laptop-unabhaengigen Weg und die Quittung. Die
 Entwuerfe 54, 55, 56, 57 und 59 sind nicht enthalten. Entwurf 59 bleibt die
 Wissens-Kette `alembic_kb` mit `kb_0001` und legt keine Datei unter
-`alembic/versions/` an. Die Hauptkette endet auf diesem Folgezweig bei
-`20261108_0063`. Ein Merge der GitHub-Entwuerfe ist damit nicht erfolgt.
+`alembic/versions/` an. Die Hauptkette endet nach Einheits-Chat M1 bei
+`20261110_0064`. Ein Merge der GitHub-Entwuerfe ist damit nicht erfolgt.
 Der Executor meldete fuer Head `ca8f141` einen isolierten Aufruf von etwa 56
 Sekunden, Identitaet unverified. Die Modellqualitaet bleibt schwach. Uncensored
 bleibt eine Autorenangabe. Dieser Stand hat das Modell nicht erneut aufgerufen.
+
+Der Einheits-Chat (Kanäle, Quarantäne, Owner-Freigabe, Kontextlader) steht in
+[KANAELE.md](KANAELE.md) und [ADR 0010](DECISIONS/0010-kanaele-und-gedaechtnis.md).
+Der Live-Dialog ist noch nicht an das neue Gedächtnis angeschlossen (M2).

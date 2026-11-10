@@ -8,7 +8,7 @@ Etappe `03-db-schema` führt PostgreSQL als persistente Queue und Audit-Store ei
 |---------|--------|
 | `tasks` | Unveränderlicher `task.v1`-Payload (JSONB), Laufstatus, `data_class`, Versuchszähler, Freigabe (`requires_approval`, `approved_at`), optionale Owner-Deadline (`deadline_at`) |
 | `results` | `result.v1`-Snapshots pro Versuch (eindeutig pro `task_id` + `attempt`) |
-| `events` | Append-only Audit-Log (Übergänge, Metadaten in JSONB) |
+| `events` | Append-only Audit-Log (Übergänge und ab `20261110_0064` taskfreie Gesprächs- und Gedächtniszeilen, Metadaten in JSONB) |
 | `leases` | Pull-Lease pro Task (`lease_id`, `expires_at`, `heartbeat_at`, optional `holder`) |
 | `settings` | Typisierte lokale Runner-Steuerung: Pause, Not-Aus, Lane-Pause, Parallelität |
 | `redaction_maps` | Lokale, taskgebundene Zuordnung stabiler Platzhalter zu exakten Originalwerten |
@@ -164,16 +164,19 @@ Downgrade (nur Dev/Test):
 uv run alembic downgrade base
 ```
 
-Die Hauptkette hat genau einen Kopf, `20261108_0063`. `20261108_0062` verbindet
+Die Hauptkette hat genau einen Kopf, `20261110_0064`. `20261108_0062` verbindet
 `20261108_0020` und `20261108_0061`, beide nach `20261104_0018`. `20261108_0063`
-haengt nur die Wake-Tabelle `routine_outbox` an. Ein Upgrade von `20261104_0018`,
-von einer Datenbank auf `20261108_0020` und eine leere Datenbank enden auf
-`20261108_0063`. `alembic downgrade -1` ist an der Verbindung `20261108_0062`
-mehrdeutig und läuft nicht. `alembic downgrade 20261108_0020` entfernt nur die
-Verbindung und laesst beide Eltern samt ihren Tabellen stehen. `alembic
-downgrade -1` von `20261108_0063` entfernt nur `routine_outbox` und laesst
-`20261108_0062` stehen. Die Wissens-Kette `alembic_kb` mit `kb_0001` bleibt
-eine eigene Script-Location und eine eigene Versionstabelle.
+haengt nur die Wake-Tabelle `routine_outbox` an. `20261110_0064` haengt an
+`20261108_0063`. Ein Upgrade von `20261104_0018`, von einer Datenbank auf
+`20261108_0020` und eine leere Datenbank enden auf `20261110_0064`. `alembic
+downgrade -1` ist an der Verbindung `20261108_0062` mehrdeutig und läuft nicht.
+`alembic downgrade 20261108_0020` entfernt nur die Verbindung und laesst beide
+Eltern samt ihren Tabellen stehen. `alembic downgrade -1` von `20261108_0063`
+entfernt nur `routine_outbox` und laesst `20261108_0062` stehen. `alembic
+downgrade -1` vom Kopf ist der Downgrade von `20261110_0064` und verweigert,
+solange Gesprächs- oder taskfreie Audit-Zeilen existieren (siehe unten). Die
+Wissens-Kette `alembic_kb` mit `kb_0001` bleibt eine eigene Script-Location und
+eine eigene Versionstabelle.
 
 ## Tests
 
@@ -194,7 +197,7 @@ Alembic wählt **nicht** still `DECK_TEST_DATABASE_URL`: für Tests `-x target=t
 
 - CHECKs auf `task.v1` / `result.v1`-Felder in JSONB (inkl. NOT NULL auf Pflicht-Keys)
 - Trigger `tasks_immutable_payload`: kein UPDATE von `payload`, `data_class`, `id`, `created_at`
-- Trigger `events_append_only`: kein UPDATE/DELETE auf Events; FK `RESTRICT` (Tasks werden nicht gelöscht)
+- Trigger `events_append_only`: kein UPDATE/DELETE auf Events; FK `RESTRICT` (Tasks werden nicht gelöscht). Ab `20261110_0064` darf `task_id` leer sein; `ck_events_task_or_conversation` trennt Task-Zeilen von taskfreien Zeilen
 - Spalten `cancel_requested`, `cancel_reason`; Events mit `actor`, `attempt`, `lease_id`
 - Redaction-Maps: Taskbindung, eindeutige Originalhashes und Platzhalter, unveränderliche Einträge
 
@@ -292,3 +295,170 @@ Der Downgrade hält Results und Lane-Status exklusiv gesperrt. Er verweigert nic
 Result-Herkunft, jeden Herkunfts-/Live-Zähler, Probe-Generation und erhaltene Fehler- oder
 Live-Versuchszeitpunkte. So kann ein späteres Upgrade keine bestehenden Nachweise neu
 einordnen. Ein evidenzfreier Roundtrip über 0017 erhält die Login-Kapazitätsspalten.
+
+## Kanäle und Gedächtnis (Revision 20261110_0064)
+
+Revision `20261110_0064` hängt an `20261108_0063`. Sie legt die Ablage für
+Kanal-Nachrichten, Themen, Freigaben und Fakten an und macht `events.task_id`
+sowie `events.to_status` nullable. `task.v1` und `result.v1` bleiben
+unverändert. Verhalten: [KANAELE.md](KANAELE.md). Entscheide:
+[ADR 0010](DECISIONS/0010-kanaele-und-gedaechtnis.md).
+
+Fremdschlüssel dieser Revision stehen auf `ON DELETE RESTRICT`. Ein Downgrade
+löscht keine Zeilen.
+
+### `assistant_channel_accounts`
+
+Allowlist, Primärschlüssel `(channel, account_label)`.
+
+| Spalte | Bedeutung |
+|--------|-----------|
+| `channel` | `deck_ui`, `slack`, `n8n`, `grok`, `claude`, `claude_code` (`ck_assistant_channel_accounts_channel`) |
+| `account_label` | `^[a-z][a-z0-9_]{0,31}$` (`ck_assistant_channel_accounts_label`) |
+| `active` | `false` lehnt jeden Turn ab |
+| `allowed_data_classes` | nicht leeres Text-Array, Teilmenge von `local_only`, `cloud_redacted`, `cloud_ok` (`ck_assistant_channel_accounts_classes`) |
+| `created_at` | `clock_timestamp()` |
+
+`ck_assistant_channel_accounts_cloud_ceiling`: bei `slack`, `n8n`, `grok` und
+`claude` kommt `local_only` im Array nicht vor.
+`ck_assistant_channel_accounts_claude_code_local`: `claude_code` ist exakt
+`ARRAY['local_only']`. Die Migration legt nur `('deck_ui', 'owner', true)` an,
+mit allen drei Klassen.
+
+### `memory_approvals`
+
+Append-only. Primärschlüssel `id` (UUID). Eindeutig `(kind, target_id)`
+(`uq_memory_approvals_target`). `target_id` hat keinen Fremdschlüssel.
+
+| Spalte | Bedeutung |
+|--------|-----------|
+| `kind` | `message`, `fact`, `thread_topic`, `thread_link` |
+| `decision` | `approved` oder `rejected` |
+| `shown_sha256` | 64 Hexzeichen |
+| `session_token_hash` | 64 Hexzeichen, Digest der UI-Session, bewusst kein Fremdschlüssel |
+| `created_at` | `clock_timestamp()` |
+
+Trigger `trg_memory_approvals_append_only` ruft `memory_approvals_append_only()`
+und verweigert jedes `UPDATE` und `DELETE`.
+
+### `assistant_threads`
+
+| Spalte | Bedeutung |
+|--------|-----------|
+| `id` | UUID, Primärschlüssel |
+| `title` | 1 bis 200 Zeichen (`ck_assistant_threads_title`) |
+| `title_origin` | `owner` oder `assistant_proposed` |
+| `data_class` | `local_only`, `cloud_redacted`, `cloud_ok` |
+| `status` | `proposed`, `active`, `rejected` |
+| `approval_id` | FK auf `memory_approvals.id`. Bei `proposed` leer, sonst gesetzt (`ck_assistant_threads_decision`) |
+| `created_at` | `clock_timestamp()` |
+
+### `assistant_thread_links`
+
+FK auf `assistant_threads`, auf `memory_approvals` und auf
+`(channel, account)` in `assistant_channel_accounts`.
+
+`state` ist `proposed`, `active` oder `rejected`, mit derselben Kopplung an
+`approval_id` wie das Thema (`ck_assistant_thread_links_decision`).
+`external_thread_id` hat 1 bis 200 Zeichen.
+Partieller Unique-Index `uq_assistant_thread_links_external` auf
+`(channel, account, external_thread_id)` WHERE `state <> 'rejected'`.
+Abgelehnte Zeilen bleiben. Index `ix_assistant_thread_links_thread_id`.
+
+### `assistant_messages`
+
+Eine Zeile pro Nachricht. `seq` ist `BIGINT GENERATED ALWAYS AS IDENTITY` und
+eindeutig (`uq_assistant_messages_seq`).
+
+| Spalte | Bedeutung |
+|--------|-----------|
+| `thread_id` | nullable, FK auf `assistant_threads` |
+| `external_thread_id` | varchar(200), NOT NULL |
+| `external_message_id` | varchar(200), nullable |
+| `role` | `owner` oder `assistant` |
+| `text` | 1 bis 16000 Zeichen |
+| `text_sha256` | muss `encode(sha256(convert_to(text, 'UTF8')), 'hex')` sein |
+| `data_class` | die drei Klassen |
+| `state` | `quarantined`, `approved`, `rejected` |
+| `reply_for_message_id` | nullable, FK auf dieselbe Tabelle |
+| `in_reply_to_message_id` | nullable, FK auf dieselbe Tabelle |
+| `received_at` | `clock_timestamp()` |
+
+Herkunft, NOT NULL ausser `source_ref_sha256` und `approval_id`: `source_date`,
+`source_channel`, `source_account`, `source_ref` (1 bis 300 Zeichen, kein
+`://`), `method` (`deck_ui`, `live_push`, `import_file`, `owner_typed`),
+`evidence_status` (`bewiesen`, `unbewiesen`, `abgelehnt`). `bewiesen` nur mit
+`approval_id` (`ck_assistant_messages_proven_needs_approval`). Dieselben
+Herkunfts-Checks gelten für `memory_facts` mit dem Präfix `memory_facts`.
+
+`ck_assistant_messages_decision`:
+
+- `quarantined`: `approval_id` leer und `evidence_status = unbewiesen`
+- `approved`: `approval_id` gesetzt, Nachweis `bewiesen` oder `unbewiesen`
+- `rejected`: `approval_id` gesetzt und `evidence_status = abgelehnt`
+
+`ck_assistant_messages_reply_channel`: gesetztes `reply_for_message_id` nur bei
+Rolle `assistant` und Kanal `deck_ui` oder `slack`.
+`ck_assistant_messages_reply_not_self`: nicht die eigene Id.
+`uq_assistant_messages_reply_for`: höchstens eine Zeile pro gesetzter
+Ziel-Id. Mehrere `NULL` kollidieren darauf nicht.
+
+Dedup: `uq_assistant_messages_external_id` auf
+`(source_channel, source_account, external_message_id)`. Mehrere `NULL` in
+`external_message_id` kollidieren darauf nicht. Partieller
+Unique-Index `uq_assistant_messages_fallback` auf
+`(source_channel, source_account, external_thread_id, role, text_sha256, source_date)`
+WHERE `external_message_id IS NULL`. Weitere Indizes:
+`ix_assistant_messages_thread_seq` auf `(thread_id, seq)`,
+`ix_assistant_messages_quarantine` auf `seq` WHERE `state = 'quarantined'`.
+
+### `memory_facts`
+
+`original_sentence` 1 bis 4000 Zeichen. `subject` und `predicate` varchar(200),
+`object` varchar(1000), jedes mindestens ein Zeichen (`ck_memory_facts_triple`).
+`source_message_id` FK auf `assistant_messages`. `data_class` wie oben.
+`valid_from` und `valid_to` nullable; `valid_to` leer oder nicht vor
+`valid_from` (`ck_memory_facts_validity`). `superseded_by` FK auf dieselbe
+Tabelle, nicht die eigene Id (`ck_memory_facts_not_self`). `status`
+`proposed`, `approved` oder `rejected` mit derselben Nachweis-Kopplung wie
+Nachrichten (`ck_memory_facts_decision`). `created_at` ist `clock_timestamp()`.
+
+Indizes: `ix_memory_facts_source_message`, `ix_memory_facts_approved` auf
+`(data_class, created_at)` WHERE `status = 'approved' AND superseded_by IS NULL`.
+
+### `events`
+
+`events.task_id` (UUID, bestehender FK auf `tasks.id`) und `events.to_status`
+(`task_state`) werden nullable. Der Trigger `trg_events_append_only` bleibt.
+
+CHECK `ck_events_task_or_conversation`:
+
+```text
+(task_id IS NOT NULL AND to_status IS NOT NULL)
+OR (task_id IS NULL AND to_status IS NULL AND from_status IS NULL
+    AND (event_type LIKE 'assistant.%' OR event_type LIKE 'memory.%'))
+```
+
+Eine Task-Zeile braucht `task_id` und `to_status`; `from_status` bleibt dort
+nullable. Eine taskfreie Zeile hat leeres `task_id`, leeres `to_status`,
+leeres `from_status` und einen Typ `assistant.*` oder `memory.*`. Partieller
+Index `ix_events_conversation_created_at` auf `created_at` WHERE
+`task_id IS NULL`. Die Audit-Auswahl in `app/audit/repository.py` filtert
+`task_id IS NOT NULL`.
+
+### Downgrade
+
+Der Migrationskopf nennt Test- und Entwicklungsdatenbanken. Der Code prüft den
+Datenbanknamen nicht. Er sperrt `events` mit `LOCK TABLE events IN SHARE ROW
+EXCLUSIVE MODE`, zählt Zeilen mit `task_id IS NULL` und bricht ab, wenn welche
+existieren:
+
+`events_taskless_rows: conversation audit rows exist with task_id NULL; refusing to restore NOT NULL. Rows are never deleted by this migration.`
+
+Danach prüft er in dieser Reihenfolge `assistant_messages`, `memory_facts`,
+`memory_approvals`, `assistant_thread_links`, `assistant_threads`. Die erste
+nicht leere Tabelle bricht ab mit `conversation_rows: {tabelle} is not empty;
+refusing to drop owner memory.` Es wird nichts gelöscht. Nur wenn beide
+Prüfungen leer sind, entfernt er `ix_events_conversation_created_at` und den
+CHECK, setzt `to_status` und `task_id` wieder auf NOT NULL und droppt die neuen
+Tabellen, den Trigger und die Funktion `memory_approvals_append_only`.

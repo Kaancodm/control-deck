@@ -115,17 +115,17 @@ def test_shell_layout_navigation_focus_and_login(browser_app, width):
         assert outline[0] != "none" and outline[1] >= 2
 
         if phone:
-            # After focusing the message field the tab bar does not cover it.
+            # While the message field has focus the tab bar is hidden; without focus the
+            # field ends above the bar (only that case is accepted, not "below the bar").
             field = page.get_by_label("Nachricht", exact=True)
-            field.scroll_into_view_if_needed()
             field.focus()
+            assert not page.locator(".tabbar").is_visible()
+            page.evaluate("document.activeElement.blur()")
+            field.scroll_into_view_if_needed()
             message = field.bounding_box()
             bar = page.locator(".tabbar").bounding_box()
             assert message is not None and bar is not None
-            assert (
-                message["y"] + message["height"] <= bar["y"]
-                or message["y"] >= bar["y"] + bar["height"]
-            )
+            assert message["y"] + message["height"] <= bar["y"]
             # Anchors from the tab bar land on real sections of the overview.
             page.goto(base + "/ui/overview")
             page.locator(".tabbar").get_by_role("link", name="Offen", exact=True).click()

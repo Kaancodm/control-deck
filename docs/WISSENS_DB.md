@@ -140,6 +140,7 @@ nur fuer diesen kleinen oeffentlichen Satz, nicht fuer reale Bestaende.
 | `embedding_timeout` | Zeitbudget erschoepft |
 | `embedding_unavailable` | Verbindungsfehler oder anderer HTTP-Status |
 | `embedding_model_missing` | 404, Modell nicht lokal vorhanden |
+| `embedding_input_too_long` | 400; bei `truncate: false` meist Eingabe laenger als der Kontext (API/UI: 422) |
 | `embedding_malformed` | kaputtes JSON, Uebergroesse, falsche Anzahl, Modell-Echo, Remote-Felder |
 | `embedding_dimension_mismatch` | Vektor nicht 1024 lang |
 | `embedding_invalid` | nicht endlich, kein Zahlwert oder Nullvektor |

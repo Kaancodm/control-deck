@@ -240,8 +240,9 @@ am Server `unproven`.
 - `EmbedResponse` kennt `model`, `embeddings` (`float32`), `total_duration`, `load_duration` und
   `prompt_eval_count`, aber **keine** Remote-Felder. Die Remote-Pruefung im Adapter schuetzt nur
   gegen eine kuenftige Formataenderung.
-- Mit `truncate: false` ergibt eine zu lange Eingabe HTTP 400 (im Deck `embedding_unavailable`);
-  der Handler laedt das Modell vorher trotzdem.
+- Mit `truncate: false` ergibt eine zu lange Eingabe HTTP 400 (im Deck
+  `embedding_input_too_long`, API 422); der Handler laedt das Modell vorher trotzdem. Das Deck
+  liest den Server-Fehlertext nie und ordnet nur nach Status zu; auch NaN oder Inf ergeben 400.
 - Ein fehlendes Modell ergibt 404 (`embedding_model_missing`).
 - Vektoren werden serverseitig L2-normalisiert; NaN oder Inf ergeben 400.
 - `EmbedHandler` leitet nur Modelle mit Cloud-Quelle weiter; eine eigene Pruefung auf `:local`

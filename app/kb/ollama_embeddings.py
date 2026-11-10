@@ -49,6 +49,10 @@ def failure_code(exc: OllamaHTTPError) -> str:
         return "embedding_malformed"
     if exc.status_code == 404:
         return "embedding_model_missing"
+    if exc.status_code == 400:
+        # With truncate=false Ollama answers 400 for input beyond the context length. The
+        # server text is never read, so this is by status only (NaN/Inf output is also 400).
+        return "embedding_input_too_long"
     return "embedding_unavailable"
 
 

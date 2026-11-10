@@ -188,7 +188,7 @@ def test_invalid_vectors_are_rejected(raw, code):
         ),
         ({"status_by_path": {"/api/embed": 404}}, {}, "embedding_model_missing"),
         ({"status_by_path": {"/api/embed": 500}}, {}, "embedding_unavailable"),
-        ({"status_by_path": {"/api/embed": 400}}, {}, "embedding_unavailable"),
+        ({"status_by_path": {"/api/embed": 400}}, {}, "embedding_input_too_long"),
         ({"header_delay_s": 5}, {}, "embedding_timeout"),
     ],
 )
@@ -220,6 +220,7 @@ def test_closed_port_is_unavailable():
         (OllamaHTTPError("timeout"), "embedding_timeout"),
         (OllamaHTTPError("internal"), "embedding_malformed"),
         (OllamaHTTPError("unavailable", 404), "embedding_model_missing"),
+        (OllamaHTTPError("unavailable", 400), "embedding_input_too_long"),
         (OllamaHTTPError("unavailable", 500), "embedding_unavailable"),
         (OllamaHTTPError("unavailable"), "embedding_unavailable"),
         (OllamaHTTPError("cancelled"), "embedding_unavailable"),
@@ -304,3 +305,17 @@ def test_embedding_and_contract_faults_are_service_unavailable(code):
 
 def test_input_faults_stay_unprocessable():
     assert knowledge_error_status("secret_detected") == 422
+    assert knowledge_error_status("embedding_input_too_long") == 422
+
+
+def test_too_long_input_has_its_own_code_and_safe_log(caplog):
+    caplog.set_level(logging.INFO, logger="app.kb.ollama_embeddings")
+    with OllamaStub(status_by_path={"/api/embed": 400}) as stub:
+        with pytest.raises(KnowledgeError) as error:
+            adapter(stub).embed_documents([SECRET_TEXT])
+        assert error.value.code == "embedding_input_too_long"
+        assert len(stub.requests) == 1
+    record = json.loads(caplog.records[0].getMessage())
+    assert record["status"] == "embedding_input_too_long"
+    assert record["http_status"] == 400 and record["phase"] == "status"
+    assert SECRET_TEXT not in caplog.text

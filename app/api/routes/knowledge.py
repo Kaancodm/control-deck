@@ -41,6 +41,7 @@ _INPUT_CODES = frozenset(
         "knowledge_text_invalid",
         "invalid_search_limit",
         "invalid_utf8",
+        "embedding_input_too_long",
     }
 )
 

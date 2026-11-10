@@ -11,8 +11,8 @@ Work on **one task per session**; run `/clear` before starting the next one.
 - Python 3.12, FastAPI, uv (dependency and run manager), SQLAlchemy 2, Alembic.
 - PostgreSQL. Production runs in Docker, managed outside this repository: the central
   database `controldeck` on port 5432 and the knowledge database `wissen` on port 5433
-  (source: owner, 2026-11-10). Agents never create roles, touch servers, or connect to either.
-  Port alone does not separate test from prod; the `_test` name rule below does.
+  (source: owner, 2026-11-10; method: owner statement; status: unproven by repo).
+  Access to either follows Human gates and Working rules below. Port alone does not separate test from prod; the `_test` name rule below does.
 - Tooling: pytest, ruff (lint and format), mypy in strict mode.
 
 ## Commands
@@ -110,19 +110,20 @@ type errors fail lint even when ruff is clean.
 
 These add to the human gates above; `AGENTS.md` still wins on conflict.
 
-- **Secrets:** never read, print, or commit secrets. Never open or quote the runtime env file
-  `~/.config/control-deck/deck.env`. No tokens or passwords in logs, tests, fixtures, or PR text.
+- **Secrets:** never read, print, or commit secrets. Never open or quote the private runtime
+  environment file (deck.env). No tokens or passwords in logs, tests, fixtures, or PR text.
 - **Git identity and history:** commit only with the owner's GitHub noreply address
   (`…@users.noreply.github.com`; check `git config user.email`), never a personal address.
   No force-push, no rewriting of pushed history.
-- **Checks:** `make lint` and `make test` as in Commands; integration tests only against a
-  `_test` database as in Database and tests.
-- **GO required:** deploys, production migrations, and merges to `main` only after an explicit
-  owner GO. Agents never touch production servers or databases.
+- **Checks and test database:** see Commands and Database and tests.
+- **Production:** agents deploy, run production migrations, or connect to production only
+  on an explicit owner GO for that action (as `AGENTS.md` allows on explicit request);
+  otherwise the agent only prepares the change. Merges stay with the owner (Human gates).
 - **Public repo:** the repository is and stays public. No personal data, no private exports,
   no schema dumps that contain data.
-- **Provenance:** every claim or knowledge entry names its source (path or URL), date, method,
-  and status (`belegt` / `unbelegt`). Never phrase unverified content as fact.
+- **Provenance:** knowledge entries and research claims name their source (repo-relative path
+  or public URL; never internal hosts, URLs, or identifiers, see `AGENTS.md`), date, method,
+  and status (`proven` / `unproven`). Never phrase unproven content as fact.
 
 ## Gotchas
 

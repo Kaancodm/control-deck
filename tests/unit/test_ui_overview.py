@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -11,7 +13,7 @@ from app.audit.presentation import AuditItem
 from app.core.schemas import Worker
 from app.db.settings import RunnerSettings
 from app.db.state_machine import TaskState
-from app.ui import overview
+from app.ui import overview, views
 from app.ui.overview import FeatureFlags, Outcome
 
 NOW = datetime(2026, 11, 10, 8, 0, tzinfo=UTC)
@@ -297,3 +299,85 @@ def test_network_nodes_reflect_real_states() -> None:
     assert not by_key["assistant"].active and by_key["messages"].active
     assert not by_key["backup"].active
     assert all(0 <= node.x <= 400 and 0 <= node.y <= 250 for node in nodes)
+
+
+def render_overview(**context: object) -> str:
+    base = {"owner": True, "csrf": "synthetic-csrf", "controls": None, "lane_health": []}
+    return views.TEMPLATES.env.get_template("overview.html").render({**base, **context})
+
+
+def visible_text(html: str) -> str:
+    body = html.split("</head>", 1)[1]
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
+
+
+def test_overview_without_data_shows_no_invented_numbers() -> None:
+    html = render_overview()
+    text = visible_text(html)
+    digits = re.findall(r"[\w-]*\d[\w-]*", text)
+    assert set(digits) <= {"CD-01", "01", "02", "03", "04", "05", "06"}, digits
+    assert "noch keines erfasst" in text and "Restore-Probe: keine erfasst" in text
+    assert text.count("nicht verfügbar") >= 3
+    assert "Kein Auftrag wartet auf dich." in text
+    assert "Keine offenen Punkte aus den Deck-Daten." in text
+    assert "GO offen" not in text
+
+
+def test_overview_shows_sentinel_numbers_exactly_where_they_belong() -> None:
+    html = render_overview(
+        waiting_total=7411,
+        claims=overview.Claims(total=6203, limit=None),
+        lane_rows=(),
+        open_points=(),
+        flags=flags(),
+        activation=(),
+        audit=[],
+        steps=overview.workflow_steps(None),
+        nav_counts={},
+    )
+    text = visible_text(html)
+    assert text.count("7411") == 2  # top bar badge and the approvals tile
+    assert "7411 GO offen" in text
+    assert text.count("6203") == 1
+    digits = set(re.findall(r"[\w-]*\d[\w-]*", text)) - {"7411", "6203", "CD-01"}
+    assert digits == {"01", "02", "03", "04", "05", "06"}
+
+
+def test_overview_keeps_locator_contracts() -> None:
+    html = render_overview(flags=flags(), activation=("Synthetische Zeile.",))
+    main = html.split("<main", 1)[1].split("</main>", 1)[0]
+    names = [
+        re.sub(r"<[^>]+>|\s+", " ", link).strip()
+        for link in re.findall(r"<a\b[^>]*>(.*?)</a>", main, re.S)
+    ]
+    assert not {"Audit", "Lanes", "Wissen"} & set(names)  # one visible link per target (K5)
+    assert names.count("＋ Neuer Auftrag") == 1  # K2
+    assert "data-lane-warning" not in main  # K9
+    assert main.count("<h1") == 1
+    for anchor in ("flow", "lanes", "assistent", "meldungen", "offen", "audit"):
+        assert f'id="{anchor}"' in main
+
+
+def test_flag_states_render_as_states_only() -> None:
+    html = render_overview(flags=flags(assistant_loopback="incomplete", routine_wake="off"))
+    assert "UNVOLLSTÄNDIG" in html and "AUS" in html
+    assert "<code>DECK_ROUTINE_WAKE</code>" in html
+
+
+@pytest.mark.parametrize("name", ["overview.html", "base.html", "login.html"])
+def test_shell_sources_carry_no_mockup_sample_data(name: str) -> None:
+    source = (Path(views.__file__).with_name("templates") / name).read_text(encoding="utf-8")
+    for marker in (
+        "Beispiel",
+        "qwen",
+        "abliterated",
+        "Ubuntu",
+        "5433",
+        "PR64",
+        "PR65",
+        "agy",
+        "Gemini",
+        "04:00",
+        "Tailnet",
+    ):
+        assert marker not in source, (name, marker)

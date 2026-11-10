@@ -8,36 +8,50 @@
 {% macro utc(value) -%}
 <time datetime="{{ value.isoformat() }}">{{ value.strftime('%d.%m.%Y %H:%M:%S') }} UTC</time>
 {%- endmacro %}
+{% macro point_item(point) -%}
+<li data-open-point="{{ point.code }}">
+  {% if point.href %}<a class="op-link" href="{{ point.href }}">{{ point.title }}<small>{{ point.detail }}</small></a>
+  {% else %}<p class="op-link">{{ point.title }}<small>{{ point.detail }}</small></p>{% endif %}
+  <span class="chip chip--{{ point.tone }}">{{ point.chip }}</span>
+</li>
+{%- endmacro %}
+{% macro fact_list(facts) -%}
+<dl class="facts">{% for fact in facts %}<div class="fact"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>{% endfor %}</dl>
+{%- endmacro %}
 {% block title %}Übersicht · Control Deck{% endblock %}
 {% block head_extra %}<link rel="stylesheet" href="/ui/static/overview.css">{% endblock %}
 {% block crumb %}Übersicht{% endblock %}
 {% block topbar_badge %}{% if waiting_total is defined %}<span class="badge">{% if waiting_total %}{{ waiting_total }} GO offen{% else %}Kein GO offen{% endif %}</span>{% endif %}{% endblock %}
 {% block content %}
 {% set rows = lane_rows|default([]) %}
+{% set pending = pending_lanes|default([]) %}
 {% set points = open_points|default([]) %}
+{% set warn_points = points|selectattr('tone', 'equalto', 'warn')|list %}
+{% set hint_points = points|rejectattr('tone', 'equalto', 'warn')|list %}
 {% set events = audit|default([]) %}
 {% set steps = steps|default([]) %}
+{% set unavailable = data_unavailable|default(false) %}
+{% set waiting = waiting_total if waiting_total is defined else none %}
 <div class="overview">
+  {#- DOM order is the phone reading order: head, status, open points, focus, lanes, folds. -#}
   <div class="ov-head">
     <div>
       <h1>Owner-Konsole</h1>
       <p class="claim">Alles in Bewegung. Alles unter deiner Freigabe.</p>
     </div>
     <div class="ov-head-actions">
-      <a class="button ghost" href="/ui/audit">Audit-Trail</a>
-      <a class="button" href="/ui/tasks/new">＋ Neuer Auftrag</a>
+      {% if waiting %}<a class="button" href="/ui/tasks#waiting-tasks">Freigaben öffnen</a>{% endif %}
+      <a class="button{% if waiting %} quiet{% endif %}" href="/ui/tasks/new">＋ Neuer Auftrag</a>
+      <a class="button ghost ov-wide" href="/ui/audit">Audit-Trail</a>
     </div>
   </div>
 
+  {% if not unavailable %}
   <section class="panel hero" aria-labelledby="hero-title">
     <div class="hero-copy">
       <p class="eyebrow eyebrow--dot">Control Deck · Lokal zuerst</p>
       <h2 id="hero-title">Jede Aktion gewartet.<br><span>Jede Freigabe deine.</span></h2>
       <p>Agenten planen, werden geprüft, warten auf dein GO, laufen auf deinem Server und hinterlassen eine Audit-Spur. Keine bezahlten APIs im Betrieb.</p>
-      <div class="hero-actions">
-        <a class="button" href="/ui/tasks#waiting-tasks">Freigaben öffnen ↗</a>
-        <a class="button ghost" href="/ui/lanes">◈ Lanes ansehen</a>
-      </div>
     </div>
     <figure class="hero-net">
       <figcaption class="net-caption">CD-01 / VERNETZUNG</figcaption>
@@ -45,18 +59,19 @@
       <p class="net-foot">◈ MENSCHLICH GEFÜHRT. LOKAL ZUERST.</p>
     </figure>
   </section>
+  {% endif %}
 
   <section class="kpis" aria-labelledby="kpi-title">
-    <h2 id="kpi-title" class="visually-hidden">Kennzahlen</h2>
+    <h2 id="kpi-title" class="visually-hidden">Status</h2>
     <div class="kpi">
-      <p class="kpi-title"><span>Offene Freigaben</span>{{ icon('clock') }}</p>
+      <p class="kpi-title"><span class="kpi-long">Offene Freigaben</span><span class="kpi-short">Freigaben</span>{{ icon('clock') }}</p>
       {% if waiting_total is defined %}
       <p class="kpi-value">{{ waiting_total }}</p>
       <p class="kpi-note">{% if waiting_total %}Dein Entscheid steht an{% else %}Nichts wartet auf dich{% endif %}</p>
       {% else %}<p class="kpi-value kpi-value--na">nicht verfügbar</p>{% endif %}
     </div>
     <div class="kpi">
-      <p class="kpi-title"><span>Heutige Claims</span>{{ icon('trend') }}</p>
+      <p class="kpi-title"><span class="kpi-long">Heutige Claims</span><span class="kpi-short">Claims heute</span>{{ icon('trend') }}</p>
       {% if claims %}
       <p class="kpi-value">{{ claims.total }}{% if claims.limit is not none %}<small>/ {{ claims.limit }}</small>{% endif %}</p>
       <p class="kpi-note">{% if claims.limit is not none %}Lokales Tageslimit{% else %}Nicht jede Lane hat ein Tageslimit{% endif %}</p>
@@ -64,20 +79,54 @@
     </div>
     <div class="kpi">
       <p class="kpi-title"><span>Lanes</span>{{ icon('lanes') }}</p>
-      {% if rows %}
-      <p class="kpi-value">{{ rows|length }}</p>
-      <p class="kpi-note">{{ rows|map(attribute='lane')|join(' · ') }}</p>
+      {% if lanes_summary is defined %}
+      <p class="kpi-value">{{ lanes_summary.total }}</p>
+      <p class="kpi-sub">{% if lanes_summary.connected is not none %}{{ lanes_summary.connected }} im Deck angebunden{% else %}Anbindung nicht verfügbar{% endif %}</p>
       {% for row in rows if row.tone == 'warn' %}<p class="chip chip--warn">{{ row.lane }}: {{ row.label }}</p>{% endfor %}
       {% else %}<p class="kpi-value kpi-value--na">nicht verfügbar</p>{% endif %}
     </div>
     <div class="kpi">
-      <p class="kpi-title"><span>Letztes Backup-Ereignis</span>{{ icon('database') }}</p>
-      {% if last_backup %}
+      <p class="kpi-title"><span class="kpi-long">Letztes Backup-Ereignis</span><span class="kpi-short">Backup</span>{{ icon('database') }}</p>
+      {% if unavailable %}<p class="kpi-value kpi-value--na">nicht verfügbar</p>
+      {% elif last_backup %}
       <p class="kpi-value kpi-value--text">{% if last_backup.phase == 'completed' %}abgeschlossen{% else %}fehlgeschlagen{% endif %}</p>
       <p class="kpi-note">{{ utc(last_backup.at) }}</p>
       {% else %}<p class="kpi-value kpi-value--na">noch keines erfasst</p>{% endif %}
-      <p class="chip chip--off">Restore-Probe: {% if last_restore %}{% if last_restore.phase == 'completed' %}abgeschlossen{% else %}fehlgeschlagen{% endif %} · {{ utc(last_restore.at) }}{% else %}keine erfasst{% endif %}</p>
+      {% if not unavailable %}<p class="chip chip--off kpi-extra">Restore-Probe: {% if last_restore %}{% if last_restore.phase == 'completed' %}abgeschlossen{% else %}fehlgeschlagen{% endif %} · {{ utc(last_restore.at) }}{% else %}keine erfasst{% endif %}</p>{% endif %}
     </div>
+  </section>
+
+  <section class="panel ov-card" id="offen" aria-labelledby="open-title">
+    <div class="ov-card-head">
+      <h2 id="open-title">{{ icon('list') }}Offene Punkte</h2>
+      {% if warn_points %}<span class="chip chip--warn">{{ warn_points|length }} offen</span>{% endif %}
+    </div>
+    {% if unavailable %}
+    <p class="ov-lede">Offene Punkte sind nicht verfügbar.</p>
+    {% elif warn_points %}
+    <ol class="open-points">{% for point in warn_points[:3] %}{{ point_item(point) }}{% endfor %}</ol>
+    {% if warn_points|length > 3 %}
+    <details class="ov-more">
+      <summary>{{ warn_points|length - 3 }} weitere</summary>
+      <ol class="open-points open-points--rest">{% for point in warn_points[3:] %}{{ point_item(point) }}{% endfor %}</ol>
+    </details>
+    {% endif %}
+    {% else %}
+    <p class="ov-lede">Keine offenen Punkte aus den Deck-Daten.</p>
+    {% endif %}
+    {% if hint_points %}
+    <details class="ov-more">
+      <summary>Hinweise zur Konfiguration</summary>
+      <ol class="open-points">{% for point in hint_points %}{{ point_item(point) }}{% endfor %}</ol>
+    </details>
+    {% endif %}
+    {% if project_status is defined %}
+    <details class="ov-more" data-static="project-status">
+      <summary>Projekt-Stand (statisch, Stand {{ project_status_date }})</summary>
+      <p class="ov-note">Fest notiert, keine Live-Daten aus dem Deck.</p>
+      <ul class="ov-notes">{% for line in project_status %}<li>{{ line }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
   </section>
 
   <div class="ov-two">
@@ -86,13 +135,15 @@
         <h2 id="flow-title">{{ icon('lines') }}Auftrags-Workflow</h2>
         <a class="ov-link" href="/ui/tasks">Alle Aufträge →</a>
       </div>
-      {% if focus %}
+      {% if unavailable %}
+      <p class="ov-sub">Auftragsdaten sind nicht verfügbar.</p>
+      {% elif focus %}
       <p class="ov-sub"><span>{{ focus.payload.title }} · {{ data_class_labels[focus.data_class.value] }}</span>
         <span class="chip chip--on">{{ status_labels[focus.status.value][1] }}</span></p>
       {% else %}
       <p class="ov-sub">Kein Auftrag wartet auf dich.</p>
       {% endif %}
-      <ol class="stepper" aria-label="Schritte eines Auftrags">
+      <ol class="stepper{% if not focus %} stepper--legend{% endif %}" aria-label="Schritte eines Auftrags">
         {% for step in steps %}
         <li class="step step--{{ step.state }}"{% if step.state == 'current' %} aria-current="step"{% endif %}>
           {{ icon(step.icon) }}<span class="step-label">{{ step.label }}{% if step.state == 'done' %}<span class="visually-hidden">, erledigt</span>{% endif %}</span>
@@ -100,45 +151,48 @@
         </li>
         {% endfor %}
       </ol>
-      <div class="ov-foot">
-        <p><b>Ein menschlicher Checkpoint, so gewollt.</b>
+      <div class="ov-foot{% if not focus %} ov-foot--bare{% endif %}">
+        <p class="ov-wide"><b>Ein menschlicher Checkpoint, so gewollt.</b>
           <small>Lies den Plan, bevor die Lane übernimmt. Start-Freigabe und Review bleiben getrennt.</small></p>
-        {% if focus %}<a class="button quiet" href="/ui/tasks/{{ focus.id }}">Plan prüfen →</a>{% endif %}
+        {% if focus %}<a class="button quiet" href="/ui/tasks/{{ focus.id }}">{% if focus.status.value == 'awaiting_approval' %}Plan prüfen →{% elif focus.status.value == 'review' %}Ergebnis prüfen →{% else %}Auftrag ansehen →{% endif %}</a>{% endif %}
       </div>
     </section>
 
     <section class="panel ov-card" id="lanes" aria-labelledby="lanes-title">
       <div class="ov-card-head">
         <h2 id="lanes-title">{{ icon('lanes') }}Deine Lanes</h2>
-        {% if rows %}<span class="chip chip--off">{{ rows|length }} Lanes</span>{% endif %}
+        {% if lanes_summary is defined %}<span class="chip chip--off">{{ lanes_summary.total }} Lanes</span>{% endif %}
       </div>
-      {% if rows %}
+      {% if not rows %}<p class="ov-lede">Lane-Daten sind nicht verfügbar.</p>{% endif %}
+      {% if rows or pending %}
       <ul class="lane-list">
         {% for row in rows %}
-        <li class="lane-row">
+        <li class="lane-row" data-lane="{{ row.lane }}">
           <span class="lane-tag" aria-hidden="true">{{ row.lane[:3]|upper }}</span>
           <div class="lane-text"><b>{{ row.lane }}</b>
             <small>{{ row.kind }} · {% if row.observed_at %}Vorprüfung {{ utc(row.observed_at) }}{% else %}keine Vorprüfung erfasst{% endif %} · {% if row.limit is not none %}{{ row.claims }}/{{ row.limit }} Claims{% else %}{{ row.claims }} Claims, ohne Tageslimit{% endif %}</small></div>
           <span class="chip chip--{{ row.tone }}">{{ row.label }}</span>
         </li>
         {% endfor %}
+        {% for lane in pending %}
+        <li class="lane-row" data-lane="{{ lane.key }}">
+          <span class="lane-tag" aria-hidden="true">{{ lane.key[:3]|upper }}</span>
+          <div class="lane-text"><b>{{ lane.title }}</b><small>Keine Daten im Deck.</small></div>
+          <span class="chip chip--off">{{ lane.label }}</span>
+        </li>
+        {% endfor %}
       </ul>
-      {% else %}
-      <p class="ov-lede">Lane-Daten sind nicht verfügbar.</p>
       {% endif %}
       <div class="ov-foot">
-        <p><small>Nur offizielle CLIs. Lokale Zähler, keine Anbieter-Kontingente.</small></p>
+        <p class="ov-wide"><small>Nur offizielle CLIs. Lokale Zähler, keine Anbieter-Kontingente.</small></p>
         <a class="button ghost" href="/ui/lanes">Verwalten →</a>
       </div>
     </section>
   </div>
 
   <div class="ov-two ov-two--half">
-    <section class="panel ov-card" id="assistent" aria-labelledby="assistant-title">
-      <div class="ov-card-head">
-        <h2 id="assistant-title">{{ icon('person') }}Assistent</h2>
-        {% if flags %}{{ switch_chip(flags.assistant_loopback) }}{% endif %}
-      </div>
+    <details class="panel ov-card ov-fold" id="assistent"{% if flags and flags.assistant_loopback == 'incomplete' %} open{% endif %}>
+      <summary class="ov-card-head"><h2 id="assistant-title">{{ icon('person') }}Assistent</h2>{% if flags %}{{ switch_chip(flags.assistant_loopback) }}{% endif %}</summary>
       <p class="ov-lede">Standard ist der Mock, kein Live-Modell.</p>
       {% if flags %}
       <dl class="facts">
@@ -147,56 +201,30 @@
         <div class="fact"><dt>Gesprächskontext</dt><dd>nur auf Wunsch (Kästchen)</dd></div>
         <div class="fact"><dt>Deep Search · Enzyklopädie</dt><dd>{% if flags.encyclopedia %}<span class="chip chip--on">AKTIV</span>{% else %}<span class="chip chip--off">nicht eingerichtet</span>{% endif %}</dd></div>
         <div class="fact"><dt>Websuche · SearXNG</dt><dd>{% if flags.web_search %}<span class="chip chip--on">AKTIV</span>{% else %}<span class="chip chip--off">nicht eingerichtet</span>{% endif %}</dd></div>
-        <div class="fact"><dt><code>DECK_ASSISTANT_OLLAMA</code></dt><dd>{{ switch_chip(flags.assistant_loopback) }}</dd></div>
-        <div class="fact"><dt><code>DECK_ASSISTANT_WEB</code></dt><dd>{{ switch_chip(flags.assistant_web) }}</dd></div>
+        <div class="fact"><dt>Webabruf <code>DECK_ASSISTANT_WEB</code></dt><dd>{{ switch_chip(flags.assistant_web) }}</dd></div>
       </dl>
       {% endif %}
+      {% if assistant_facts is defined %}{{ fact_list(assistant_facts) }}{% endif %}
       {% if activation is defined %}<ul class="ov-notes">{% for line in activation %}<li>{{ line }}</li>{% endfor %}</ul>{% endif %}
       <div class="ov-foot"><span></span><a class="button ghost" href="/ui/assistant">Assistent öffnen →</a></div>
-    </section>
+    </details>
 
-    <section class="panel ov-card" id="meldungen" aria-labelledby="messages-title">
-      <div class="ov-card-head">
-        <h2 id="messages-title">{{ icon('bell') }}Meldungen</h2>
-        {% if flags %}{{ switch_chip(flags.routine_wake) }}{% endif %}
-      </div>
-      <p class="ov-lede"><b>Routine-Wake an den Owner.</b> Höchstens drei Sendeversuche, wiederholt nur bei einem HTTP-Status ausser OK. Eine fehlende Antwort wird nicht erneut gesendet. Quittung über das lokale Kommando.</p>
+    <details class="panel ov-card ov-fold" id="meldungen"{% if flags and flags.routine_wake == 'incomplete' %} open{% endif %}>
+      <summary class="ov-card-head"><h2 id="messages-title">{{ icon('bell') }}Meldungen</h2>{% if flags %}{{ switch_chip(flags.routine_wake) }}{% endif %}</summary>
+      <p class="ov-lede"><b>Routine-Wake an den Owner.</b> Das Deck meldet einen fertigen Auftrag mit Hash, ohne Inhalt. Du bestätigst über den Rückweg.</p>
+      {% if wake_facts is defined %}{{ fact_list(wake_facts) }}{% endif %}
+      {% if flags %}
       <dl class="facts">
-        <div class="fact"><dt>Webhook-Wake</dt><dd><span class="chip chip--on">GEBAUT</span></dd></div>
-        {% if flags %}
-        <div class="fact"><dt>Sender</dt><dd>{% if flags.routine_wake == 'on' %}<span class="chip chip--on">konfiguriert</span>{% elif flags.routine_wake == 'incomplete' %}<span class="chip chip--warn">unvollständig</span>{% else %}<span class="chip chip--off">aus</span>{% endif %}</dd></div>
-        <div class="fact"><dt><code>DECK_ROUTINE_WAKE</code></dt><dd>{{ switch_chip(flags.routine_wake) }}</dd></div>
-        {% endif %}
+        <div class="fact"><dt>Sender <code>DECK_ROUTINE_WAKE</code></dt><dd>{% if flags.routine_wake == 'on' %}<span class="chip chip--on">konfiguriert</span>{% elif flags.routine_wake == 'incomplete' %}<span class="chip chip--warn">unvollständig</span>{% else %}<span class="chip chip--off">aus</span>{% endif %}</dd></div>
       </dl>
-    </section>
+      {% endif %}    </details>
   </div>
 
-  <section class="panel ov-card" id="offen" aria-labelledby="open-title">
-    <div class="ov-card-head">
-      <h2 id="open-title">{{ icon('list') }}Offene Punkte <small>aus Deck-Daten</small></h2>
-      {% if points %}<span class="chip chip--off">{{ points|length }} offen</span>{% endif %}
-    </div>
-    {% if points %}
-    <ol class="open-points">
-      {% for point in points %}
-      <li data-open-point="{{ point.code }}">
-        {% if point.href %}<a class="op-link" href="{{ point.href }}">{{ point.title }}<small>{{ point.detail }}</small></a>
-        {% else %}<p class="op-link">{{ point.title }}<small>{{ point.detail }}</small></p>{% endif %}
-        <span class="chip chip--{{ point.tone }}">{{ point.chip }}</span>
-      </li>
-      {% endfor %}
-    </ol>
-    {% else %}
-    <p class="ov-lede">Keine offenen Punkte aus den Deck-Daten.</p>
-    {% endif %}
-  </section>
-
-  <section class="panel ov-card" id="audit" aria-labelledby="audit-title">
-    <div class="ov-card-head">
-      <h2 id="audit-title">{{ icon('shield') }}Audit · letzte Ereignisse</h2>
-      {% if csv_url is defined %}<a class="ov-link" href="{{ csv_url }}">Sichtbare Seite als CSV</a>{% endif %}
-    </div>
-    {% if events %}
+  <details class="panel ov-card ov-fold" id="audit">
+    <summary class="ov-card-head"><h2 id="audit-title">{{ icon('shield') }}Audit · letzte Ereignisse</h2></summary>
+    {% if unavailable %}
+    <p class="ov-lede">Audit-Daten sind nicht verfügbar.</p>
+    {% elif events %}
     <ol class="audit-log">
       {% for item in events %}
       <li>{{ utc(item.created_at) }} <b>{{ item.event_type }}</b>
@@ -206,7 +234,9 @@
     {% else %}
     <p class="ov-lede">Noch keine Ereignisse erfasst.</p>
     {% endif %}
-    <div class="ov-foot"><span></span><a class="button ghost" href="/ui/audit">Alle Ereignisse →</a></div>
-  </section>
+    <div class="ov-foot">{% if csv_url is defined %}<a class="ov-link" href="{{ csv_url }}">Sichtbare Seite als CSV</a>{% else %}<span></span>{% endif %}<a class="button ghost" href="/ui/audit">Alle Ereignisse →</a></div>
+  </details>
+
+  {% if schema_head %}<p class="ov-stand">Schema {{ schema_head }}</p>{% endif %}
 </div>
 {% endblock %}

@@ -5,13 +5,13 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
@@ -72,9 +72,15 @@ from app.ui.files import MAX_FILE_BYTES, UiFileError, Upload, read_payload, stor
 from app.ui.forms import FormError, form_from_draft, task_from_form, validate_draft
 from app.ui.middleware import MAX_BODY_BYTES
 from app.ui.overview import (
+    PENDING_LANES,
+    PROJECT_STATUS,
+    PROJECT_STATUS_DATE,
+    WAKE_FACTS,
+    assistant_facts,
     claims_summary,
     feature_flags,
     lane_rows,
+    lane_summary,
     latest_outcome,
     network_nodes,
     open_points,
@@ -267,29 +273,71 @@ def logout_all(request: Request, session: DbSession, data: ParsedForm) -> Respon
 _ACTIVE_FOCUS = frozenset({TaskState.QUEUED, TaskState.LEASED, TaskState.RUNNING})
 
 
+def schema_head(session: Session) -> str | None:
+    """Read the Alembic head without writing. Missing or unreadable means it is not shown."""
+    try:
+        with session.begin_nested():
+            heads = session.scalars(text("SELECT version_num FROM alembic_version")).all()
+    except SQLAlchemyError:
+        return None
+    return " + ".join(sorted(heads)) or None
+
+
 @router.get("/overview")
 def overview(request: Request, session: DbSession) -> Response:
     """Owner overview. Only existing read functions; every number has a stored source."""
     owner(request, session)
-    waiting, waiting_total = list_owner_tasks(session, needs_owner=True, limit=5)
-    _, blocked_total = list_owner_tasks(session, state=TaskState.BLOCKED, limit=1)
-    latest, _ = list_owner_tasks(session, limit=1)
-    recent = list_audit(session, AuditFilter(limit=5))
-    backups = list_audit(
-        session, AuditFilter(source="operation", event_type="operation.backup", limit=10)
-    )
-    restores = list_audit(
-        session, AuditFilter(source="operation", event_type="operation.restore", limit=10)
-    )
-    focus = waiting[0] if waiting else None
-    if focus is None and latest and latest[0].status in _ACTIVE_FOCUS:
-        focus = latest[0]
     lanes = request.state.lane_health
     health_unavailable = getattr(request.state, "health_unavailable", False)
     flags = feature_flags()
+    rows = lane_rows(lanes)
+    summary = lane_summary(lanes, health_unavailable=health_unavailable)
+    shared: dict[str, Any] = {
+        "claims": claims_summary(lanes),
+        "lane_rows": rows,
+        "lanes_summary": summary,
+        "pending_lanes": PENDING_LANES,
+        "flags": flags,
+        "activation": activation_status(),
+        "assistant_facts": assistant_facts(),
+        "wake_facts": WAKE_FACTS,
+        "project_status": PROJECT_STATUS,
+        "project_status_date": PROJECT_STATUS_DATE,
+    }
+    try:
+        _, waiting_total = list_owner_tasks(session, needs_owner=True, limit=1)
+        # Pages are newest first, so the last offset is the oldest waiting task.
+        oldest, _ = (
+            list_owner_tasks(session, needs_owner=True, limit=1, offset=waiting_total - 1)
+            if waiting_total
+            else ([], 0)
+        )
+        _, blocked_total = list_owner_tasks(session, state=TaskState.BLOCKED, limit=1)
+        latest, _ = list_owner_tasks(session, limit=1)
+        recent = list_audit(session, AuditFilter(limit=5))
+        backups = list_audit(
+            session, AuditFilter(source="operation", event_type="operation.backup", limit=10)
+        )
+        restores = list_audit(
+            session, AuditFilter(source="operation", event_type="operation.restore", limit=10)
+        )
+    except SQLAlchemyError:
+        # Honest gap instead of an unhandled 500: tiles say "nicht verfügbar", no counts.
+        session.rollback()
+        return page(
+            request,
+            "overview.html",
+            status=503,
+            error="temporarily_unavailable",
+            data_unavailable=True,
+            nav_counts={"lanes": summary.total},
+            **shared,
+        )
+    focus = oldest[0] if oldest else None
+    if focus is None and latest and latest[0].status in _ACTIVE_FOCUS:
+        focus = latest[0]
     last_backup = latest_outcome(backups.items)
     last_restore = latest_outcome(restores.items)
-    rows = lane_rows(lanes)
     points = open_points(
         controls=request.state.controls,
         waiting_total=waiting_total,
@@ -306,17 +354,23 @@ def overview(request: Request, session: DbSession) -> Response:
         waiting_total=waiting_total,
         focus=focus,
         steps=workflow_steps(None if focus is None else focus.status.value),
-        claims=claims_summary(lanes),
-        lane_rows=rows,
-        flags=flags,
-        activation=activation_status(),
         open_points=points,
         audit=recent.items,
         csv_url="/ui/audit.csv?limit=5",
         last_backup=last_backup,
         last_restore=last_restore,
-        net=network_nodes(lanes=lanes, flags=flags, last_backup=last_backup),
-        nav_counts={"lanes": len(rows), "open": len(points)},
+        net=network_nodes(
+            lanes=lanes,
+            flags=flags,
+            last_backup=last_backup,
+            health_unavailable=health_unavailable,
+        ),
+        schema_head=schema_head(session),
+        nav_counts={
+            "lanes": summary.total,
+            "open": sum(1 for point in points if point.tone == "warn"),
+        },
+        **shared,
     )
 
 

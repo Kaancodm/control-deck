@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app.db.state_machine import TaskState
 from app.operations.models import OperationEvent
@@ -71,15 +74,50 @@ def test_overview_counts_real_approvals_lanes_and_events(ui_client, db_session):
     assert 'data-open-point="approvals"' in html and "2 Freigaben offen" in html
     for lane in ("ollama", "claude", "codex"):
         assert f"<b>{lane}</b>" in html
-    assert "3 Lanes" in html
-    assert 'class="audit-log"' in html and "task." in html
-    assert "abgeschlossen" in html and "private-overview-marker" not in html
+    # Owner decision: agy is the fourth lane, shown without data and not connected yet.
+    assert '<p class="kpi-value">4</p>' in html and "3 im Deck angebunden" in html
+    assert "4 Lanes" in html and 'data-lane="agy"' in html
+    assert "eigene Lane · im Deck noch nicht angebunden" in html
+    assert 'data-open-point="lane_agy_pending"' in html
+    assert "KEINE LANE" not in html.upper()
+    audit_log = html.split('class="audit-log"', 1)[1].split("</ol>", 1)[0]
+    assert re.search(r"<b>task\.[a-z_]+</b>", audit_log)
+    assert '<p class="kpi-value kpi-value--text">abgeschlossen</p>' in html
+    assert "private-overview-marker" not in html
     assert 'aria-current="step"' in html  # the focus task highlights its own step
+    # Focus is the oldest waiting task, with the approval action.
+    assert f'<a class="button quiet" href="/ui/tasks/{first.id}">Plan prüfen →</a>' in html
     assert 'href="/ui/audit.csv?limit=5"' in html
+    # Exactly one filled primary action while approvals wait.
+    assert '<a class="button" href="/ui/tasks#waiting-tasks">Freigaben öffnen</a>' in html
+    assert '<a class="button quiet" href="/ui/tasks/new">＋ Neuer Auftrag</a>' in html
+    head = db_session.scalars(text("SELECT version_num FROM alembic_version")).all()
+    if head:
+        assert f'<p class="ov-stand">Schema {" + ".join(sorted(head))}</p>' in html
     act_on_task(db_session, first.id, "approve")
     db_session.commit()
     html = ui_client.get("/ui/overview").text
     assert "1 GO offen" in html and '<p class="kpi-value">1</p>' in html
+    assert f'href="/ui/tasks/{first.id}">Plan prüfen' not in html
+
+
+def test_overview_database_error_is_an_honest_gap(ui_client, monkeypatch):
+    login(ui_client)
+
+    def broken(*args, **kwargs):
+        raise OperationalError("SELECT 1", {}, Exception("synthetic outage"))
+
+    monkeypatch.setattr("app.ui.routes.list_audit", broken)
+    response = ui_client.get("/ui/overview")
+    assert response.status_code == 503
+    html = response.text
+    assert "(Code: temporarily_unavailable)" in html
+    assert "Auftragsdaten sind nicht verfügbar." in html
+    assert "Audit-Daten sind nicht verfügbar." in html
+    for claim in ("Kein Auftrag wartet auf dich.", "Noch keine Ereignisse erfasst.", "GO offen"):
+        assert claim not in html
+    assert "synthetic outage" not in html
+    assert response.headers.get_list("content-security-policy") == [BOUNDARY_CSP]
 
 
 @pytest.mark.parametrize("path", ["/ui/login", "/ui/overview", "/ui/assistant"])
@@ -89,6 +127,14 @@ def test_real_responses_carry_exactly_the_boundary_csp(ui_client, path):
     response = ui_client.get(path)
     assert response.status_code == 200
     assert response.headers.get_list("content-security-policy") == [BOUNDARY_CSP]
+
+
+def test_overview_states_assistant_facts_with_date_and_source(ui_client):
+    login(ui_client)
+    html = ui_client.get("/ui/overview").text
+    assistant = html.split('id="assistent"', 1)[1].split("</details>", 1)[0]
+    assert "Router-Golden-Set" in assistant and "Denkphase" in assistant
+    assert "gemessen am 09.11.2026" in assistant and "docs/ASSISTENT.md" in assistant
 
 
 def test_configured_values_never_reach_the_html(ui_client, monkeypatch):
@@ -108,7 +154,9 @@ def test_configured_values_never_reach_the_html(ui_client, monkeypatch):
             assert number not in html, (path, number)
     overview = pages["/ui/overview"]
     assert '<span class="chip chip--on">konfiguriert</span>' in overview
-    assert overview.count('<span class="chip chip--on">AN</span>') >= 4
+    assert "<code>DECK_ROUTINE_WAKE</code>" in overview
+    # Fable B8: duplicate DECK_* rows were removed, so three AN chips remain.
+    assert overview.count('<span class="chip chip--on">AN</span>') >= 3
     assert "Routine-Wake: an" in pages["/ui/assistant"]
     monkeypatch.setenv("DECK_ROUTINE_WAKE_URL", "http://sentinel-plain.example.invalid/")
     overview = ui_client.get("/ui/overview").text

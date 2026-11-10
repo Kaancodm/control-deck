@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.schemas import DataClass
-from app.kb.config import get_kb_test_database_url, require_simulation
+from app.kb.config import get_kb_test_database_url, load_kb_settings
 from app.kb.contracts import (
     SCHEMA_EMBEDDING_DIMENSION,
     ContextBlock,
@@ -117,11 +117,11 @@ def test_vector_literal_checks_requested_dimension():
     assert error.value.code == "embedding_dimension_mismatch"
 
 
-@pytest.mark.parametrize("profile", ["disabled", "live", "", "true"])
-def test_live_profiles_fail_before_connecting(monkeypatch, profile):
+@pytest.mark.parametrize("profile", ["disabled", "live", "", "true", "Runtime", "prod"])
+def test_unknown_profiles_fail_before_connecting(monkeypatch, profile):
     monkeypatch.setenv("DECK_KB_PROFILE", profile)
     with pytest.raises(KnowledgeError) as error:
-        require_simulation()
+        load_kb_settings()
     assert error.value.code == "knowledge_live_profile_unavailable"
 
 

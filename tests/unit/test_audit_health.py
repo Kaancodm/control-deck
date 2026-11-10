@@ -316,7 +316,10 @@ def test_provenance_follows_login_capacity_with_one_head():
     assert wake is not None
     assert wake.down_revision == "20261108_0062"
     knowledge = ScriptDirectory.from_config(Config("alembic_kb.ini"))
-    assert knowledge.get_heads() == ["kb_0001"]
+    assert knowledge.get_heads() == ["kb_0002"]
+    real_embedding = knowledge.get_revision("kb_0002")
+    assert real_embedding is not None
+    assert real_embedding.down_revision == "kb_0001"
 
 
 @pytest.mark.parametrize("profile", ["simulation", "remote", "unknown"])

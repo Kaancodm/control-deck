@@ -8,7 +8,7 @@ from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.schemas import DataClass
-from app.kb.config import EmbeddingSettings, load_embedding_settings, require_simulation
+from app.kb.config import EmbeddingSettings, KbSettings, load_kb_settings
 from app.kb.contracts import (
     CONTRACT_VERSION,
     MAX_DOCUMENT_BYTES,
@@ -325,10 +325,15 @@ def build_embeddings(settings: EmbeddingSettings) -> EmbeddingProvider:
     )
 
 
-def configured_store() -> KnowledgeStore:
-    """Validate the embedding configuration, then the explicit database selection."""
-    embeddings = build_embeddings(load_embedding_settings())
+def configured_store(settings: KbSettings | None = None) -> KnowledgeStore:
+    """Validate profile, embeddings and database selection before any connection.
+
+    Only ``runtime`` selects ``DECK_KB_DATABASE_URL``; ``simulation`` stays on the
+    ``_test`` knowledge database. The engine connects lazily, at the first operation.
+    """
+    selected = load_kb_settings() if settings is None else settings
+    embeddings = build_embeddings(selected.embedding)
     return KnowledgeStore(
-        create_engine(require_simulation(), pool_pre_ping=True, hide_parameters=True),
+        create_engine(selected.database_url, pool_pre_ping=True, hide_parameters=True),
         embeddings=embeddings,
     )

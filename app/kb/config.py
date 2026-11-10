@@ -1,4 +1,9 @@
-"""Explicit knowledge database selection; live adapters stay unavailable."""
+"""Explicit knowledge profile and database selection, validated before connecting.
+
+``disabled`` (default) refuses every knowledge operation. ``simulation`` reaches only
+the ``_test`` knowledge database. ``runtime`` reaches ``DECK_KB_DATABASE_URL`` and
+requires the Ollama embedding provider; there is no fallback between profiles.
+"""
 
 from __future__ import annotations
 
@@ -62,17 +67,27 @@ def get_kb_test_database_url() -> str:
     runtime_url = _runtime_migration_url.get()
     if runtime_url is not None:
         return runtime_url
-    raw = os.environ.get("DECK_KB_TEST_DATABASE_URL", "").strip()
+    return _kb_test_database_url(os.environ)
+
+
+def _kb_test_database_url(environment: Mapping[str, str]) -> str:
+    raw = environment.get("DECK_KB_TEST_DATABASE_URL", "").strip()
     url = _parse_url(raw, "knowledge_test_database_required")
     if not url.database or not url.database.endswith("_test"):
         raise KnowledgeError("knowledge_test_database_required")
     return raw
 
 
-def require_simulation() -> str:
-    if os.environ.get("DECK_KB_PROFILE", "disabled") != "simulation":
-        raise KnowledgeError("knowledge_live_profile_unavailable")
-    return get_kb_test_database_url()
+def _kb_runtime_database_url(environment: Mapping[str, str]) -> str:
+    raw = environment.get("DECK_KB_DATABASE_URL", "").strip()
+    if not raw:
+        raise KnowledgeError("knowledge_runtime_database_required")
+    _reject_central_database(_parse_url(raw, "knowledge_runtime_database_invalid"), environment)
+    return raw
+
+
+KbProfile = Literal["simulation", "runtime"]
+KB_PROFILES: frozenset[str] = frozenset({"simulation", "runtime"})
 
 
 @dataclass(frozen=True)
@@ -83,6 +98,37 @@ class EmbeddingSettings:
     ollama_url: str | None = field(repr=False)
     timeout_s: float
     keep_alive: KeepAliveSetting
+
+
+@dataclass(frozen=True)
+class KbSettings:
+    """One explicit profile; ``disabled`` (the default) never yields settings."""
+
+    profile: KbProfile
+    database_url: str = field(repr=False)
+    embedding: EmbeddingSettings
+
+
+def load_kb_settings(environment: Mapping[str, str] | None = None) -> KbSettings:
+    """Check profile, then embeddings, then the database; nothing connects here.
+
+    ``simulation`` uses the ``_test`` knowledge database with the fake or Ollama.
+    ``runtime`` uses ``DECK_KB_DATABASE_URL``, separate from the central database,
+    and requires Ollama: the fake can never write into a runtime store. Neither
+    profile falls back to the other, and errors never contain a configured value.
+    """
+    env = os.environ if environment is None else environment
+    profile = env.get("DECK_KB_PROFILE", "").strip() or "disabled"
+    if profile not in KB_PROFILES:
+        raise KnowledgeError("knowledge_live_profile_unavailable")
+    embedding = load_embedding_settings(env)
+    if profile == "runtime":
+        if embedding.spec.provider != "ollama":
+            raise _invalid()
+        return KbSettings("runtime", _kb_runtime_database_url(env), embedding)
+    raw = _kb_test_database_url(env)
+    _reject_central_database(_parse_url(raw, "knowledge_test_database_required"), env)
+    return KbSettings("simulation", raw, embedding)
 
 
 def _invalid() -> KnowledgeError:
@@ -144,11 +190,12 @@ def _database_identity(url: URL) -> tuple[str | None, int, str | None]:
     return host, url.port or 5432, url.database
 
 
-def _reject_central_database(candidate: URL) -> None:
+def _reject_central_database(candidate: URL, environment: Mapping[str, str] | None = None) -> None:
+    env = os.environ if environment is None else environment
     if candidate.database in _CENTRAL_DATABASE_NAMES:
         raise KnowledgeError("knowledge_database_must_be_separate")
     for variable in _CENTRAL_DATABASE_VARIABLES:
-        raw = os.environ.get(variable, "").strip()
+        raw = env.get(variable, "").strip()
         if not raw:
             continue
         try:

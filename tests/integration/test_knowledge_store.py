@@ -14,7 +14,7 @@ from app.core.schemas import DataClass
 from app.kb.config import get_kb_test_database_url
 from app.kb.contracts import EmbeddingSpec, KnowledgeError
 from app.kb.ollama_embeddings import OllamaEmbeddings
-from app.kb.repository import KnowledgeStore
+from app.kb.repository import KnowledgeStore, configured_store
 from app.workers.lanes.ollama_http import OllamaHTTPClient
 from app.workers.lanes.ollama_keep_alive import parse_keep_alive_value
 from tests.support.kb import contract_row, use_contract, use_fake_contract
@@ -349,3 +349,41 @@ def test_fake_against_real_contract_row_is_a_mismatch(real_contract):
             operation()
         assert error.value.code == "knowledge_contract_mismatch"
     assert counts(real_contract) == (0, 0)
+
+
+def test_runtime_profile_store_runs_against_the_selected_database(real_contract, monkeypatch):
+    """Runtime reaches DECK_KB_DATABASE_URL (here the KB test database) with Ollama only."""
+    with OllamaStub() as stub:
+        monkeypatch.setenv("DECK_KB_PROFILE", "runtime")
+        monkeypatch.setenv("DECK_KB_DATABASE_URL", get_kb_test_database_url())
+        monkeypatch.setenv("DECK_KB_TEST_DATABASE_URL", "postgresql+psycopg:///unused_test")
+        monkeypatch.setenv("DECK_KB_EMBEDDING_PROVIDER", "ollama")
+        monkeypatch.setenv("DECK_KB_EMBEDDING_MODEL", REAL_SPEC.model)
+        monkeypatch.setenv("DECK_KB_EMBEDDING_DIMENSION", str(REAL_SPEC.dimension))
+        monkeypatch.setenv("DECK_KB_EMBEDDING_TIMEOUT_S", "2")
+        monkeypatch.setenv("DECK_OLLAMA_URL", stub.url)
+        store = configured_store()
+        try:
+            assert store.spec == REAL_SPEC
+            reference = insert(store, content="Synthetic runtime note")
+            hits = store.search("Synthetic runtime note", task_class=DataClass.LOCAL_ONLY)
+            assert [item.reference for item in hits] == [reference]
+        finally:
+            store.engine.dispose()
+        assert len(embed_requests(stub)) == 2
+    assert counts(real_contract) == (1, 1)
+
+
+def test_runtime_profile_refuses_the_fake_before_connecting(knowledge_store, monkeypatch):
+    monkeypatch.setenv("DECK_KB_PROFILE", "runtime")
+    monkeypatch.setenv("DECK_KB_DATABASE_URL", get_kb_test_database_url())
+    for name in (
+        "DECK_KB_EMBEDDING_PROVIDER",
+        "DECK_KB_EMBEDDING_MODEL",
+        "DECK_KB_EMBEDDING_DIMENSION",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(KnowledgeError) as error:
+        configured_store()
+    assert error.value.code == "knowledge_embedding_configuration_invalid"
+    assert counts(knowledge_store.engine) == (0, 0)

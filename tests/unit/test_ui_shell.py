@@ -156,3 +156,31 @@ def test_theme_token_names_are_stable() -> None:
         assert f"color-{name}" in tokens
     for name in ("danger", "success", "warning"):
         assert f"color-{name}" in tokens
+
+
+def test_reduced_motion_keeps_the_tab_bar_delay() -> None:
+    # Fable R3-1: "transition: none !important" on * must not drop the N2 click safety.
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    reduced = css.split("@media (prefers-reduced-motion: reduce) {", 1)[1].split("\n}\n", 1)[0]
+    assert ".tabbar { transition: visibility 0s linear .4s !important; }" in reduced
+    assert ".tabbar { transition-delay: 0s !important; }" in reduced
+
+
+def test_color_mix_has_fixed_fallbacks() -> None:
+    # Fable R3-3: browsers without color-mix() (Safari before 16.2) keep lines and strokes.
+    probe = "@supports not (color: color-mix(in srgb, red 50%, transparent)) {"
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    root = css.split(":root {", 1)[1].split("}", 1)[0]
+    for token in ("color-line", "color-line-strong", "shadow-panel"):
+        value = re.search(rf"--{token}:\s*([^;]+);", root)
+        assert value is not None and "color-mix" not in value.group(1), token
+    assert "@supports (color: color-mix(in srgb, red 50%, transparent)) {" in css
+    # The fallback block is the last block, so it wins over the rules above it.
+    assert probe in css.rsplit("\n\n", 1)[1]
+    fallback = css.split(probe, 1)[1]
+    for selector in ("button, .button", ".side-note", ".chip--warn", ".topbar"):
+        assert selector in fallback, selector
+    overview = (STATIC / "overview.css").read_text(encoding="utf-8")
+    assert probe in overview.rsplit("\n\n", 1)[1]
+    for selector in (".net-edge", ".net-ring", ".step--current"):
+        assert selector in overview.split(probe, 1)[1], selector

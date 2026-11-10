@@ -7,12 +7,14 @@ Der Zweig `feat/ui-command-center-shell` setzt PR 1 aus
 Übersicht unter `/ui/overview`, Redirect von `/`, überarbeitete Anmelde- und
 Assistentenseite. Auth, Session, CSRF, Login-Limit und CSP sind unverändert; der Zweig
 legt keine eigene Alembic-Revision an (Kopf nach M0/M1: `20261110_0064`) und bringt keine
-neue Abhängigkeit. Stand nach Fix-Runde 2 (Review Fable R2 und Codequalität): Unit-,
-PostgreSQL-Integrations- und Chromium-Tests (Falz, Menü, Leiste, Shell bei 320/390/1024
-Pixeln) laufen lokal grün; die WebKit-Vorschau und neue Screenshots fehlen noch. Offen sind
+neue Abhängigkeit. Stand nach Fix-Runde 2 (Review Fable R2 und Codequalität): CI ist auf
+`6c1c766` grün (3540 passed, 2 skipped); die Chromium-Browsertests liefen dort. Der lokale
+Lauf nutzte entpackte Systembibliotheken per `LD_LIBRARY_PATH` und ist deshalb kein Ersatz
+für CI. Fix-Runde 3 (Reduced Motion behält die Verzögerung der Leiste, `color-mix`-Rückfälle,
+Zwischenzeile im Assistenten) ist lokal geprüft; ihr CI-Lauf folgt mit dem Push. Offen sind
+die WebKit-Screenshots `after2_*` (390 × 844) und die Abnahme am echten iPhone. Offen sind
 die Owner-Entscheide zu «Meldungen» (O7), zur Projekt-Stand-Liste und zum agy-Titel; bis
-dahin gilt die konservative Variante. Ein Safari-Test auf einem echten iPhone steht aus.
-Nichts davon ist ausgerollt.
+dahin gilt die konservative Variante. Nichts davon ist ausgerollt.
 
 ## Nachtrag 2026-11-08: Assistent offline
 

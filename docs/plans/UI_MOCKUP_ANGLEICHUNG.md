@@ -370,7 +370,7 @@ def overview(request: Request, session: DbSession) -> Response:
     return page(request, "overview.html", ...)
 ```
 
-- Fokus-Auftrag: `waiting[0]`, sonst `latest[0]`, falls dessen Status `queued`, `leased` oder `running` ist, sonst keiner.
+- Fokus-Auftrag: der älteste wartende Auftrag, sonst keiner. Der zuerst geplante Rückfall auf `latest[0]` (neuester Auftrag in `queued`, `leased` oder `running`) entfällt, siehe Nachtrag 10.11.2026 (Fix-Runde 2).
 - Kontext für das Template: `waiting_total`, `focus`, `steps`, `claims`, `lane_rows`, `flags`, `activation` (aus `activation_status()`), `open_points`, `audit`, `csv_url="/ui/audit.csv?limit=5"`, `last_backup`, `last_restore`, `net`, `nav_counts`.
 - Kein Zirkelimport: `app/assistant/providers.py` importiert nur `app.assistant.errors` und `.text` [B] `providers.py:15-16`. `_CHANNEL` wird nicht importiert, weil `app/assistant/http.py` seinerseits `app.ui.routes` importiert [B] `assistant/http.py:50`.
 
@@ -791,3 +791,13 @@ Abnahme durch den Owner am iPhone in Safari über das Tailnet:
   der Workflow ohne Fokus hat unten Abstand.
 - N10: Die Einklapp-Abschnitte des Assistenten («So funktioniert», «Profil») tragen eine
   `h2` im `summary` wie die Übersicht. Eine Prüfung mit VoiceOver steht aus.
+
+## Nachtrag 10.11.2026: Fix-Runde 3 (Review Fable R3, Codequalität)
+
+- R3-1: Der Reduced-Motion-Block setzt die verzögerte Rückkehr der Leiste wieder; der
+  Klicktest läuft zusätzlich mit `reduced_motion="reduce"`.
+- R3-2: Die Assistentenseite zeigt die Fakten unter «Loopback-Dialog, wenn eingeschaltet».
+- R3-3: Die Tokens `--color-line`, `--color-line-strong` und `--shadow-panel` haben feste
+  Werte und werden nur unter `@supports` per `color-mix()` abgeleitet. Ein Block am
+  Dateiende setzt ohne `color-mix()` feste Token-Werte für Rahmen, Kopfzeile und Netzlinien.
+- R3-5: Abschnitt 6.4 beschreibt den Fokus-Auftrag wie der Code.

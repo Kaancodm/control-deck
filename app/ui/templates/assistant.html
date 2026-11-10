@@ -64,6 +64,7 @@
     <p>Ein normaler Satz bleibt Dialog. Ein Auftrag entsteht erst, wenn du eine Karte, ein Preset oder die Suche als Auftrag absendest. Die sechs Bestätigungsfelder schreibt die Anwendung; sie sind keine Chat-Pflicht.</p>
     <ul>{% for line in activation %}<li>{{ line }}</li>{% endfor %}</ul>
     {% if assistant_facts is defined %}
+    <h3>Loopback-Dialog, wenn eingeschaltet</h3>
     <dl class="assistant-facts">{% for fact in assistant_facts %}<div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>{% endfor %}</dl>
     {% endif %}
     <h2>Kanal</h2>

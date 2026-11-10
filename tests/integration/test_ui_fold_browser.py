@@ -136,13 +136,17 @@ def test_tab_bar_is_opaque_and_yields_to_the_keyboard(browser_app):
         browser.close()
 
 
-def test_click_where_the_hidden_tab_bar_sits_is_not_lost(browser_app):
+@pytest.mark.parametrize("reduced_motion", ["no-preference", "reduce"])
+def test_click_where_the_hidden_tab_bar_sits_is_not_lost(browser_app, reduced_motion):
     # Fable N2: leaving a text field must not bring the bar back under the pointer
     # between mousedown and mouseup, or the click lands on the bar instead.
+    # R3-1: "reduce motion" (common on iPhones) must keep that delay.
     base, password, _ = browser_app
     with sync_playwright() as playwright:
         browser = _launch(playwright)
-        context = browser.new_context(viewport={"width": 390, "height": 640})
+        context = browser.new_context(
+            viewport={"width": 390, "height": 640}, reduced_motion=reduced_motion
+        )
         page = context.new_page()
         external: list[str] = []
         page.route("**/*", _local_only(base, external))

@@ -26,3 +26,12 @@ def test_assistant_page_puts_the_dialog_first_and_names_no_person(ui_client):
     assert re.findall(r"<button>([^<]+)</button>", main) == ["Dialog senden"]
     assert '<p class="assistant-lede">Standard ist der Mock, kein Live-Modell.</p>' in main
     assert "Router-Golden-Set" in main and "Denkphase" in main
+
+
+def test_assistant_facts_carry_the_same_loopback_caveat_as_the_overview(ui_client):
+    # Fable R3-2: the keep-alive and context-budget facts only hold when loopback is on.
+    login(ui_client)
+    pages = {path: ui_client.get(path).text for path in ("/ui/overview", "/ui/assistant")}
+    for path, html in pages.items():
+        caveat = html.index("Loopback-Dialog, wenn eingeschaltet")
+        assert caveat < html.index("Kontextbudget"), path

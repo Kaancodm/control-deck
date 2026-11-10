@@ -37,6 +37,11 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
   statisch markiert und ohne PR-Nummern. Lane-Warnungen nennen Lane und Grund, die
   Backup-Kachel zeigt am Telefon das Datum. Schalterzustände der Übersicht und der
   Aktivierungstext teilen eine Quelle; Alpha-Töne hängen per `color-mix` an den Tokens.
+- Fix-Runde 3: Mit «Bewegung reduzieren» bleibt die verzögerte Rückkehr der Leiste
+  erhalten (Klicktest auch mit `reduced_motion="reduce"`). Browser ohne `color-mix()`
+  erhalten feste Rückfallwerte für Linien, Rahmen und Netzlinien. Die Assistentenseite
+  zeigt die Fakten wie die Übersicht unter «Loopback-Dialog, wenn eingeschaltet». Die
+  WebKit-Vorschau überspringt nur bei fehlendem Browser.
 - Die Übersicht zeigt zusätzlich lesend den Schema-Stand aus `alembic_version`, einen
   statischen, datierten Projekt-Stand und Fakten zu Assistent und Meldungen aus
   Code-Konstanten (Kontextbudget, Server-Sent Events, Ollama-503, Wake-Sendeversuche).

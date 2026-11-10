@@ -66,7 +66,10 @@ einen eigenen Stapelkontext, damit das geöffnete Menü über allen Abschnitten 
 unteren Leiste liegt. Die untere Leiste ist deckend und verschwindet, solange ein Text-,
 Auswahl- oder Mehrzeilenfeld den Fokus hat (nur CSS, `body:has(...)`), damit sie nicht mit
 der Bildschirmtastatur ins Bild rückt. Sie erscheint erst 0,4 Sekunden nach dem Verlassen
-des Felds wieder, damit ein Klick an ihrer Stelle nicht auf der Leiste landet. Der Runner-Zustand steht als kompakte Pill-Zeile mit
+des Felds wieder, damit ein Klick an ihrer Stelle nicht auf der Leiste landet. Diese
+Verzögerung gilt auch mit «Bewegung reduzieren»; sie ist Klickschutz, keine Animation.
+Browser ohne `color-mix()` (Safari vor 16.2) erhalten feste Rückfallwerte für Linien,
+Rahmen, Kopfzeilen-Hintergrund und Netzlinien. Der Runner-Zustand steht als kompakte Pill-Zeile mit
 dem Link «Steuerung →» unter der Kopfzeile. Die Anmeldeseite hat keine Navigation und kein
 `fixed`- oder `sticky`-Element. Der Zoom bleibt frei, Eingaben bleiben 16 Pixel gross,
 Bedienelemente mindestens 44 Pixel hoch; `env(safe-area-inset-*)` hält Abstand zu Notch und

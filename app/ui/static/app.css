@@ -8,8 +8,9 @@
   --color-text: #EDF2FC;
   --color-text-2: #A7BCE0;
   --color-muted: #8C9CB5;
-  --color-line: color-mix(in srgb, var(--color-sheen) 9%, transparent);
-  --color-line-strong: color-mix(in srgb, var(--color-sheen) 15%, transparent);
+  /* Fixed fallbacks (sheen 9 % and 15 %); the color-mix() versions follow under @supports. */
+  --color-line: #FFFFFF17;
+  --color-line-strong: #FFFFFF26;
   --color-control-border: #5C7192;
   --color-accent: #9BD4FF;
   --color-brand: #528BFF;
@@ -40,7 +41,7 @@
   --space-6: 2rem;
   --radius: .8125rem;
   --radius-small: .5rem;
-  --shadow-panel: 0 .25rem 1.5rem color-mix(in srgb, var(--color-shadow) 18%, transparent);
+  --shadow-panel: 0 .25rem 1.5rem #0000002E;
   --control-size: 2.75rem;
   --side-width: 14.5rem;
   --tabbar-height: 4.125rem;
@@ -48,6 +49,17 @@
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-code: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --page-width: 76rem;
+}
+/* Browsers with color-mix() derive the line and shadow tokens from the base tokens. Older
+   browsers (Safari before 16.2) keep the fixed values above. A plain cascade fallback would not
+   work: a declaration containing var() is never dropped at parse time, so an unsupported
+   color-mix() makes the property invalid instead of falling back to the previous declaration. */
+@supports (color: color-mix(in srgb, red 50%, transparent)) {
+  :root {
+    --color-line: color-mix(in srgb, var(--color-sheen) 9%, transparent);
+    --color-line-strong: color-mix(in srgb, var(--color-sheen) 15%, transparent);
+    --shadow-panel: 0 .25rem 1.5rem color-mix(in srgb, var(--color-shadow) 18%, transparent);
+  }
 }
 
 /* 2. Elements */
@@ -69,7 +81,7 @@ button, input, select, textarea { font: inherit; font-size: 16px; touch-action: 
 button, .button, input, select, textarea, summary { min-height: var(--control-size); }
 button, .button {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
-  max-width: 100%; border: 1px solid color-mix(in srgb, var(--color-brand) 33%, transparent); border-radius: var(--radius-small);
+  max-width: 100%; border: 1px solid; border-color: color-mix(in srgb, var(--color-brand) 33%, transparent); border-radius: var(--radius-small);
   padding: var(--space-2) var(--space-4);
   background-color: var(--color-action);
   background-image: linear-gradient(180deg, var(--color-action-top), var(--color-action));
@@ -149,7 +161,7 @@ summary { cursor: pointer; padding-block: var(--space-2); }
   box-shadow: inset 2px 0 0 var(--color-brand);
 }
 .nav-count { margin-left: auto; padding: .0625rem .375rem; border: 1px solid var(--color-line); border-radius: .3125rem; background: var(--color-raised); color: var(--color-text-2); font: 500 .6875rem var(--font-code); }
-.side-note { margin-top: auto; padding: .875rem; border: 1px solid color-mix(in srgb, var(--color-brand) 25%, transparent); border-radius: .625rem; background-image: linear-gradient(145deg, var(--color-note-top), var(--color-note-bottom)); font-size: .75rem; }
+.side-note { margin-top: auto; padding: .875rem; border: 1px solid; border-color: color-mix(in srgb, var(--color-brand) 25%, transparent); border-radius: .625rem; background-image: linear-gradient(145deg, var(--color-note-top), var(--color-note-bottom)); font-size: .75rem; }
 .side-note p { margin: 0; color: var(--color-muted); }
 .side-note .eyebrow { margin-bottom: var(--space-2); color: var(--color-text-2); }
 .side-user { display: flex; align-items: center; gap: .625rem; margin: 0; padding-top: .75rem; border-top: 1px solid var(--color-line); font-size: .8125rem; }
@@ -168,7 +180,7 @@ summary { cursor: pointer; padding-block: var(--space-2); }
 .crumb { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; margin: 0; color: var(--color-muted); font-size: .875rem; }
 .crumb a { display: inline-flex; align-items: center; min-height: var(--control-size); color: var(--color-muted); }
 .crumb b { color: var(--color-text); font-weight: 600; }
-.badge { padding: .1875rem .4375rem; border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent); border-radius: .3125rem; background: color-mix(in srgb, var(--color-brand) 10%, transparent); color: var(--color-accent); font: 600 .6875rem var(--font-code); letter-spacing: .06em; text-transform: uppercase; }
+.badge { padding: .1875rem .4375rem; border: 1px solid; border-color: color-mix(in srgb, var(--color-accent) 30%, transparent); border-radius: .3125rem; background: color-mix(in srgb, var(--color-brand) 10%, transparent); color: var(--color-accent); font: 600 .6875rem var(--font-code); letter-spacing: .06em; text-transform: uppercase; }
 .topbar-actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .inline-form { margin: 0; }
 .inline-form button { margin: 0; }
@@ -319,4 +331,21 @@ nav a { display: inline-flex; align-items: center; min-height: var(--control-siz
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
   button:hover, .button:hover { transform: none !important; }
+  /* The tab bar's delayed return is click safety, not motion (Fable N2): keep it here too. */
+  .tabbar { transition: visibility 0s linear .4s !important; }
+  body:has(:is(input:not([type="checkbox"]):not([type="radio"]), textarea, select):focus) .tabbar { transition-delay: 0s !important; }
+}
+
+/* 8. Without color-mix() (Safari before 16.2): fixed token values for visible lines and
+   backgrounds that mix inline. Last in the file so it wins over the rules above. */
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  button, .button { border-color: var(--color-brand); }
+  .side-note, .badge { border-color: var(--color-line-strong); }
+  .chip--on { border-color: var(--color-brand); }
+  .chip--warn { border-color: var(--color-warning); }
+  .topbar { background: var(--color-side); }
+  .is-guest .topbar { background: transparent; }
+  @media (hover: hover) {
+    button:hover, .button:hover { border-color: var(--color-accent); }
+  }
 }

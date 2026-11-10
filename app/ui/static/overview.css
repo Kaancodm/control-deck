@@ -175,3 +175,12 @@ a.op-link:hover { text-decoration: underline; }
   .lane-row { gap: var(--space-2); }
   .lane-row > .chip { max-width: 9.5rem; }
 }
+
+/* Without color-mix() (Safari before 16.2) the strokes would vanish: fixed token values. */
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  .net-ring, .net-ring--inner { stroke: var(--color-line-strong); }
+  .net-edge { stroke: var(--color-brand); }
+  .net-edge--off { stroke: var(--color-muted); }
+  .net-node .net-halo { stroke: var(--color-accent); }
+  .step--current { border-color: var(--color-brand); }
+}

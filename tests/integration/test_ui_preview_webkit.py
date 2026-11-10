@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from tests.integration.test_ui_browser import browser_app as browser_app
@@ -23,7 +24,10 @@ def test_webkit_preview_screenshots(browser_app, tmp_path):
     with sync_playwright() as playwright:
         try:
             browser = playwright.webkit.launch(headless=True)
-        except Exception:
+        except PlaywrightError as exc:
+            # Only a missing browser binary is a skip; any other start failure must fail loudly.
+            if "Executable doesn't exist" not in str(exc):
+                raise
             pytest.skip("WebKit emulator is not installed; this is not a physical iPhone result")
         context = browser.new_context(
             viewport={"width": 390, "height": 844},

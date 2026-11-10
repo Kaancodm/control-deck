@@ -13,7 +13,7 @@ Legende: **[B]** = in Code/Doku belegt (Pfad:Zeile), **[V]** = Vorschlag, **[U]*
 - Keine erfundenen Zahlen, keine Beispieldaten. Ohne Datenquelle: «noch nicht verfügbar» oder weglassen.
 - Flags nur als Zustand (aus / unvollständig / an), nie Werte von URLs, Tokens oder Modellkennungen.
 - Auth, Session, CSRF, Login-Limit und CSP bleiben unverändert. Kein Inline-Style, kein Inline-Script, keine externen Quellen.
-- Keine Migration; Alembic-Head bleibt `20261108_0063` [B] `alembic/versions/20261108_0063_routine_outbox.py:15`.
+- Dieser PR legt keine Alembic-Revision an. Der Kopf auf `main` ist seit dem Merge von M0/M1 `20261110_0064` [B] `alembic/versions/20261110_0064_channels_and_memory.py`; der Zweig enthält ihn über den Merge von `main`.
 - Keine neue Abhängigkeit, kein Build-Schritt [B] `docs/UI.md:151`.
 - Kein neuer schreibender Endpunkt. Neu sind nur `GET /` und `GET /ui/overview`.
 - Bestehende Formular-Aktionen, Feldnamen, IDs, Labels und Fehlertexte bleiben.
@@ -103,9 +103,9 @@ ECHT = reale Daten. STATISCH-WAHR = fester, belegter Text ohne Zahl. NICHT VERF�
 | Nav Aufträge | `routes.py:250` `tasks()` | ECHT | `/ui/tasks` |
 | Nav Neuer Auftrag | `routes.py:287` `new_task()` | ECHT | `/ui/tasks/new` |
 | Nav Wissen | `app/ui/knowledge.py:21` | ECHT | `/ui/knowledge` |
-| Nav Lanes mit Zähler 4 | `routes.py:479`; `request.state.lane_health` | ECHT, Zähler 3 (F10) | Zähler nur auf der Übersicht, `aria-hidden` (K5) |
+| Nav Lanes mit Zähler 4 | Worker-Enum plus agy (Nachtrag F10) | ECHT, Zähler 4 (F10) | Zähler nur auf der Übersicht, `aria-hidden` (K5) |
 | Nav Assistent | `app/assistant/http.py:104` | ECHT | `/ui/assistant` |
-| Nav Meldungen an <Owner> | keine Seite | Abschnitt, Flag ECHT | Label «Meldungen», Ziel `/ui/overview#meldungen` |
+| Nav Meldungen an <Owner> | keine Seite | Abschnitt, Flag ECHT | Label «Meldungen», Ziel `/ui/overview?open=meldungen#meldungen`; der Server öffnet den Abschnitt ohne JS (Fix-Runde 2, N3) |
 | Nav Offene Punkte mit Zähler 6 | neu `app/ui/overview.py:open_points()` | ECHT (abgeleitet) | Ziel `/ui/overview#offen` |
 | Nav Lokaler Chat | `routes.py:557` | ECHT | `/ui/chat` |
 | Nav Audit | `routes.py:501` | ECHT | `/ui/audit` |
@@ -130,19 +130,19 @@ ECHT = reale Daten. STATISCH-WAHR = fester, belegter Text ohne Zahl. NICHT VERF�
 | Hero h2 und Text | `README.md:3`, ADR 0006 | STATISCH-WAHR | wörtlich |
 | «Freigaben öffnen ↗» | `tasks.html:6` | ECHT | `/ui/tasks#waiting-tasks` |
 | «◈ Lanes ansehen» | `/ui/lanes` | ECHT | Link |
-| Netzgrafik | `lane_health`, Flags, letztes Backup | Zustände ECHT, Geometrie statisch | Inline-SVG ohne JS mit 8 Knoten: Owner, drei Lanes, Assistent, Meldungen, Datenbank, Backup. Nicht gezeigt: Port, Tailnet, Repo, Reinraum, agy, Uhrzeit |
+| Netzgrafik | `lane_health`, Flags, letztes Backup | Zustände ECHT, Geometrie statisch | Inline-SVG ohne JS mit 9 Knoten: Owner, vier Lanes (agy «nicht angebunden», Nachtrag F10), Assistent, Meldungen, Datenbank, Backup. Nicht gezeigt: Port, Tailnet, Repo, Reinraum, Uhrzeit |
 | Captions | – | STATISCH-WAHR | wörtlich |
 | KPI Offene Freigaben | `list_owner_tasks(needs_owner=True)` [B] `services/tasks.py:104-140` | ECHT | Zahl |
 | KPI Heutige Claims n/m | `claims_today`, `daily_attempt_limit` [B] `audit/health.py:115-117` | ECHT | Summe; Limit nur, wenn jede Lane eines hat |
 | Sparkline | keine Zeitreihe | NICHT VERFÜGBAR | weglassen |
-| KPI Lanes 04 | `len(lane_health)`, Namen | ECHT | ohne Daten «nicht verfügbar» |
+| KPI Lanes 04 | Worker-Enum plus agy; angebunden laut `lane_health` | ECHT | Kachel 4, darunter «3 im Deck angebunden»; ohne Daten «Anbindung nicht verfügbar» (Nachtrag F10) |
 | Chip «Nutzungslimit erreicht» | Anbieter-Kontingent unbekannt (F16) | NICHT VERFÜGBAR | nur lokale Signale: Status, Warnungen, Tageslimit erreicht |
 | KPI Backup 04:00 | letztes `operation.backup` über `list_audit()` [B] `audit/repository.py:112`, `operations/backup.py:328-336` | Ereignis ECHT, Uhrzeit NICHT VERFÜGBAR (F11) | «Letztes Backup-Ereignis: Phase · Zeit UTC» oder «noch keines erfasst» |
 | Chip «B2-Offsite: Restore unbewiesen» | letztes `operation.restore` [B] `audit/presentation.py:23` | Restore-Probe ECHT, Offsite NICHT VERFÜGBAR | «Restore-Probe: …» oder «keine erfasst» |
 | Stepper 01–06 | `STATUS_LABELS` [B] `views.py:19-31`; Zustand des Fokus-Auftrags | ECHT, ohne Auftrag Legende | `workflow_steps()` |
 | Beispielauftrag und Tag | Fokus-Auftrag | ECHT | ohne Auftrag «Kein Auftrag wartet auf dich.» |
 | Workflow-Fuss, «Plan prüfen →» | `docs/UI.md:28`; `/ui/tasks/{id}` | STATISCH-WAHR, Link ECHT | Link nur mit Fokus-Auftrag |
-| Lanes-Liste, vier Zeilen | `lane_health` | ECHT, drei Zeilen | agy entfällt (F10) |
+| Lanes-Liste, vier Zeilen | `lane_health` | ECHT, drei Zeilen plus agy | agy als vierte Zeile ohne Daten, Titel nur «agy» (Nachtrag F10, Fix-Runde 2 N7) |
 | «Vorprüfung vor 4 min · 8/20» | `observed_at`, Claims, Limit | ECHT | absolute Zeit im `<time>`, keine relative |
 | Status «Bereit» | `status`, `execution_mode`, `live_available` | ECHT | ehrliche Labels, siehe 6.2 (F17) |
 | Fuss «Nur offizielle CLIs» | ADR 0006 | STATISCH-WAHR | ohne «Beispieldaten»; Zusatz «Lokale Zähler, keine Anbieter-Kontingente.» |
@@ -326,7 +326,7 @@ def network_nodes(...) -> tuple[NetNode, ...]: ...
 | knowledge | Wissen | `/ui/knowledge` | workspace | – |
 | lanes | Lanes | `/ui/lanes` | control | Lanes |
 | assistant | Assistent | `/ui/assistant` | control | Assistent |
-| messages | Meldungen | `/ui/overview#meldungen` | control | Meldungen |
+| messages | Meldungen | `/ui/overview?open=meldungen#meldungen` | control | Meldungen |
 | open | Offene Punkte | `/ui/overview#offen` | control | Offen |
 | chat | Lokaler Chat | `/ui/chat` | control | – |
 | audit | Audit | `/ui/audit` | control | – |
@@ -547,7 +547,7 @@ Sprache de-CH ohne Eszett, keine Namen, keine Hostnamen.
 | T-NAV | `test_ui_shell.py` | Ersatz für K10. Sidebar zeigt alle zehn Ziele in Reihenfolge. Tabbar zeigt genau Übersicht, Lanes, Assistent, Meldungen, Offen. Menü und Tabbar sind disjunkt. Genau ein «Abmelden», «Überall abmelden» unter «Menü», «Menü» einmal. `nav_key()` für alle Pfade. Rendern ohne `request` schlägt nicht fehl. |
 | T-KONTRAST | `test_ui_shell.py` | Liest die Hex-Tokens aus `app.css` und rechnet WCAG-Kontrast. Mindestens 4,5 für Text, Text-2, Muted und Accent auf Panel und Side, sowie für die Schrift auf Action, Danger und Warning. Mindestens 3,0 für den Feldrahmen auf Panel und Bg. |
 | T-OV-UNIT | `tests/unit/test_ui_overview.py` | `workflow_steps` für jeden `TaskState`. `claims_summary` mit und ohne Limit und leer. `lane_rows` für jede Rangstufe. `latest_outcome`. `open_points` mit Reihenfolge und Codes. `feature_flags` über die Env-Matrix. |
-| T-ZAHLEN | `test_ui_overview.py` | Mit leerem Kontext enthält der sichtbare Text von `overview.html` keine Ziffer ausser «01»–«06» und «CD-01». Mit Sentinel-Zahlen (z. B. 7411, 6203) erscheint jede genau dort. Die Quelltexte von `overview.html`, `base.html`, `login.html` enthalten keines von: `Beispiel`, `qwen`, `abliterated`, `Ubuntu`, `5433`, `PR64`, `PR65`, `agy`, `Gemini`, `04:00` (Owner-Name und Hoster-Name nicht als Literal ins Repo; AGENTS.md). |
+| T-ZAHLEN | `test_ui_overview.py` | Mit leerem Kontext enthält der sichtbare Text von `overview.html` keine Ziffer ausser «01»–«06» und «CD-01». Mit Sentinel-Zahlen (z. B. 7411, 6203) erscheint jede genau dort. Die Quelltexte von `overview.html`, `base.html`, `login.html` enthalten keines von: `Beispiel`, `qwen`, `abliterated`, `Ubuntu`, `5433`, `PR64`, `PR65`, `agy`, `Gemini`, `#63`, `#59`, `04:00` (Owner-Name und Hoster-Name nicht als Literal ins Repo; AGENTS.md). Weil agy und der Projekt-Stand aus Python-Konstanten kommen, prüft ein zweiter Test `app/ui/overview.py` und die gerenderte Seite auf `Gemini` und unbelegte PR-Nummern (Fix-Runde 2, N7). |
 | T-OV-AUTH | `tests/integration/test_ui_overview.py` | Anonym: `/ui/overview` → 303 `/ui/login`. Login-Erfolg → `Location == "/ui/overview"`, auch mit Formularfeld `next=https://example.invalid`. Angemeldet: `/ui/login` → 303 `/ui/overview`. Kette ab `/` endet angemeldet auf der Übersicht, anonym auf dem Login. |
 | T-OV-DATEN | `test_ui_overview.py` | Zwei Aufträge anlegen: die Übersicht zeigt 2 offene Freigaben; nach einer Freigabe 1. Drei Lanes mit Namen. Die letzten Audit-Ereignisse erscheinen. Ein `OperationEvent` Backup `completed` erscheint als letztes Backup, wie in `test_audit_browser.py:27-35`. Ohne Ereignis steht «noch keines erfasst». |
 | T-FLAGS | `test_ui_overview.py` | Sentinel-Werte für `DECK_ROUTINE_WAKE_URL`, `DECK_ROUTINE_WAKE_AUTHORIZATION`, `DECK_OLLAMA_URL`, `DECK_ASSISTANT_OLLAMA_MODEL`, `DECK_ASSISTANT_SEARXNG_URL`, `DECK_ASSISTANT_MEDIAWIKI_API`, `DECK_ASSISTANT_WEB_ALLOWLIST` und `DECK_OWNER_TOKEN` setzen. Keiner erscheint im HTML von `/ui/overview` oder `/ui/assistant`. Die Chips wechseln korrekt. |
@@ -617,7 +617,7 @@ PR-Text nach Template [B] `.github/pull_request_template.md`: Etappe «keine, UI
 
 **PR 2: `feat(ui): align remaining pages with the command-center components`**
 
-Aufträge, Detail (Stepper aus `workflow_steps`), Formular, Lanes, Audit, Chat, Wissen, Fehlerliste. Topbar-Suche «Auftragstitel suchen» als GET auf `/ui/tasks`. Optional: Tabbar während der Texteingabe ausblenden, nur bei `pointer: coarse`, mit verzögertem Wiedererscheinen.
+Aufträge, Detail (Stepper aus `workflow_steps`), Formular, Lanes, Audit, Chat, Wissen, Fehlerliste. Topbar-Suche «Auftragstitel suchen» als GET auf `/ui/tasks`. Das Ausblenden der Tabbar während der Texteingabe ist bereits in PR 1 (Fix-Runde 1); seit Fix-Runde 2 erscheint sie erst nach 0,4 Sekunden wieder (N2).
 
 **PR 3 (optional): `feat(ui): overview refresh and network motion`**
 
@@ -686,7 +686,7 @@ Der Nachweis für den PR ist Variante A. Variante B ist nur Komfort.
 | # | Risiko | Gegenmassnahme |
 |---|---|---|
 | R1 | Strikte Playwright-Locator brechen durch doppelte Links. | Sichtbarkeitsregel aus 6.3; T-NAV; `test_audit_browser.py` unverändert grün |
-| R2 | Die Tabbar überdeckt Bedienelemente oder fängt Klicks ab. | Platz unten, `scroll-padding-bottom`, T-320; kein Ausblenden in PR 1 |
+| R2 | Die Tabbar überdeckt Bedienelemente oder fängt Klicks ab. | Platz unten, `scroll-padding-bottom`, T-320; bei Fokus im Feld `visibility: hidden`, Wiedererscheinen um 0,4 s verzögert; Chromium-Test klickt im Leistenbereich (N2) |
 | R3 | Die Kontrastwerte sind von Hand gerechnet. [U] | T-KONTRAST erzwingt sie; Tokens bis grün anpassen |
 | R4 | Die Systemschrift weicht vom Mockup ab. | bewusst (F6); Entscheid O6 |
 | R5 | Sechs zusätzliche Abfragen je Aufruf der Übersicht, darunter drei Audit-Unions. [U] Laufzeit | nur bestehende Lesefunktionen; bei Bedarf in PR 3 bündeln |
@@ -732,8 +732,8 @@ Durchführung durch den Owner:
 - Update nach Betriebshandbuch [B] `docs/OPERATIONS.md:18-21`, `Makefile:34-35`.
 - Der API-Dienst muss neu starten, weil Python-Code und Templates im Prozess geladen sind. [U] genaues Verhalten des Template-Caches.
 - Statische Dateien kommen direkt aus dem Checkout [B] `app/api/app.py:54-58`. Wegen `no-store` gibt es kein veraltetes CSS im Browser.
-- Keine Migration, keine neue Umgebungsvariable, keine geänderte Unit.
-- Rückweg: voriger Commit und Neustart; kein Datenbank-Schritt.
+- Dieser PR bringt keine eigene Migration, keine neue Umgebungsvariable und keine geänderte Unit. Steht die Ziel-DB noch auf `20261108_0063`, braucht der Deploy vorher das Upgrade auf `20261110_0064` aus M0/M1 (`alembic upgrade head` nach Betriebshandbuch).
+- Rückweg: voriger Commit und Neustart; für diesen PR kein Datenbank-Schritt. Ein Downgrade von `0064` gehört zu M0/M1, nicht hierher.
 
 Abnahme durch den Owner am iPhone in Safari über das Tailnet:
 
@@ -749,15 +749,45 @@ Abnahme durch den Owner am iPhone in Safari über das Tailnet:
 
 ## Kurzfassung für Plan-Dokument
 
-1. Ziel: Live-UI im Command-Center-Layout des Mockups, ohne erfundene Daten und ohne Änderung an Auth, CSRF, Login-Limit, CSP oder Schema (Alembic bleibt `20261108_0063`).
+1. Ziel: Live-UI im Command-Center-Layout des Mockups, ohne erfundene Daten und ohne Änderung an Auth, CSRF, Login-Limit, CSP oder Schema (keine eigene Revision; Kopf nach M0/M1 `20261110_0064`).
 2. Wirksame CSP ist `default-src 'none'` ohne `font-src`: Systemschrift statt Google Fonts; kein Inline-Style oder -Script; die Netzgrafik wird Inline-SVG ohne JS.
 3. Neu sind nur `GET /` (303 → `/ui`, ohne DB) und `GET /ui/overview` (lesend, nur mit Session); `/ui` und der Login zielen fix auf die Übersicht, ohne `next`-Parameter.
 4. Shell: Sidebar ab 861 px, darunter fixe Tabbar Übersicht/Lanes/Assistent/Meldungen/Offen; Topbar mobil nicht sticky; Login ohne Navigation.
-5. Echt: offene Freigaben, Claims und Tageslimit, 3 Lanes, letztes Backup- und Restore-Ereignis, Stepper des Fokus-Auftrags, Flags als Zustand, die letzten 5 Audit-Ereignisse.
-6. Entfällt oder wird ersetzt: «v2 · GO offen», PR-Nummern, Hoster, Name, agy als vierte Lane, 04:00 (Repo-Vorlage 03:15), Modellname, Sparkline, 3D-Patch, ⌘K.
+5. Echt: offene Freigaben, Claims und Tageslimit, 4 Lanes (drei angebunden, agy ohne Daten, Nachtrag F10), letztes Backup- und Restore-Ereignis, Stepper des Fokus-Auftrags, Flags als Zustand, die letzten 5 Audit-Ereignisse.
+6. Entfällt oder wird ersetzt: «v2 · GO offen», PR-Nummern, Hoster, Name, «Gemini» im Lane-Titel, 04:00 (Repo-Vorlage 03:15), Modellname, Sparkline, 3D-Patch, ⌘K.
 7. Mockup-Texte korrigiert: Wake wiederholt nur bei HTTP-Status ausser 200; Gesprächskontext nur per Kästchen; «uncensored» ist nicht belegt.
 8. Bestehende Browser-Tests binden die Shell (ein `h1`, ein `main`, ein «Abmelden», «Menü», exakte Linknamen); vier Tests werden bewusst angepasst, keiner abgeschwächt.
 9. Neue Tests: Redirect, CSP-Pin, kein Inline, Viewport ohne Zoomsperre, Login ohne fixe Navigation, Navigations-Matrix, Kontrast, Zahlen nur mit Quelle, kein Flag-Wert im HTML, 320/390/1024 px.
 10. Drei PRs; PR 1 (Draft) umfasst Plan, Shell, Tokens, Login, Übersicht, Assistent, `/`-Redirect, Tests und Doku.
 11. Vorschau: pytest mit `browser_app`, `_test`-DB und Playwright-WebKit 390 × 844; Screenshots ausserhalb des Repos. WebKit-Installation und die Kontrastwerte sind unbewiesen.
 12. Offen für den Owner: O1–O6 (Badge, Name, 3D-Patch, Startseite, Offene Punkte, Schrift); Merge und Deploy nur mit GO, Safari-Test am echten iPhone bleibt Abnahme.
+
+---
+
+## Nachtrag 10.11.2026: Fix-Runde 2 (Review Fable R2, Codequalität)
+
+- Alembic: Dieser PR legt keine Revision an; Kopf ist `20261110_0064` aus M0/M1. Der
+  Integrationstest bindet Schema-Zeile und Skript-Kopf fest an `20261110_0064`.
+- 503: Der Fehlerfänger der Übersicht umfasst jetzt alle Lesezugriffe nach der
+  Session-Prüfung, auch `read_settings` und `read_lane_health`. Der Pfad schreibt eine
+  Logzeile mit dem Fehlertyp, ohne Werte oder SQL (N10).
+- Fokus ist nur noch der älteste wartende Auftrag; der Rückfall auf den neuesten aktiven
+  Auftrag entfällt.
+- N1: Der agy-Punkt ist ein fester Hinweis (Ton `off`, Chip «statisch») unter «Hinweise»
+  und zählt nicht als offener Punkt.
+- N2: Die Leiste verschwindet bei Fokus sofort und erscheint erst nach 0,4 Sekunden
+  wieder; ein Chromium-Test klickt im Leistenbereich.
+- N3 (konservativ, Owner-Entscheid O7 offen): Der Tab «Meldungen» zielt auf
+  `/ui/overview?open=meldungen#meldungen`; der Server öffnet den Abschnitt, ohne JS. Andere
+  Werte von `open` werden ignoriert.
+- N4: «Modell zwischen zwei Runden» nennt «bleibt geladen (Standard 30m)» oder nur
+  «eigener Wert gesetzt»; die Fakten stehen unter «Loopback-Dialog, wenn eingeschaltet».
+- N5: «wiederholt nur bei HTTP-Status ausser 200».
+- N6 (konservativ, Owner-Bestätigung offen): Der Projekt-Stand steht am Seitenende neben
+  «Schema», heisst «statisch, keine Live-Daten» und nennt keine PR-Nummern mehr.
+- N7 (konservativ): Titel nur «agy»; «Gemini» ist im Repo nicht belegt.
+- N8: Lane-Chip bleibt in der Zeile, agy-Chip «nicht angebunden»; Lane-Warnungen nennen
+  den Grund und tragen den Lane-Namen im Code; die Backup-Kachel zeigt am Telefon das Datum;
+  der Workflow ohne Fokus hat unten Abstand.
+- N10: Die Einklapp-Abschnitte des Assistenten («So funktioniert», «Profil») tragen eine
+  `h2` im `summary` wie die Übersicht. Eine Prüfung mit VoiceOver steht aus.

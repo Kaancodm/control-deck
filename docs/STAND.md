@@ -5,10 +5,14 @@
 Der Zweig `feat/ui-command-center-shell` setzt PR 1 aus
 [plans/UI_MOCKUP_ANGLEICHUNG.md](plans/UI_MOCKUP_ANGLEICHUNG.md) um: neue Shell,
 Übersicht unter `/ui/overview`, Redirect von `/`, überarbeitete Anmelde- und
-Assistentenseite. Auth, Session, CSRF, Login-Limit und CSP sind unverändert; es gibt
-keine Migration und keine neue Abhängigkeit. Geprüft sind Unit- und
-PostgreSQL-Integrationstests lokal. Die Browser-Smokes laufen nur in der CI; ein
-Safari-Test auf einem echten iPhone steht aus. Nichts davon ist ausgerollt.
+Assistentenseite. Auth, Session, CSRF, Login-Limit und CSP sind unverändert; der Zweig
+legt keine eigene Alembic-Revision an (Kopf nach M0/M1: `20261110_0064`) und bringt keine
+neue Abhängigkeit. Stand nach Fix-Runde 2 (Review Fable R2 und Codequalität): Unit-,
+PostgreSQL-Integrations- und Chromium-Tests (Falz, Menü, Leiste, Shell bei 320/390/1024
+Pixeln) laufen lokal grün; die WebKit-Vorschau und neue Screenshots fehlen noch. Offen sind
+die Owner-Entscheide zu «Meldungen» (O7), zur Projekt-Stand-Liste und zum agy-Titel; bis
+dahin gilt die konservative Variante. Ein Safari-Test auf einem echten iPhone steht aus.
+Nichts davon ist ausgerollt.
 
 ## Nachtrag 2026-11-08: Assistent offline
 

@@ -11,8 +11,10 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
   für den Rest; Anmeldeseite ohne Navigation. Token-Namen bleiben, Werte folgen der
   Mockup-Palette; Systemschrift, weil die CSP kein `font-src` hat.
 - `GET /` leitet fest auf `/ui`, `/ui` und der Login auf die neue Übersicht `/ui/overview`.
-  Kein `next`-Parameter, kein neuer schreibender Endpunkt, keine Migration
-  (Head bleibt `20261108_0063`), keine neue Abhängigkeit.
+  Kein `next`-Parameter, kein neuer schreibender Endpunkt, keine neue Abhängigkeit. Dieser
+  PR legt keine Alembic-Revision an; der Kopf ist nach dem Merge von M0/M1
+  `20261110_0064`. Steht eine DB noch auf `20261108_0063`, braucht der Deploy das Upgrade
+  aus M0/M1.
 - Die Übersicht zeigt nur Daten mit Quelle (Freigaben, Claims, Lanes, letztes Backup- und
   Restore-Ereignis, Audit) und Schalter nur als Zustand. Beispielzahlen, Namen, Hoster,
   PR-Nummern, Modellname, Backup-Uhrzeit und 3D-Patch des Mockups entfallen.
@@ -26,6 +28,18 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
   vierte, noch nicht angebundene Lane (Owner-Entscheid), ein Datenbankfehler ergibt 503
   statt eines unbehandelten Fehlers. Assistentenseite beginnt mit dem Dialog; der Kanal
   trägt keinen Personennamen mehr. Neuer Chromium-Test für Falz, Menü und Tastatur.
+- Fix-Runde 2: Der 503-Pfad der Übersicht umfasst alle Lesezugriffe nach der
+  Session-Prüfung, auch Runner-Steuerung und Lane-Health, und schreibt eine Logzeile nur mit
+  dem Fehlertyp. Fokus ist nur der älteste wartende Auftrag. Der agy-Punkt ist ein Hinweis
+  statt Warnung, der Lane-Titel heisst nur «agy». Die Leiste erscheint nach Fokus im Feld
+  erst verzögert wieder, damit kein Klick verloren geht. Der Tab «Meldungen» öffnet den
+  Abschnitt serverseitig ohne JS. Der Projekt-Stand steht am Seitenende neben «Schema»,
+  statisch markiert und ohne PR-Nummern. Lane-Warnungen nennen Lane und Grund, die
+  Backup-Kachel zeigt am Telefon das Datum. Schalterzustände der Übersicht und der
+  Aktivierungstext teilen eine Quelle; Alpha-Töne hängen per `color-mix` an den Tokens.
+- Die Übersicht zeigt zusätzlich lesend den Schema-Stand aus `alembic_version`, einen
+  statischen, datierten Projekt-Stand und Fakten zu Assistent und Meldungen aus
+  Code-Konstanten (Kontextbudget, Server-Sent Events, Ollama-503, Wake-Sendeversuche).
 - Tests für Redirects, CSP-Pin, kein Inline-Code, Viewport, Kontrast, keine erfundenen
   Zahlen, keine Konfigurationswerte im HTML, Übersicht gegen PostgreSQL, Chromium-Shell
   bei 320/390/1024 Pixeln und optionale WebKit-Vorschau.

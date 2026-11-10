@@ -77,8 +77,9 @@ nur ueber die Funktionen in `app/memory/approval.py`. Jede verlangt:
 der Digest selbst und kein Fremdschluessel, Sessions werden bereinigt) sowie die
 DB-Zeit. Die Tabelle ist append-only. Inhaltsspalten von Nachrichten, Fakten,
 Themen und Verknuepfungen weisen `UPDATE` ab; `DELETE` auf diesen Tabellen und
-auf `memory_approvals` weist die Datenbank ab. Zustandswechsel und das Anhaengen
-an ein Thema bleiben erlaubt. Kein API-Bearer, kein Kanal und kein Modell kann
+auf `memory_approvals` weist die Datenbank ab. Erlaubt ist genau ein Entscheid
+aus dem offenen Zustand und das einmalige Anhaengen an ein Thema; danach ist der
+Entscheid eingefroren (siehe «Unveraenderlichkeit nach dem Entscheid»). Kein API-Bearer, kein Kanal und kein Modell kann
 freigeben; ein Test prueft, dass nur `approval.py` Freigabezeilen anlegt.
 
 ### Owner-Entscheide vom 2026-11-10
@@ -143,7 +144,9 @@ freigeben; ein Test prueft, dass nur `approval.py` Freigabezeilen anlegt.
 
 - Fuer `cloud_ok` und `cloud_redacted` gilt bei der Annahme dasselbe Sperr-Praedikat
   wie beim Auftrags-Gate (`findings_block`, Blockliste plus eingebaute Muster).
-  Ein Treffer weist den Turn ab (`privacy_block`); es bleibt nur der Hash, der
+  `cloud_ok` sperrt jeden Befund; `cloud_redacted` sperrt Geheimnisse und Befunde,
+  die die Redaktion nicht abdeckt (ein Blocklisten-Treffer allein sperrt dort nicht).
+  Eine Sperre weist den Turn ab (`privacy_block`); es bleibt nur der Hash, der
   Text erscheint nicht in der Quarantaene. Das schraenkt 7.2 fuer Cloud-Klassen ein.
 - Ist keine Blockliste konfiguriert oder ist sie unlesbar, gilt das wie beim
   Auftrags-Gate als gesperrt (fail-closed). Dann nimmt das Deck nur noch
@@ -159,7 +162,9 @@ freigeben; ein Test prueft, dass nur `approval.py` Freigabezeilen anlegt.
 
 - Nachrichten: `state`, `evidence_status` und `approval_id` sind nach dem Verlassen
   von `quarantined` eingefroren; `thread_id` darf nur von leer auf ein Thema wechseln.
-- Fakten: `status`, `evidence_status`, `approval_id` nach `proposed` eingefroren.
+- Fakten: `status`, `evidence_status`, `approval_id`, `valid_from`, `valid_to` und
+  `superseded_by` nach `proposed` eingefroren. Ein spaeterer Widerruf oder eine
+  Ersetzung braucht einen eigenen, freigegebenen Weg (Owner-Entscheid offen).
 - Themen und Verknuepfungen: `status`/`state`, `approval_id` (bei Verknuepfungen auch
   `thread_id`) nach `proposed` eingefroren.
 - Akzeptiertes Restrisiko: Der Ersatz-Dedup-Schluessel ohne Nachrichten-ID enthaelt

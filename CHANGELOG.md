@@ -15,7 +15,12 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - `ingest_turn` speichert neue Nachrichten als `quarantined`. Freigabe nur mit
   authentisierter UI-Session und sha256 der gezeigten Bytes.
   `load_memory_context` liest freigegebene Nachrichten und Fakten innerhalb der
-  Ziel-Klassen. Der Live-Dialog ist noch nicht angeschlossen (M2).
+  Ziel-Klassen. Der Live-Dialog ist noch nicht angeschlossen (M1b, nach dem UI-PR, vor G2).
+- Refactor ohne Verhaltensänderung: `app/privacy/gate.py` zieht das Sperr-Prädikat
+  in `findings_block`, das `inspect_task` und das Gedächtnis teilen. Die bestehenden
+  Gate-Tests bleiben grün. Neu ist `non_local_texts_blocked`: ohne konfigurierte
+  Blockliste sind Cloud-Klassen gesperrt (wie beim Auftrags-Gate).
+- Entschiedene Zeilen sind per Trigger eingefroren; kein hartes Löschen.
 - Nicht in diesem Stand: Oberfläche (M2), n8n- und Grok-Adapter (M3),
   Import-Parser (M4), Slack Socket Mode (M5). Beschreibung in
   [KANAELE.md](docs/KANAELE.md) und [ADR 0010](docs/DECISIONS/0010-kanaele-und-gedaechtnis.md).

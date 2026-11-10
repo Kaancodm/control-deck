@@ -1510,3 +1510,84 @@ def test_propose_fact_applies_the_privacy_block(
             object_=term,
         )
     assert _tables_containing(db_session, term) == []
+
+
+def test_approved_fact_validity_and_supersession_are_frozen(db_session: Session) -> None:
+    token = _owner_session(db_session)
+    _thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="factfreeze-1",
+        thread_class="local_only",
+        rows=[("local_only", "Synthetic note: basil needs sun.")],
+    )
+    fact = propose_fact(
+        db_session,
+        source_message_id=ids[0],
+        original_sentence="Basil needs sun.",
+        subject="basil",
+        predicate="needs",
+        object_="sun",
+    )
+    decide_fact(
+        db_session,
+        fact.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
+    )
+    for values in (
+        {"valid_to": datetime.now(UTC)},
+        {"valid_from": datetime.now(UTC)},
+        {"superseded_by": fact.id},
+        {"status": "rejected"},
+    ):
+        nested = db_session.begin_nested()
+        with pytest.raises(DBAPIError, match="memory_content_immutable"):
+            db_session.execute(update(MemoryFact).where(MemoryFact.id == fact.id).values(**values))
+        nested.rollback()
+
+
+def test_approved_unmapped_message_may_attach_once_and_topics_links_freeze(
+    db_session: Session,
+) -> None:
+    token = _owner_session(db_session)
+    loose = ingest_turn(
+        db_session, _turn(external_thread_id="attach-late", text="Synthetic loose note.")
+    )
+    assert loose.message_id is not None
+    _approve_message(db_session, token, loose.message_id)
+    stored = db_session.get(AssistantMessage, loose.message_id)
+    assert stored is not None and stored.state == "approved" and stored.thread_id is None
+    target = _owner_thread(db_session, token, "Late topic", "local_only")
+    db_session.execute(
+        update(AssistantMessage)
+        .where(AssistantMessage.id == loose.message_id)
+        .values(thread_id=target.id)
+    )
+    db_session.flush()
+    db_session.refresh(stored)
+    assert stored.thread_id == target.id
+
+    thread, _ids = _thread_with_messages(
+        db_session,
+        token,
+        external="freeze-topic",
+        thread_class="local_only",
+        rows=[("local_only", "Synthetic topic note.")],
+    )
+    link = db_session.scalar(
+        select(ThreadLink).where(ThreadLink.external_thread_id == "freeze-topic")
+    )
+    assert link is not None and link.state == "active"
+    other = _owner_thread(db_session, token, "Other late topic", "local_only")
+    for statement in (
+        update(AssistantThread).where(AssistantThread.id == thread.id).values(status="rejected"),
+        update(AssistantThread).where(AssistantThread.id == thread.id).values(approval_id=None),
+        update(ThreadLink).where(ThreadLink.id == link.id).values(state="rejected"),
+        update(ThreadLink).where(ThreadLink.id == link.id).values(thread_id=other.id),
+    ):
+        nested = db_session.begin_nested()
+        with pytest.raises(DBAPIError, match="memory_content_immutable"):
+            db_session.execute(statement)
+        nested.rollback()

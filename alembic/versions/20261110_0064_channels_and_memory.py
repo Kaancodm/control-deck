@@ -447,7 +447,10 @@ def upgrade() -> None:
 
 
 def _create_content_guards() -> None:
-    """Freeze shown content and forbid hard deletes. State changes stay allowed.
+    """Freeze shown content, freeze the decision after the pending state, forbid deletes.
+
+    Exactly one decision update leaves ``quarantined``/``proposed``; afterwards the
+    decision columns are frozen. A message ``thread_id`` may only move from NULL.
 
     ``TRUNCATE`` does not fire these row triggers, so test cleanup can still
     empty the tables. ``memory_approvals`` keeps its own append-only trigger.
@@ -499,7 +502,10 @@ def _create_content_guards() -> None:
                        OR (OLD.status <> 'proposed'
                            AND (NEW.status IS DISTINCT FROM OLD.status
                                 OR NEW.evidence_status IS DISTINCT FROM OLD.evidence_status
-                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id))
+                                OR NEW.approval_id IS DISTINCT FROM OLD.approval_id
+                                OR NEW.valid_from IS DISTINCT FROM OLD.valid_from
+                                OR NEW.valid_to IS DISTINCT FROM OLD.valid_to
+                                OR NEW.superseded_by IS DISTINCT FROM OLD.superseded_by))
                     THEN
                         RAISE EXCEPTION 'memory_content_immutable';
                     END IF;
@@ -558,6 +564,10 @@ def _drop_content_guards() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    # Abort instead of waiting into a deadlock with live ingest or approvals.
+    bind.execute(text("SET LOCAL lock_timeout = '10s'"))
+    # Ingest reads the account allowlist first, so lock it first as well.
+    bind.execute(text("LOCK TABLE assistant_channel_accounts IN SHARE ROW EXCLUSIVE MODE"))
     # SHARE ROW EXCLUSIVE conflicts with INSERT, so a row that arrives after a
     # count cannot commit before this downgrade drops the table. Content tables
     # are locked in ingest order first and events last to avoid a lock cycle.

@@ -434,9 +434,11 @@ Inhaltsspalte sich ändert:
 - Themen: `data_class` und `title` (der Titel steckt in den gezeigten Bytes)
 - Verknüpfungen: `channel`, `account`, `external_thread_id`
 
-Erlaubt bleiben Zustandswechsel (`state`, `status`, `evidence_status`,
-`approval_id`), bei Nachrichten und Verknüpfungen `thread_id`, bei Fakten
-`superseded_by`, `valid_from` und `valid_to`. `TRUNCATE` feuert diese
+Erlaubt bleibt nur der eine Entscheid aus dem offenen Zustand (`quarantined`
+bzw. `proposed`): `state`/`status`, `evidence_status`, `approval_id`, bei
+Verknüpfungen `thread_id`, bei Fakten zusätzlich `valid_from`, `valid_to` und
+`superseded_by`. Danach sind diese Spalten eingefroren (siehe Nachtrag unten);
+bei Nachrichten wechselt `thread_id` nur von leer auf ein Thema. `TRUNCATE` feuert diese
 Zeilentrigger nicht. `memory_approvals` behält den eigenen Append-only-Trigger.
 
 ### `memory_facts`
@@ -476,18 +478,17 @@ Index `ix_events_conversation_created_at` auf `created_at` WHERE
 ### Downgrade
 
 Der Migrationskopf nennt Test- und Entwicklungsdatenbanken. Der Code prüft den
-Datenbanknamen nicht. Er sperrt `events` mit `LOCK TABLE events IN SHARE ROW
-EXCLUSIVE MODE`, zählt Zeilen mit `task_id IS NULL` und bricht ab, wenn welche
-existieren:
+Datenbanknamen nicht. Er setzt `lock_timeout` auf 10 s (Abbruch statt Deadlock)
+und sperrt mit `LOCK TABLE ... IN SHARE ROW EXCLUSIVE MODE` in dieser
+Reihenfolge: `assistant_channel_accounts`, `assistant_thread_links`,
+`assistant_threads`, `assistant_messages`, `memory_facts`, `memory_approvals`
+und zuletzt `events`. Danach zählt er Zeilen in `events` mit `task_id IS NULL`
+und bricht ab, wenn welche existieren:
 
 `events_taskless_rows: conversation audit rows exist with task_id NULL; refusing to restore NOT NULL. Rows are never deleted by this migration.`
 
-Danach sperrt er in dieser Reihenfolge jede Inhaltstabelle mit
-`LOCK TABLE ... IN SHARE ROW EXCLUSIVE MODE` und zählt:
-`assistant_messages`, `memory_facts`, `memory_approvals`,
-`assistant_thread_links`, `assistant_threads`. Die erste nicht leere Tabelle
-bricht ab mit `conversation_rows: {tabelle} is not empty; refusing to drop
-owner memory.` Es wird nichts gelöscht. Nur wenn beide Prüfungen leer sind,
+Dann zählt er jede Inhaltstabelle. Die erste nicht leere Tabelle bricht ab mit
+`conversation_rows: {tabelle} is not empty; refusing to drop owner memory.` Es wird nichts gelöscht. Nur wenn beide Prüfungen leer sind,
 entfernt er die Inhaltstrigger und `memory_content_immutable()`, dann
 `ix_events_conversation_created_at` und den CHECK, setzt `to_status` und
 `task_id` wieder auf NOT NULL und droppt die neuen Tabellen, den
@@ -498,7 +499,7 @@ Append-only-Trigger und die Funktion `memory_approvals_append_only`.
 - Der Trigger `memory_content_immutable` friert zusaetzlich Entscheid-Spalten ein:
   Nachrichten (`state`, `evidence_status`, `approval_id` nach `quarantined`,
   `thread_id` nur von leer auf gesetzt), Fakten (`status`, `evidence_status`,
-  `approval_id` nach `proposed`), Themen und Verknuepfungen (`status`/`state`,
+  `approval_id`, `valid_from`, `valid_to`, `superseded_by` nach `proposed`), Themen und Verknuepfungen (`status`/`state`,
   `approval_id`, bei Verknuepfungen `thread_id`, nach `proposed`).
 - Downgrade sperrt zuerst `assistant_thread_links`, `assistant_threads`,
   `assistant_messages`, `memory_facts`, `memory_approvals` und danach `events`.

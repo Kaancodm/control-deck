@@ -315,7 +315,8 @@ def propose_fact(
         _audit_secret(session, sentence, source)
         raise ConversationError("secret_rejected")
     if non_local_texts_blocked(
-        source.data_class, (sentence, subject_text, predicate_text, object_text, rendered)
+        source.data_class,
+        (sentence, subject_text, predicate_text, object_text, joined, rendered),
     ):
         record_conversation_event(
             session,
@@ -323,7 +324,7 @@ def propose_fact(
             {
                 "reason": "privacy_block",
                 "message_id": str(source.id),
-                "text_sha256": text_digest(sentence),
+                "text_sha256": text_digest(joined),
             },
         )
         raise ConversationError("privacy_block")
@@ -573,7 +574,14 @@ def decide_thread_link(
     chosen = target_thread_id if target_thread_id is not None else link.thread_id
     if checked == "rejected" and chosen != link.thread_id:
         raise ConversationError("invalid_decision")
-    thread = session.get(AssistantThread, chosen)
+    # Lock the topic before any message row: ingest_turn holds the topic and then
+    # takes FOR KEY SHARE on a referenced message, so the reverse order can cycle.
+    thread = session.scalar(
+        select(AssistantThread)
+        .where(AssistantThread.id == chosen)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if thread is None:
         raise ConversationError("not_found")
     shown = _check_shown(link_shown_bytes(link, thread, decision=checked), shown_sha256_hex)

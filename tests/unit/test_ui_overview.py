@@ -185,8 +185,8 @@ def test_open_points_follow_fixed_order_and_codes() -> None:
         "paused",
         "approvals",
         "blocked",
-        "lane_auth_required",
-        "lane_no_recent_success",
+        "lane_claude_auth_required",
+        "lane_claude_no_recent_success",
         "health_unavailable",
         "assistant_loopback",
         "assistant_web",
@@ -198,7 +198,30 @@ def test_open_points_follow_fixed_order_and_codes() -> None:
     assert points[2].href == "/ui/tasks#waiting-tasks"
     assert points[3].href == "/ui/tasks?state=blocked"
     assert points[7].chip == "unvollständig" and points[8].chip == "aus"
-    assert points[9].href == "/ui/overview#meldungen"
+    assert points[9].href == "/ui/overview?open=meldungen#meldungen"
+    # cq1: each lane warning has its own code and names the reason, not just "Warnung".
+    assert points[4].title == "Lane claude: Anmeldung nötig" and points[4].chip == "Anmeldung"
+    assert points[5].title == "Lane claude: kein Erfolg seit 1 Tag"
+
+
+def test_lane_warning_codes_are_unique_per_lane() -> None:
+    points = overview.open_points(
+        controls=None,
+        waiting_total=0,
+        blocked_total=0,
+        lanes=[
+            lane(Worker.CLAUDE, warnings=["no_recent_success"]),
+            lane(Worker.CODEX, warnings=["no_recent_success"]),
+        ],
+        health_unavailable=False,
+        flags=flags(),
+        last_backup=Outcome("completed", NOW),
+        last_restore=Outcome("completed", NOW),
+        pending_lanes=(),
+    )
+    codes = [point.code for point in points]
+    assert codes == ["lane_claude_no_recent_success", "lane_codex_no_recent_success"]
+    assert len(set(codes)) == len(codes)
     assert all(point.href is None or point.href.startswith("/ui/") for point in points)
 
 
@@ -240,7 +263,9 @@ def test_agy_is_a_pending_lane_without_data() -> None:
     assert [lane.key for lane in overview.PENDING_LANES] == ["agy"]
     assert "agy" not in {worker.value for worker in Worker}  # enum stays unchanged
     (pending,) = overview.PENDING_LANES
-    assert pending.label == "eigene Lane · im Deck noch nicht angebunden"
+    assert pending.title == "agy"  # N7: "Gemini" is not documented in the repository
+    assert pending.label == "nicht angebunden"
+    assert pending.detail == "eigene Lane · im Deck noch nicht angebunden"
     assert "KEINE LANE" not in pending.label.upper()
     summary = overview.lane_summary([lane(), lane(Worker.CLAUDE)], health_unavailable=False)
     assert summary == overview.LaneSummary(total=4, connected=2)
@@ -259,7 +284,27 @@ def test_agy_is_a_pending_lane_without_data() -> None:
         )
         if p.code == "lane_agy_pending"
     )
-    assert point.title == "agy-Lane: ADR und Anbindung fehlen" and point.tone == "warn"
+    # N1: a fixed note is a hint (tone off), so an empty deck can still reach zero warnings.
+    assert point.title == "agy-Lane: ADR und Anbindung fehlen" and point.tone == "off"
+    assert point.chip == "statisch"
+
+
+def test_agy_note_does_not_block_an_empty_warning_list() -> None:
+    done = Outcome("completed", NOW)
+    points = overview.open_points(
+        controls=RunnerSettings(),
+        waiting_total=0,
+        blocked_total=0,
+        lanes=[lane()],
+        health_unavailable=False,
+        flags=flags(),
+        last_backup=done,
+        last_restore=done,
+    )
+    assert [p.code for p in points] == ["lane_agy_pending"]
+    assert [p for p in points if p.tone == "warn"] == []
+    html = render_overview(open_points=points)
+    assert "Keine offenen Punkte aus den Deck-Daten." in html
 
 
 def test_only_warnings_count_as_open_points_on_an_empty_deck() -> None:
@@ -288,7 +333,8 @@ def test_wake_facts_match_the_outbox() -> None:
 
     assert overview.WAKE_MAX_POSTS == outbox._MAX_POSTS
     texts = " ".join(f"{fact.label} {fact.value}" for fact in overview.WAKE_FACTS)
-    assert "ausser HTTP 200" in texts and "nur cloud_ok" in texts
+    assert "wiederholt nur bei HTTP-Status ausser 200" in texts and "nur cloud_ok" in texts
+    assert "Ablehnung" not in texts  # N5: the old wording was ambiguous
     assert "kein automatischer Neuversand" in texts
 
 
@@ -308,6 +354,7 @@ def test_assistant_facts_come_from_code_constants(clean_env) -> None:
         f"Antwort höchstens {DIALOGUE_NUM_PREDICT_DEFAULT} Token"
     )
     assert facts["Denkphase"] == "aus"
+    assert facts["Modell zwischen zwei Runden"] == "bleibt geladen (Standard 30m)"
     assert f"bis zu {BUSY_ATTEMPTS} Versuche" in facts["Bei Auslastung"]
     assert "Ollama ausgelastet." in facts["Bei Auslastung"]
     assert facts["Router-Golden-Set"] == "nur offline"
@@ -320,6 +367,8 @@ def test_assistant_facts_come_from_code_constants(clean_env) -> None:
     clean_env.setenv("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE", "sentinel-keep-7411")
     facts = {fact.label: fact.value for fact in overview.assistant_facts()}
     assert facts["Kontextbudget"].startswith("8192 Token")
+    # N4: a custom keep-alive may be 0, so it is not described as "bleibt geladen".
+    assert facts["Modell zwischen zwei Runden"] == "eigener Wert gesetzt (docs/ASSISTENT.md)"
     assert "sentinel" not in repr(facts) and "7411" not in repr(facts)
     clean_env.setenv("DECK_ASSISTANT_OLLAMA_NUM_CTX", "99999")
     facts = {fact.label: fact.value for fact in overview.assistant_facts()}
@@ -525,7 +574,7 @@ def test_open_point_counter_counts_warnings_and_folds_hints() -> None:
     visible, rest = section.split("<details", 1)
     assert visible.count("data-open-point=") == 3
     assert "2 weitere" in rest and 'data-open-point="w4"' in rest
-    hints = section.split("Hinweise zur Konfiguration", 1)[1]
+    hints = section.split("<summary>Hinweise</summary>", 1)[1]
     assert 'data-open-point="hint"' in hints
     quiet = render_overview(open_points=(_point("hint", "off"),))
     assert "Keine offenen Punkte aus den Deck-Daten." in quiet and " offen</span>" not in quiet
@@ -536,11 +585,16 @@ def test_project_status_is_folded_dated_and_marked_static() -> None:
         project_status=overview.PROJECT_STATUS,
         project_status_date=overview.PROJECT_STATUS_DATE,
     )
-    block = html.split('data-static="project-status"', 1)[1].split("</details>", 1)[0]
-    assert "Projekt-Stand (statisch, Stand 10.11.2026)" in block
-    assert "keine Live-Daten" in block
-    for marker in ("iPhone", "agy-Lane", "#63", "#59", "#54 bis #57"):
+    main = html.split("<main", 1)[1]
+    block = main.split('data-static="project-status"', 1)[1].split("</details>", 1)[0]
+    assert "Projekt-Stand · statisch, keine Live-Daten (Stand 10.11.2026)" in block
+    for marker in ("iPhone", "agy-Lane"):
         assert marker in block
+    # N6: no PR numbers the repository does not document; the block sits at the page end.
+    assert not re.search(r"#\d", " ".join(overview.PROJECT_STATUS))
+    offen = main.split('id="offen"', 1)[1].split("</section>", 1)[0]
+    assert "project-status" not in offen
+    assert main.index('data-static="project-status"') > main.index('id="audit"')
 
 
 def test_unavailable_data_is_not_shown_as_empty() -> None:
@@ -573,7 +627,82 @@ def test_shell_sources_carry_no_mockup_sample_data(name: str) -> None:
         "PR65",
         "agy",
         "Gemini",
+        "#63",
+        "#59",
         "04:00",
         "Tailnet",
     ):
         assert marker not in source, (name, marker)
+
+
+def test_python_sources_of_the_overview_carry_no_unverified_names() -> None:
+    # N7: the template list above cannot see strings rendered from Python constants.
+    source = Path(overview.__file__).read_text(encoding="utf-8")
+    for marker in ("Gemini", "Draft-PR", "#63", "#59", "#54"):
+        assert marker not in source, marker
+    rendered = render_overview(
+        pending_lanes=overview.PENDING_LANES,
+        project_status=overview.PROJECT_STATUS,
+        project_status_date=overview.PROJECT_STATUS_DATE,
+        open_points=overview.open_points(
+            controls=None,
+            waiting_total=0,
+            blocked_total=0,
+            lanes=[],
+            health_unavailable=False,
+            flags=flags(),
+            last_backup=None,
+            last_restore=None,
+        ),
+    )
+    assert "Gemini" not in rendered and "<b>agy</b>" in rendered
+
+
+def test_messages_section_opens_only_for_the_fixed_query_value() -> None:
+    # N3: the tab lands on an open section without JavaScript; flags off keep it folded.
+    folded = render_overview(flags=flags(routine_wake="off"))
+    opened = render_overview(flags=flags(routine_wake="off"), open_section="meldungen")
+    pattern = r'<details class="panel ov-card ov-fold" id="meldungen" open>'
+    assert not re.search(pattern, folded) and re.search(pattern, opened)
+    assert views.MESSAGES_HREF == "/ui/overview?open=meldungen#meldungen"
+    assert overview.MESSAGES_HREF == views.MESSAGES_HREF
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {},
+        {"DECK_ASSISTANT_OLLAMA": "1"},
+        {"DECK_ASSISTANT_OLLAMA": "1", "DECK_OLLAMA_URL": "http://127.0.0.1:1"},
+        {
+            "DECK_ASSISTANT_OLLAMA": "1",
+            "DECK_OLLAMA_URL": "http://127.0.0.1:1",
+            "DECK_ASSISTANT_OLLAMA_MODEL": "synthetic:tag",
+        },
+        {"DECK_ASSISTANT_WEB": "1"},
+        {"DECK_ASSISTANT_WEB": "1", "DECK_ASSISTANT_WEB_ALLOWLIST": "example.invalid"},
+        {
+            "DECK_ASSISTANT_WEB": "1",
+            "DECK_ASSISTANT_WEB_ALLOWLIST": "example.invalid",
+            "DECK_ASSISTANT_SEARCH_PROVIDER": "searxng",
+            "DECK_ASSISTANT_SEARXNG_URL": "https://example.invalid/",
+        },
+        {
+            "DECK_ASSISTANT_WEB": "1",
+            "DECK_ASSISTANT_WEB_ALLOWLIST": "example.invalid",
+            "DECK_ASSISTANT_SEARCH_PROVIDER": "mediawiki",
+        },
+    ],
+)
+def test_switch_chips_and_activation_text_agree(clean_env, env) -> None:
+    # cq1: chip and activation text sit side by side and come from one source.
+    from app.assistant.providers import activation_status
+
+    for name, value in env.items():
+        clean_env.setenv(name, value)
+    state = overview.feature_flags()
+    loopback, web = activation_status()
+    expected_loopback = {"off": "ist aus", "incomplete": "unvollständig", "on": "eingeschaltet"}
+    expected_web = {"off": "ist aus", "incomplete": "unvollständig", "on": "konfiguriert"}
+    assert expected_loopback[state.assistant_loopback] in loopback
+    assert expected_web[state.assistant_web] in web

@@ -1,4 +1,4 @@
-.assistant-page { display: grid; gap: var(--space-4); min-width: 0; overflow-wrap: anywhere; }
+.assistant-page { display: grid; gap: var(--space-3); min-width: 0; overflow-wrap: anywhere; }
 .assistant-page > *, .assistant-page .panel, .assistant-page form, .assistant-page details { min-width: 0; max-width: 100%; }
 .assistant-page .panel, .assistant-page pre, .assistant-page input, .assistant-page select, .assistant-page textarea {
   max-width: 100%;
@@ -11,7 +11,6 @@
 .assistant-page summary { min-height: var(--control-size); display: block; cursor: pointer; overflow-wrap: anywhere; }
 .assistant-page button { max-width: 100%; white-space: normal; text-align: center; }
 .assistant-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.assistant-page > h1 { margin-bottom: 0; }
 .assistant-page pre:not([hidden]) {
   margin: var(--space-3) 0;
   padding: var(--space-3) var(--space-4);
@@ -31,11 +30,11 @@
 .assistant-page > h1 { margin-block: 0; }
 .assistant-page > .chip-row, .assistant-lede { margin: 0; }
 .assistant-lede { color: var(--color-text-2); }
-.assistant-page { gap: var(--space-3); }
 .assistant-page .panel { margin: 0; }
 .assistant-dialog > h2 { margin-bottom: 0; }
 .assistant-dialog label[for="message"] { margin-top: 0; }
 details.panel.assistant-fold > summary { display: flex; align-items: center; font-weight: 650; }
+details.panel.assistant-fold > summary h2 { margin: 0; font-size: inherit; font-weight: inherit; }
 details.panel.assistant-fold[open] > summary { margin-bottom: var(--space-2); }
 .assistant-page .form-stack > details.more { margin-block: var(--space-2) 0; }
 .assistant-facts { display: grid; gap: var(--space-2); margin: var(--space-3) 0; }

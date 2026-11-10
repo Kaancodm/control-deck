@@ -91,6 +91,7 @@
       {% elif last_backup %}
       <p class="kpi-value kpi-value--text">{% if last_backup.phase == 'completed' %}abgeschlossen{% else %}fehlgeschlagen{% endif %}</p>
       <p class="kpi-note">{{ utc(last_backup.at) }}</p>
+      <p class="kpi-date"><time datetime="{{ last_backup.at.isoformat() }}">{{ last_backup.at.strftime('%d.%m.%Y') }}</time></p>
       {% else %}<p class="kpi-value kpi-value--na">noch keines erfasst</p>{% endif %}
       {% if not unavailable %}<p class="chip chip--off kpi-extra">Restore-Probe: {% if last_restore %}{% if last_restore.phase == 'completed' %}abgeschlossen{% else %}fehlgeschlagen{% endif %} · {{ utc(last_restore.at) }}{% else %}keine erfasst{% endif %}</p>{% endif %}
     </div>
@@ -116,21 +117,14 @@
     {% endif %}
     {% if hint_points %}
     <details class="ov-more">
-      <summary>Hinweise zur Konfiguration</summary>
+      <summary>Hinweise</summary>
       <ol class="open-points">{% for point in hint_points %}{{ point_item(point) }}{% endfor %}</ol>
-    </details>
-    {% endif %}
-    {% if project_status is defined %}
-    <details class="ov-more" data-static="project-status">
-      <summary>Projekt-Stand (statisch, Stand {{ project_status_date }})</summary>
-      <p class="ov-note">Fest notiert, keine Live-Daten aus dem Deck.</p>
-      <ul class="ov-notes">{% for line in project_status %}<li>{{ line }}</li>{% endfor %}</ul>
     </details>
     {% endif %}
   </section>
 
   <div class="ov-two">
-    <section class="panel ov-card" id="flow" aria-labelledby="flow-title">
+    <section class="panel ov-card{% if not focus %} ov-card--bare{% endif %}" id="flow" aria-labelledby="flow-title">
       <div class="ov-card-head">
         <h2 id="flow-title">{{ icon('lines') }}Auftrags-Workflow</h2>
         <a class="ov-link" href="/ui/tasks">Alle Aufträge →</a>
@@ -177,7 +171,7 @@
         {% for lane in pending %}
         <li class="lane-row" data-lane="{{ lane.key }}">
           <span class="lane-tag" aria-hidden="true">{{ lane.key[:3]|upper }}</span>
-          <div class="lane-text"><b>{{ lane.title }}</b><small>Keine Daten im Deck.</small></div>
+          <div class="lane-text"><b>{{ lane.title }}</b><small>{{ lane.detail }} · keine Daten</small></div>
           <span class="chip chip--off">{{ lane.label }}</span>
         </li>
         {% endfor %}
@@ -204,12 +198,12 @@
         <div class="fact"><dt>Webabruf <code>DECK_ASSISTANT_WEB</code></dt><dd>{{ switch_chip(flags.assistant_web) }}</dd></div>
       </dl>
       {% endif %}
-      {% if assistant_facts is defined %}{{ fact_list(assistant_facts) }}{% endif %}
+      {% if assistant_facts is defined %}<h3 class="ov-facts-title">Loopback-Dialog, wenn eingeschaltet</h3>{{ fact_list(assistant_facts) }}{% endif %}
       {% if activation is defined %}<ul class="ov-notes">{% for line in activation %}<li>{{ line }}</li>{% endfor %}</ul>{% endif %}
       <div class="ov-foot"><span></span><a class="button ghost" href="/ui/assistant">Assistent öffnen →</a></div>
     </details>
 
-    <details class="panel ov-card ov-fold" id="meldungen"{% if flags and flags.routine_wake == 'incomplete' %} open{% endif %}>
+    <details class="panel ov-card ov-fold" id="meldungen"{% if open_section == 'meldungen' or (flags and flags.routine_wake == 'incomplete') %} open{% endif %}>
       <summary class="ov-card-head"><h2 id="messages-title">{{ icon('bell') }}Meldungen</h2>{% if flags %}{{ switch_chip(flags.routine_wake) }}{% endif %}</summary>
       <p class="ov-lede"><b>Routine-Wake an den Owner.</b> Das Deck meldet einen fertigen Auftrag mit Hash, ohne Inhalt. Du bestätigst über den Rückweg.</p>
       {% if wake_facts is defined %}{{ fact_list(wake_facts) }}{% endif %}
@@ -217,7 +211,8 @@
       <dl class="facts">
         <div class="fact"><dt>Sender <code>DECK_ROUTINE_WAKE</code></dt><dd>{% if flags.routine_wake == 'on' %}<span class="chip chip--on">konfiguriert</span>{% elif flags.routine_wake == 'incomplete' %}<span class="chip chip--warn">unvollständig</span>{% else %}<span class="chip chip--off">aus</span>{% endif %}</dd></div>
       </dl>
-      {% endif %}    </details>
+      {% endif %}
+    </details>
   </div>
 
   <details class="panel ov-card ov-fold" id="audit">
@@ -237,6 +232,15 @@
     <div class="ov-foot">{% if csv_url is defined %}<a class="ov-link" href="{{ csv_url }}">Sichtbare Seite als CSV</a>{% else %}<span></span>{% endif %}<a class="button ghost" href="/ui/audit">Alle Ereignisse →</a></div>
   </details>
 
-  {% if schema_head %}<p class="ov-stand">Schema {{ schema_head }}</p>{% endif %}
+  <div class="ov-end">
+    {% if project_status is defined %}
+    <details class="ov-more" data-static="project-status">
+      <summary>Projekt-Stand · statisch, keine Live-Daten (Stand {{ project_status_date }})</summary>
+      <p class="ov-note">Fest im Code notiert, nicht aus dem Deck gelesen.</p>
+      <ul class="ov-notes">{% for line in project_status %}<li>{{ line }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    {% if schema_head %}<p class="ov-stand">Schema {{ schema_head }}</p>{% endif %}
+  </div>
 </div>
 {% endblock %}

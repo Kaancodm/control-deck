@@ -112,7 +112,7 @@ def test_shell_navigation_matrix_one_logout_and_a_menu() -> None:
         "/ui/knowledge",
         "/ui/lanes",
         "/ui/assistant",
-        "/ui/overview#meldungen",
+        "/ui/overview?open=meldungen#meldungen",
         "/ui/overview#offen",
         "/ui/chat",
         "/ui/audit",
@@ -121,7 +121,7 @@ def test_shell_navigation_matrix_one_logout_and_a_menu() -> None:
         "/ui/overview",
         "/ui/lanes",
         "/ui/assistant",
-        "/ui/overview#meldungen",
+        "/ui/overview?open=meldungen#meldungen",
         "/ui/overview#offen",
     ]
     assert regions.links["menu-nav"] == [

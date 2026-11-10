@@ -18,6 +18,7 @@ from tests.integration.test_ui_flows import password_hash as password_hash
 from tests.integration.test_ui_flows import ui_client as ui_client
 from tests.unit.test_ui_root import BOUNDARY_CSP
 
+ALEMBIC_HEAD = "20261110_0064"
 SENTINELS = {
     "DECK_ROUTINE_WAKE_URL": "https://sentinel-wake-7411.example.invalid/hook",
     "DECK_ROUTINE_WAKE_AUTHORIZATION": "Bearer sentinel-wake-key-6203",
@@ -83,6 +84,8 @@ def test_overview_counts_real_approvals_lanes_and_events(ui_client, db_session):
     assert "4 Lanes" in html and 'data-lane="agy"' in html
     assert "eigene Lane · im Deck noch nicht angebunden" in html
     assert 'data-open-point="lane_agy_pending"' in html
+    hints = html.split("<summary>Hinweise</summary>", 1)[1].split("</details>", 1)[0]
+    assert 'data-open-point="lane_agy_pending"' in hints  # N1: a hint, not a warning
     assert "KEINE LANE" not in html.upper()
     audit_log = html.split('class="audit-log"', 1)[1].split("</ol>", 1)[0]
     assert re.search(r"<b>task\.[a-z_]+</b>", audit_log)
@@ -95,9 +98,10 @@ def test_overview_counts_real_approvals_lanes_and_events(ui_client, db_session):
     # Exactly one filled primary action while approvals wait.
     assert '<a class="button" href="/ui/tasks#waiting-tasks">Freigaben öffnen</a>' in html
     assert '<a class="button quiet" href="/ui/tasks/new">＋ Neuer Auftrag</a>' in html
+    # cq1: the shown revision is the script head; this PR adds no revision of its own.
     head = db_session.scalars(text("SELECT version_num FROM alembic_version")).all()
-    if head:
-        assert f'<p class="ov-stand">Schema {" + ".join(sorted(head))}</p>' in html
+    assert head == [ALEMBIC_HEAD]
+    assert f'<p class="ov-stand">Schema {ALEMBIC_HEAD}</p>' in html
     act_on_task(db_session, first.id, "approve")
     db_session.commit()
     html = ui_client.get("/ui/overview").text
@@ -105,14 +109,29 @@ def test_overview_counts_real_approvals_lanes_and_events(ui_client, db_session):
     assert f'href="/ui/tasks/{first.id}">Plan prüfen' not in html
 
 
-def test_overview_database_error_is_an_honest_gap(ui_client, monkeypatch):
+def test_alembic_script_head_matches_the_documented_head():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(Config("alembic.ini"))
+    assert script.get_heads() == [ALEMBIC_HEAD]
+
+
+@pytest.mark.parametrize(
+    "target", ["list_audit", "list_owner_tasks", "read_lane_health", "read_settings"]
+)
+def test_overview_database_error_is_an_honest_gap(ui_client, monkeypatch, caplog, target):
     login(ui_client)
 
     def broken(*args, **kwargs):
-        raise OperationalError("SELECT 1", {}, Exception("synthetic outage"))
+        raise OperationalError("SELECT 'synthetic-secret'", {}, Exception("synthetic outage"))
 
-    monkeypatch.setattr("app.ui.routes.list_audit", broken)
-    response = ui_client.get("/ui/overview")
+    monkeypatch.setattr(f"app.ui.routes.{target}", broken)
+    with caplog.at_level("WARNING", logger="app.ui.routes"):
+        response = ui_client.get("/ui/overview")
+    # Fable N10: exactly one log line, with the error class only and no values or SQL.
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.ui.routes"]
+    assert lines == ["ui overview read failed: OperationalError"]
     assert response.status_code == 503
     html = response.text
     assert "(Code: temporarily_unavailable)" in html
@@ -120,8 +139,34 @@ def test_overview_database_error_is_an_honest_gap(ui_client, monkeypatch):
     assert "Audit-Daten sind nicht verfügbar." in html
     for claim in ("Kein Auftrag wartet auf dich.", "Noch keine Ereignisse erfasst.", "GO offen"):
         assert claim not in html
-    assert "synthetic outage" not in html
+    assert "synthetic outage" not in html and "synthetic-secret" not in html
+    assert "Anbindung nicht verfügbar" in html and "lane-list" in html  # agy row only
+    assert 'class="lane-row" data-lane="ollama"' not in html
     assert response.headers.get_list("content-security-policy") == [BOUNDARY_CSP]
+
+
+def test_focus_is_only_the_oldest_waiting_task(ui_client, db_session):
+    # cq1: a newer active task does not take the focus; docs/UI.md names the waiting task.
+    login(ui_client)
+    running = _insert_task(db_session, approved=True)
+    db_session.commit()
+    assert running.status == TaskState.QUEUED  # active, but nothing waits on the owner
+    html = ui_client.get("/ui/overview").text
+    assert "Kein Auftrag wartet auf dich." in html
+    assert f'href="/ui/tasks/{running.id}"' not in html
+    assert 'aria-current="step"' not in html
+
+
+def test_messages_tab_opens_the_section_without_javascript(ui_client):
+    login(ui_client)
+    pattern = '<details class="panel ov-card ov-fold" id="meldungen" open>'
+    opened = ui_client.get("/ui/overview?open=meldungen")
+    assert opened.status_code == 200 and pattern in opened.text
+    assert 'href="/ui/overview?open=meldungen#meldungen"' in opened.text
+    for value in ("", "audit", "meldungen<script>", "MELDUNGEN"):
+        html = ui_client.get("/ui/overview", params={"open": value}).text
+        assert pattern not in html, value
+        assert "<script>" not in html.split("<main", 1)[1]
 
 
 @pytest.mark.parametrize("path", ["/ui/login", "/ui/overview", "/ui/assistant"])
@@ -159,8 +204,15 @@ def test_configured_values_never_reach_the_html(ui_client, monkeypatch):
     overview = pages["/ui/overview"]
     assert '<span class="chip chip--on">konfiguriert</span>' in overview
     assert "<code>DECK_ROUTINE_WAKE</code>" in overview
-    # Fable B8: duplicate DECK_* rows were removed, so three AN chips remain.
-    assert overview.count('<span class="chip chip--on">AN</span>') >= 3
+    # Fable B8: duplicate DECK_* rows were removed, so exactly three AN chips remain:
+    # the loopback chip and the web switch in "Assistent", the wake chip in "Meldungen".
+    on = '<span class="chip chip--on">AN</span>'
+    assert overview.count(on) == 3
+    assistant = overview.split('id="assistent"', 1)[1].split("</details>", 1)[0]
+    messages = overview.split('id="meldungen"', 1)[1].split("</details>", 1)[0]
+    assert assistant.split("</summary>", 1)[0].count(on) == 1
+    assert "<code>DECK_ASSISTANT_WEB</code></dt><dd>" + on in assistant
+    assert messages.split("</summary>", 1)[0].count(on) == 1
     assert "Routine-Wake: an" in pages["/ui/assistant"]
     monkeypatch.setenv("DECK_ROUTINE_WAKE_URL", "http://sentinel-plain.example.invalid/")
     overview = ui_client.get("/ui/overview").text

@@ -8,6 +8,7 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from tests.integration.test_ui_browser import browser_app as browser_app
@@ -43,7 +44,10 @@ def _launch(playwright):
         return playwright.chromium.launch(
             headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
-    except Exception:
+    except PlaywrightError as exc:
+        # Only a missing browser binary is a skip; any other start failure must fail loudly.
+        if "Executable doesn't exist" not in str(exc):
+            raise
         pytest.skip("Chromium emulator is not installed; this is not a physical phone result")
 
 

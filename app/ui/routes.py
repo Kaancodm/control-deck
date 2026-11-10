@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -89,6 +90,7 @@ from app.ui.overview import (
 from app.ui.progress import AttemptProgress, attempt_progress
 from app.ui.views import HOME_PATH, page, preview_context, preview_redirect
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", include_in_schema=False)
 root_router = APIRouter(include_in_schema=False)
 
@@ -105,9 +107,18 @@ class UiError(Exception):
         self.status = status
 
 
-def owner(request: Request, session: Session) -> None:
+def require_owner(request: Request, session: Session) -> None:
     if get_ui_session(session, request.cookies.get(SESSION_COOKIE)) is None:
         raise UiError("login_required", 401)
+
+
+def owner(request: Request, session: Session) -> None:
+    require_owner(request, session)
+    load_owner_state(request, session)
+
+
+def load_owner_state(request: Request, session: Session) -> None:
+    """Runner controls and lane health for the shell; both are database reads."""
     request.state.controls = read_settings(session)
     try:
         request.state.lane_health = read_lane_health(session)
@@ -270,9 +281,6 @@ def logout_all(request: Request, session: DbSession, data: ParsedForm) -> Respon
     return response
 
 
-_ACTIVE_FOCUS = frozenset({TaskState.QUEUED, TaskState.LEASED, TaskState.RUNNING})
-
-
 def schema_head(session: Session) -> str | None:
     """Read the Alembic head without writing. Missing or unreadable means it is not shown."""
     try:
@@ -283,19 +291,17 @@ def schema_head(session: Session) -> str | None:
     return " + ".join(sorted(heads)) or None
 
 
+# Sections the overview may open server-side; anything else in ``open`` is ignored.
+_OPENABLE_SECTIONS = frozenset({"meldungen"})
+
+
 @router.get("/overview")
 def overview(request: Request, session: DbSession) -> Response:
     """Owner overview. Only existing read functions; every number has a stored source."""
-    owner(request, session)
-    lanes = request.state.lane_health
-    health_unavailable = getattr(request.state, "health_unavailable", False)
+    require_owner(request, session)
     flags = feature_flags()
-    rows = lane_rows(lanes)
-    summary = lane_summary(lanes, health_unavailable=health_unavailable)
+    requested = request.query_params.get("open", "")
     shared: dict[str, Any] = {
-        "claims": claims_summary(lanes),
-        "lane_rows": rows,
-        "lanes_summary": summary,
         "pending_lanes": PENDING_LANES,
         "flags": flags,
         "activation": activation_status(),
@@ -303,8 +309,12 @@ def overview(request: Request, session: DbSession) -> Response:
         "wake_facts": WAKE_FACTS,
         "project_status": PROJECT_STATUS,
         "project_status_date": PROJECT_STATUS_DATE,
+        "open_section": requested if requested in _OPENABLE_SECTIONS else None,
     }
     try:
+        load_owner_state(request, session)
+        lanes = request.state.lane_health
+        health_unavailable = getattr(request.state, "health_unavailable", False)
         _, waiting_total = list_owner_tasks(session, needs_owner=True, limit=1)
         # Pages are newest first, so the last offset is the oldest waiting task.
         oldest, _ = (
@@ -313,7 +323,6 @@ def overview(request: Request, session: DbSession) -> Response:
             else ([], 0)
         )
         _, blocked_total = list_owner_tasks(session, state=TaskState.BLOCKED, limit=1)
-        latest, _ = list_owner_tasks(session, limit=1)
         recent = list_audit(session, AuditFilter(limit=5))
         backups = list_audit(
             session, AuditFilter(source="operation", event_type="operation.backup", limit=10)
@@ -321,21 +330,25 @@ def overview(request: Request, session: DbSession) -> Response:
         restores = list_audit(
             session, AuditFilter(source="operation", event_type="operation.restore", limit=10)
         )
-    except SQLAlchemyError:
-        # Honest gap instead of an unhandled 500: tiles say "nicht verfügbar", no counts.
+    except SQLAlchemyError as exc:
+        # Honest gap instead of an unhandled 500: no counts, no lane data, no empty claims.
         session.rollback()
+        logger.warning("ui overview read failed: %s", type(exc).__name__)
+        request.state.lane_health = []
+        unknown = lane_summary([], health_unavailable=True)
         return page(
             request,
             "overview.html",
             status=503,
             error="temporarily_unavailable",
             data_unavailable=True,
-            nav_counts={"lanes": summary.total},
+            controls=None,
+            lanes_summary=unknown,
+            nav_counts={"lanes": unknown.total},
             **shared,
         )
+    summary = lane_summary(lanes, health_unavailable=health_unavailable)
     focus = oldest[0] if oldest else None
-    if focus is None and latest and latest[0].status in _ACTIVE_FOCUS:
-        focus = latest[0]
     last_backup = latest_outcome(backups.items)
     last_restore = latest_outcome(restores.items)
     points = open_points(
@@ -359,6 +372,9 @@ def overview(request: Request, session: DbSession) -> Response:
         csv_url="/ui/audit.csv?limit=5",
         last_backup=last_backup,
         last_restore=last_restore,
+        claims=claims_summary(lanes),
+        lane_rows=lane_rows(lanes),
+        lanes_summary=summary,
         net=network_nodes(
             lanes=lanes,
             flags=flags,

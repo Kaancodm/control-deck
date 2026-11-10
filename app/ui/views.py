@@ -225,6 +225,8 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
 }
 # Fixed landing page after login and for /ui. There is deliberately no ``next`` parameter.
 HOME_PATH = "/ui/overview"
+# The messages section is opened server-side by this fixed query; no JavaScript involved.
+MESSAGES_HREF = HOME_PATH + "?open=meldungen#meldungen"
 
 
 @dataclass(frozen=True)
@@ -246,7 +248,7 @@ NAV_ITEMS: tuple[NavItem, ...] = (
     NavItem("knowledge", "Wissen", "/ui/knowledge", "layers", "workspace"),
     NavItem("lanes", "Lanes", "/ui/lanes", "lanes", "control", "Lanes"),
     NavItem("assistant", "Assistent", "/ui/assistant", "person", "control", "Assistent"),
-    NavItem("messages", "Meldungen", HOME_PATH + "#meldungen", "bell", "control", "Meldungen"),
+    NavItem("messages", "Meldungen", MESSAGES_HREF, "bell", "control", "Meldungen"),
     NavItem("open", "Offene Punkte", HOME_PATH + "#offen", "list", "control", "Offen"),
     NavItem("chat", "Lokaler Chat", "/ui/chat", "chat", "control"),
     NavItem("audit", "Audit", "/ui/audit", "shield", "control"),

@@ -60,7 +60,7 @@
   </section>
 
   <details class="panel assistant-fold" aria-label="So funktioniert der Assistent">
-    <summary>So funktioniert der Assistent</summary>
+    <summary><h2>So funktioniert der Assistent</h2></summary>
     <p>Ein normaler Satz bleibt Dialog. Ein Auftrag entsteht erst, wenn du eine Karte, ein Preset oder die Suche als Auftrag absendest. Die sechs Bestätigungsfelder schreibt die Anwendung; sie sind keine Chat-Pflicht.</p>
     <ul>{% for line in activation %}<li>{{ line }}</li>{% endfor %}</ul>
     {% if assistant_facts is defined %}
@@ -72,7 +72,7 @@
   </details>
 
   <details class="panel assistant-fold" aria-label="Profil">
-    <summary>Profil</summary>
+    <summary><h2>Profil</h2></summary>
     <p class="hint">Nur der Owner schreibt das Profil. Version {{ profile.version if profile else 0 }}. Ältere Versionen bleiben stehen.</p>
     <form action="/ui/assistant/profile" method="post" class="form-stack">
       {% include 'partials/csrf.html' %}

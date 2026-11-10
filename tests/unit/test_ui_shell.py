@@ -128,6 +128,8 @@ def test_fixed_colours_live_only_in_the_tokens() -> None:
         if path.name == "app.css":
             css = css.split(":root {", 1)[0] + css.split(":root {", 1)[1].split("}", 1)[1]
         assert re.findall(r"#[0-9A-Fa-f]{3,8}\b", css) == [], path.name
+        # cq1: alpha tones derive from the tokens (color-mix), not from repeated rgb() values.
+        assert re.findall(r"\b(?:rgba?|hsla?)\(", css) == [], path.name
 
 
 def test_phone_header_and_tab_bar_are_opaque_and_stacked() -> None:
@@ -136,7 +138,10 @@ def test_phone_header_and_tab_bar_are_opaque_and_stacked() -> None:
     assert "position: relative; z-index: 7;" in phone
     assert "backdrop-filter: none" in phone
     assert "z-index: 6" in phone  # the tab bar stays below the open menu
-    assert ".tabbar { display: none; }" in phone and "body:has(" in phone
+    focused = phone.split("body:has(", 1)[1].split("}", 1)[0]
+    assert ".tabbar { visibility: hidden; transition-delay: 0s;" in focused
+    # Fable N2: the bar comes back only after a delay, never between mousedown and mouseup.
+    assert ".tabbar { transition: visibility 0s linear .4s; }" in phone
     assert not re.search(r"\.tabbar[^{}]*\{[^}]*blur\(", css)  # nothing shines through
     tabbar = phone.split(".tabbar {", 1)[1].split("}", 1)[0]
     assert "background: var(--color-side);" in tabbar

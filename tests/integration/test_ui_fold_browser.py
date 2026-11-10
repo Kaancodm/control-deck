@@ -7,7 +7,7 @@ review targets for an empty deck at 390 x 844 and are not loosened here.
 from __future__ import annotations
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from tests.integration.test_ui_browser import browser_app as browser_app
 from tests.integration.test_ui_shell_browser import _launch, _local_only
@@ -130,7 +130,46 @@ def test_tab_bar_is_opaque_and_yields_to_the_keyboard(browser_app):
         box = field.bounding_box()
         assert box is not None and box["y"] >= 0 and _bottom(box) <= 340
         page.evaluate("document.activeElement.blur()")
-        assert bar.is_visible()
+        expect(bar).to_be_visible()  # it returns after a short delay (Fable N2)
+        assert external == []
+        context.close()
+        browser.close()
+
+
+def test_click_where_the_hidden_tab_bar_sits_is_not_lost(browser_app):
+    # Fable N2: leaving a text field must not bring the bar back under the pointer
+    # between mousedown and mouseup, or the click lands on the bar instead.
+    base, password, _ = browser_app
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        context = browser.new_context(viewport={"width": 390, "height": 640})
+        page = context.new_page()
+        external: list[str] = []
+        page.route("**/*", _local_only(base, external))
+        _login(page, base, password)
+        page.goto(base + "/ui/assistant")
+        bar = page.locator(".tabbar")
+        bar_box = bar.bounding_box()
+        assert bar_box is not None
+        fold = page.locator('details[aria-label="So funktioniert der Assistent"]')
+        summary = fold.locator("summary")
+        page.evaluate("document.getElementById('message').focus({preventScroll: true})")
+        expect(bar).to_be_hidden()
+        # Put the fold's summary exactly where the bar would sit.
+        box = summary.bounding_box()
+        assert box is not None
+        target_y = bar_box["y"] + bar_box["height"] / 2
+        page.evaluate(f"window.scrollBy(0, {box['y'] + box['height'] / 2 - target_y})")
+        box = summary.bounding_box()
+        assert box is not None
+        centre_y = box["y"] + box["height"] / 2
+        assert bar_box["y"] < centre_y < bar_box["y"] + bar_box["height"]
+        assert page.evaluate("document.activeElement.id") == "message"
+        assert not fold.evaluate("d => d.open")
+        page.mouse.click(box["x"] + min(box["width"] / 2, 120), centre_y)
+        assert fold.evaluate("d => d.open")
+        assert page.url.endswith("/ui/assistant")  # the bar link was not hit
+        expect(bar).to_be_visible()
         assert external == []
         context.close()
         browser.close()

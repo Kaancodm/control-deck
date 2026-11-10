@@ -18,12 +18,13 @@ from app.assistant.ollama_chat import (
     DIALOGUE_NUM_PREDICT_MAX,
     DIALOGUE_NUM_PREDICT_MIN,
 )
+from app.assistant.providers import assistant_switches
 from app.audit.health import LaneHealthView
 from app.audit.presentation import AuditItem
 from app.core.schemas import DataClass, Worker
 from app.db.settings import RunnerSettings
 from app.transport.config import TransportConfigError, wake_config_from_env, wake_enabled
-from app.ui.views import STATUS_LABELS
+from app.ui.views import MESSAGES_HREF, STATUS_LABELS
 from app.workers.lanes.ollama_http import BUSY_ATTEMPTS
 
 Switch = Literal["off", "incomplete", "on"]
@@ -47,12 +48,13 @@ class PendingLane:
     key: str
     title: str
     label: str
+    detail: str
 
 
 # Owner decision of 07.11.2026: agy is the fourth lane. The worker enum, schema and runner
 # stay unchanged until an ADR and the connection exist, so this row carries no health data.
 PENDING_LANES: tuple[PendingLane, ...] = (
-    PendingLane("agy", "agy / Gemini", "eigene Lane · im Deck noch nicht angebunden"),
+    PendingLane("agy", "agy", "nicht angebunden", "eigene Lane · im Deck noch nicht angebunden"),
 )
 
 
@@ -109,16 +111,17 @@ def assistant_facts() -> tuple[Fact, ...]:
         budget = "Konfiguration ungültig"
     else:
         budget = f"{num_ctx} Token Kontext, Antwort höchstens {num_predict} Token"
+    # A custom value may be 0 (unload at once), so only the default is described as "loaded".
     keep_alive = (
-        "eigener Wert gesetzt"
+        "eigener Wert gesetzt (docs/ASSISTENT.md)"
         if _set("DECK_ASSISTANT_OLLAMA_KEEP_ALIVE")
-        else f"Standard {DIALOGUE_KEEP_ALIVE_DEFAULT}"
+        else f"bleibt geladen (Standard {DIALOGUE_KEEP_ALIVE_DEFAULT})"
     )
     return (
         Fact("Kontextbudget", budget),
         Fact("Dialog im Browser", "Server-Sent Events, gebaut"),
         Fact("Denkphase", "aus"),
-        Fact("Modell zwischen zwei Runden", f"bleibt geladen ({keep_alive})"),
+        Fact("Modell zwischen zwei Runden", keep_alive),
         Fact(
             "Bei Auslastung",
             f"Ollama 503: bis zu {BUSY_ATTEMPTS} Versuche, dann «{MODEL_BUSY_TEXT[0]}»",
@@ -133,7 +136,7 @@ WAKE_MAX_POSTS = 3
 WAKE_FACTS: tuple[Fact, ...] = (
     Fact(
         "Sendeversuche",
-        f"höchstens {WAKE_MAX_POSTS}, wiederholt nur bei Ablehnung (ausser HTTP 200)",
+        f"höchstens {WAKE_MAX_POSTS}, wiederholt nur bei HTTP-Status ausser 200",
     ),
     Fact("Ohne Antwort", "kein automatischer Neuversand"),
     Fact("Datenklasse", f"nur {DataClass.CLOUD_OK.value}"),
@@ -141,14 +144,12 @@ WAKE_FACTS: tuple[Fact, ...] = (
     Fact("Vertrag", "deck.wake.v1, im Code gebaut (docs/TRANSPORT.md)"),
 )
 
-# Static, dated project notes. Not deck data; the template labels them as such.
+# Static, dated project notes. Not deck data; the template labels them as such and places
+# them at the end of the page. Only items the repository itself documents, no PR numbers.
 PROJECT_STATUS_DATE = "10.11.2026"
 PROJECT_STATUS: tuple[str, ...] = (
     "Safari am echten iPhone ungeprüft.",
     "agy-Lane: ADR und Anbindung offen.",
-    "Draft-PR #63: Annahme und verlorener Runner in der Queue.",
-    "Draft-PR #59: explizites Laufzeitziel für Wissens-Migrationen.",
-    "Doku-Entwürfe #54 bis #57.",
 )
 
 
@@ -168,36 +169,30 @@ def _set(name: str) -> bool:
     return bool(os.environ.get(name, "").strip())
 
 
+def _switch(enabled: bool, missing: Sequence[str]) -> Switch:
+    if not enabled:
+        return "off"
+    return "incomplete" if missing else "on"
+
+
 def feature_flags() -> FeatureFlags:
-    """Mirror ``activation_status`` and ``wake_config_from_env`` without returning values."""
-    if os.environ.get("DECK_ASSISTANT_OLLAMA") == "1":
-        complete_model = _set("DECK_OLLAMA_URL") and _set("DECK_ASSISTANT_OLLAMA_MODEL")
-        loopback: Switch = "on" if complete_model else "incomplete"
-    else:
-        loopback = "off"
-    web: Switch = "off"
-    encyclopedia = web_search = False
-    if os.environ.get("DECK_ASSISTANT_WEB") == "1":
-        provider = os.environ.get("DECK_ASSISTANT_SEARCH_PROVIDER", "").strip()
-        complete = _set("DECK_ASSISTANT_WEB_ALLOWLIST") and (
-            (provider == "mediawiki" and _set("DECK_ASSISTANT_MEDIAWIKI_API"))
-            or (provider == "searxng" and _set("DECK_ASSISTANT_SEARXNG_URL"))
-        )
-        web = "on" if complete else "incomplete"
-        encyclopedia = complete and provider == "mediawiki"
-        web_search = complete and provider == "searxng"
+    """Switch states from the same source as ``activation_status``; values never leave."""
+    switches = assistant_switches()
+    web = _switch(switches.web_enabled, switches.web_missing)
     wake: Switch = "off"
     if wake_enabled():
         try:
-            wake = "on" if wake_config_from_env().enabled else "off"
+            wake_config_from_env()
         except TransportConfigError:
             wake = "incomplete"
+        else:
+            wake = "on"
     return FeatureFlags(
-        assistant_loopback=loopback,
+        assistant_loopback=_switch(switches.loopback_enabled, switches.loopback_missing),
         model_named=_set("DECK_ASSISTANT_OLLAMA_MODEL"),
         assistant_web=web,
-        encyclopedia=encyclopedia,
-        web_search=web_search,
+        encyclopedia=web == "on" and switches.provider == "mediawiki",
+        web_search=web == "on" and switches.provider == "searxng",
         routine_wake=wake,
     )
 
@@ -396,15 +391,17 @@ def open_points(
     for lane in lanes:
         for warning in lane.warnings:
             if warning == "auth_required":
-                detail = "Anmeldung erforderlich. Pausenzustand und Anmeldeverfahren prüfen."
+                reason, chip = "Anmeldung nötig", "Anmeldung"
+                detail = "Pausenzustand und Anmeldeverfahren prüfen."
             else:
+                reason, chip = "kein Erfolg seit 1 Tag", "kein Erfolg"
                 detail = "Kein erfasster Erfolgsnachweis seit mindestens einem Tag."
             points.append(
                 OpenPoint(
-                    f"lane_{warning}",
-                    f"Lane {lane.lane.value}",
+                    f"lane_{lane.lane.value}_{warning}",
+                    f"Lane {lane.lane.value}: {reason}",
                     detail,
-                    "Warnung",
+                    chip,
                     "warn",
                     "/ui/lanes",
                 )
@@ -421,13 +418,14 @@ def open_points(
             )
         )
     for pending in pending_lanes:
+        # A fixed note, not deck data: it is a hint and never counts as an open warning.
         points.append(
             OpenPoint(
                 f"lane_{pending.key}_pending",
                 f"{pending.key}-Lane: ADR und Anbindung fehlen",
-                "Eigene Lane nach Owner-Entscheid, im Deck noch nicht angebunden.",
-                "offen",
-                "warn",
+                "Fester Hinweis nach Owner-Entscheid, keine Daten aus dem Deck.",
+                "statisch",
+                "off",
                 None,
             )
         )
@@ -461,7 +459,7 @@ def open_points(
                 "Ohne Sender gehen keine Meldungen an den Owner.",
                 "aus" if flags.routine_wake == "off" else "Sender unvollständig",
                 "off" if flags.routine_wake == "off" else "warn",
-                "/ui/overview#meldungen",
+                MESSAGES_HREF,
             )
         )
     if last_backup is None:

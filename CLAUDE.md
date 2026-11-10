@@ -125,6 +125,61 @@ These add to the human gates above; `AGENTS.md` still wins on conflict.
   or public URL; never internal hosts, URLs, or identifiers, see `AGENTS.md`), date, method,
   and status (`proven` / `unproven`). Never phrase unproven content as fact.
 
+## How we work with Claude (research-based)
+
+Owner research, 2026-10-29 (method: vendor docs read, re-verified; status: proven unless marked).
+Public sources: `code.claude.com/docs/en/best-practices`, `.../sub-agents`, `.../model-config`.
+Role split is an owner decision, not a research finding. `AGENTS.md` and Human gates still win.
+
+### Roles per task
+
+- **Planning model (Fable):** plans in Plan Mode and writes the ticket/handoff; does not build.
+  Select it explicitly (`/model fable`); it is never the default. Leave its effort at the
+  default `high`; raise to `max` only for hard architecture decisions.
+- **Build model (Opus):** implements and fixes from the ticket in a fresh session.
+- **Review/small-fix account:** reviews diffs and makes small, scoped fixes only.
+- **Security and code-quality reviews:** run by a separate reviewer in a fresh session without
+  the build context (`/code-review`, `/security-review`, `REVIEW.md`, the `reviewer` agent).
+  The reviewer is never the same model or session that wrote the change; provider rotation
+  follows `AGENTS.md` and ADR 0008.
+- Do not run Fable in non-interactive `claude -p` runs: there it may bill usage credits
+  without asking. Pin models explicitly in scripts.
+
+### Keep context small
+
+- One task per session; `/clear` between unrelated tasks (`/clear` is free, `/compact` is a
+  large request of its own).
+- After a pause of more than about 1 h (prompt-cache lifetime), start fresh with a short
+  summary instead of resuming the old session.
+- After two failed corrections: `/clear` and write a better prompt instead of a third fix.
+- Read targeted files and line ranges, not whole trees. Use subagents only for parallel work,
+  long outputs, or independent reviews; they share the same usage quota and return short
+  summaries.
+- Put long results in files (ticket, `SPEC.md`, report, `HANDOFF.md`), not in the chat.
+- CLAUDE.md is guidance only; hard limits belong in hooks and `permissions.deny`.
+
+### Handoff format (planning model -> build model)
+
+A subagent or fresh session sees only the handoff, not the planning chat, and built-in
+Explore/Plan agents do not load CLAUDE.md. The handoff must therefore be self-contained and
+repeat the rules that matter. Write it with `/plan-ticket` (`tasks/TEMPLATE.md`) and cover:
+
+1. **Goal:** what is different afterwards, as an outcome ("done when ...").
+2. **Context/files:** files to change or create, with `file:line` where useful.
+3. **Non-goals:** files and areas not to touch, forbidden actions (no deps, no push, no prod).
+4. **Steps:** atomic, one commit each.
+5. **Acceptance/tests:** exact commands (`make lint`, `make test`, ...) and expected result;
+   the build model reports command plus output tail.
+6. **Risks:** what can break, rollback note for medium/high risk.
+7. **Open owner decisions:** questions the build model must not decide; on doubt, stop and ask.
+
+Stop rule for the build model: after two failed attempts, stop and report instead of guessing.
+
+### Provenance
+
+Research claims and knowledge entries follow the **Provenance** rule under Working rules
+(source, date, method, `proven`/`unproven`). Unproven tips stay out of rules.
+
 ## Gotchas
 
 - `ruff format --check` runs in CI. Run `uv run ruff format .` before committing.

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 CHANNEL_GAPS = (
-    "Eine Kanal-Quittung nach 60 Sekunden ist nicht gebaut.",
+    "Die Kanal-Quittung nach 60 Sekunden ist gebaut; ein Zustell-Transport ist nicht gebaut.",
     "Ein extern beendeter Runner schreibt kein Zeitlimit-Resultat.",
 )
 

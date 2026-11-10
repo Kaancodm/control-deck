@@ -478,8 +478,8 @@ Index `ix_events_conversation_created_at` auf `created_at` WHERE
 ### Downgrade
 
 Der Migrationskopf nennt Test- und Entwicklungsdatenbanken. Der Code prüft den
-Datenbanknamen nicht. Er setzt `lock_timeout` auf 10 s (Abbruch statt Deadlock)
-und sperrt mit `LOCK TABLE ... IN SHARE ROW EXCLUSIVE MODE` in dieser
+Datenbanknamen nicht. Er setzt `lock_timeout` auf 10 s (begrenzt ein einseitiges Warten;
+Deadlocks loest Postgres ueber `deadlock_timeout`) und sperrt mit `LOCK TABLE ... IN SHARE ROW EXCLUSIVE MODE` in dieser
 Reihenfolge: `assistant_channel_accounts`, `assistant_thread_links`,
 `assistant_threads`, `assistant_messages`, `memory_facts`, `memory_approvals`
 und zuletzt `events`. Danach zählt er Zeilen in `events` mit `task_id IS NULL`

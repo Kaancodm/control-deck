@@ -431,10 +431,15 @@ def ingest_turn(session: Session, payload: Mapping[str, Any] | ChannelTurnV1) ->
 def _lock_inbound(
     session: Session, message_id: uuid.UUID
 ) -> tuple[AssistantMessage | None, ThreadLink | None]:
-    """Lock the link, then an active topic, then the message (same order as ingest)."""
+    """Lock account, link, active topic, then message (same order as ingest).
+
+    The account share lock comes first so the reply insert's FOR KEY SHARE on the
+    account cannot cycle with the downgrade's table lock (accounts first).
+    """
     preview = session.get(AssistantMessage, message_id)
     if preview is None:
         return None, None
+    _load_account(session, preview.source_channel, preview.source_account)
     link = _load_link(
         session,
         preview.source_channel,

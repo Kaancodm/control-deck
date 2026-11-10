@@ -471,6 +471,7 @@ Sammel-Thread neu ist.
 - `propose_fact` prueft die Datenschutz-Sperre mit der Klasse der Quellnachricht.
 - Entschiedene Zeilen sind eingefroren (siehe ADR 0010, «Unveraenderlichkeit nach
   dem Entscheid»).
-- Sperr-Reihenfolge: Verknuepfung, aktives Thema, Nachricht. Der Downgrade sperrt
+- Sperr-Reihenfolge: Konto (FOR SHARE), Verknuepfung, aktives Thema, Nachricht;
+  Antwort und Backfill sperren das Konto ebenfalls zuerst. Der Downgrade sperrt
   zuerst `assistant_channel_accounts`, dann die Inhaltstabellen in derselben
   Reihenfolge und `events` zuletzt.

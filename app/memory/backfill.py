@@ -18,7 +18,7 @@ from app.assistant.records import AssistantTurn
 from app.core.schemas import DataClass
 from app.memory.audit import record_conversation_event
 from app.memory.ingest import contains_secret, text_digest
-from app.memory.models import AssistantMessage, AssistantThread
+from app.memory.models import AssistantMessage, AssistantThread, ChannelAccount
 from app.memory.policy import EVIDENCE_DEFAULT
 
 # Fixed id so a re-run finds the same collection thread.
@@ -105,6 +105,12 @@ def backfill_assistant_turns(session: Session) -> BackfillReport:
     )
     if not turns:
         return BackfillReport(0, 0, 0, None)
+    # Account first, like ingest and the downgrade, before any thread or message write.
+    session.execute(
+        select(ChannelAccount.channel)
+        .where(ChannelAccount.channel == "deck_ui", ChannelAccount.account_label == "owner")
+        .with_for_update(read=True)
+    )
     thread_existed = session.get(AssistantThread, COLLECTION_THREAD_ID) is not None
     thread = _collection_thread(session)
     inserted = duplicates = rejected = 0

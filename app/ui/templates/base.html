@@ -38,8 +38,11 @@
     <div class="shell-main">
       <header class="topbar">
         {% if owner %}
-        <p class="crumb"><a href="{{ home_path }}">Deck</a><span aria-hidden="true">/</span><b>{% block crumb %}{% for item in nav_items if item.key == nav %}{{ item.label }}{% else %}Control Deck{% endfor %}{% endblock %}</b>{% block topbar_badge %}{% endblock %}</p>
+        <p class="crumb"><a class="crumb-home" href="{{ home_path }}">Deck</a><span class="crumb-sep" aria-hidden="true">/</span><b>{% block crumb %}{% for item in nav_items if item.key == nav %}{{ item.label }}{% else %}Control Deck{% endfor %}{% endblock %}</b>{% block topbar_badge %}{% endblock %}</p>
         <div class="topbar-actions">
+          <form action="/ui/logout" method="post" class="inline-form">
+            {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Abmelden</button>
+          </form>
           <details class="menu">
             <summary>Menü</summary>
             <div class="menu-panel">
@@ -51,9 +54,6 @@
               </form>
             </div>
           </details>
-          <form action="/ui/logout" method="post" class="inline-form">
-            {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Abmelden</button>
-          </form>
         </div>
         {% else %}
         <a class="brand" href="/ui/login"><b aria-hidden="true">◈</b>Control Deck</a>

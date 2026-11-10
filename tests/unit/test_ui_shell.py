@@ -120,6 +120,31 @@ def test_field_borders_meet_non_text_contrast(surface: str) -> None:
     assert contrast(tokens["color-control-border"], tokens[f"color-{surface}"]) >= 3.0
 
 
+def test_fixed_colours_live_only_in_the_tokens() -> None:
+    for path in OWN_ASSETS:
+        if path.suffix != ".css":
+            continue
+        css = path.read_text(encoding="utf-8")
+        if path.name == "app.css":
+            css = css.split(":root {", 1)[0] + css.split(":root {", 1)[1].split("}", 1)[1]
+        assert re.findall(r"#[0-9A-Fa-f]{3,8}\b", css) == [], path.name
+
+
+def test_phone_header_and_tab_bar_are_opaque_and_stacked() -> None:
+    css = (STATIC / "app.css").read_text(encoding="utf-8")
+    phone = css.split("@media (max-width: 53.75rem) {", 1)[1].split("\n}\n", 1)[0]
+    assert "position: relative; z-index: 7;" in phone
+    assert "backdrop-filter: none" in phone
+    assert "z-index: 6" in phone  # the tab bar stays below the open menu
+    assert ".tabbar { display: none; }" in phone and "body:has(" in phone
+    assert not re.search(r"\.tabbar[^{}]*\{[^}]*blur\(", css)  # nothing shines through
+    tabbar = phone.split(".tabbar {", 1)[1].split("}", 1)[0]
+    assert "background: var(--color-side);" in tabbar
+    assert not re.search(r"[\s;{]order\s*:", css)  # DOM order equals visual order in the header
+    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+    assert base.index(">Abmelden</button>") < base.index("<summary>Menü</summary>")
+
+
 def test_theme_token_names_are_stable() -> None:
     tokens = _tokens()
     for name in ("bg", "panel", "raised", "text", "muted", "accent", "action", "action-text"):

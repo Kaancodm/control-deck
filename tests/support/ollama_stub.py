@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+def embedding_vector(text, dimension):
+    """Deterministic non-zero synthetic vector; equal text gives an equal vector."""
+    values = []
+    counter = 0
+    while len(values) < dimension:
+        digest = hashlib.sha256(counter.to_bytes(4, "big") + text.encode()).digest()
+        values.extend((byte + 1) / 256 for byte in digest)
+        counter += 1
+    return values[:dimension]
 
 
 class OllamaStub:
@@ -26,6 +38,10 @@ class OllamaStub:
         raw_by_path=None,
         show_extra=None,
         show_by_model=None,
+        embed_dimension=1024,
+        embed_model=None,
+        embed_count_delta=0,
+        embed_extra=None,
     ):
         self.models = models
         self.output = output
@@ -44,6 +60,12 @@ class OllamaStub:
         self.raw_by_path = raw_by_path or {}
         self.show_extra = show_extra or {}
         self.show_by_model = show_by_model or {}
+        # /api/embed: width per vector, echoed model (None echoes the request),
+        # vectors more or fewer than inputs, and extra top-level response fields.
+        self.embed_dimension = embed_dimension
+        self.embed_model = embed_model
+        self.embed_count_delta = embed_count_delta
+        self.embed_extra = embed_extra or {}
         self.requests = []
         self.chat_started = threading.Event()
         self.disconnected = threading.Event()
@@ -105,6 +127,23 @@ class OllamaStub:
                                 "model_info": {"fixture.context_length": 4096},
                                 **fixture.show_extra,
                                 **fixture.show_by_model.get(body["model"], {}),
+                            }
+                        )
+                    elif self.path == "/api/embed":
+                        inputs = body["input"]
+                        count = max(0, len(inputs) + fixture.embed_count_delta)
+                        texts = (inputs * (count // max(1, len(inputs)) + 1))[:count]
+                        self.write_json(
+                            {
+                                "model": fixture.embed_model or body["model"],
+                                "embeddings": [
+                                    embedding_vector(text, fixture.embed_dimension)
+                                    for text in texts
+                                ],
+                                "total_duration": 1000,
+                                "load_duration": 0,
+                                "prompt_eval_count": len(inputs),
+                                **fixture.embed_extra,
                             }
                         )
                     elif self.path == "/api/chat":

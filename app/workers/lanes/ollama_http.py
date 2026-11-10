@@ -9,7 +9,7 @@ import math
 import socket
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, TypeVar, cast
 
@@ -25,6 +25,8 @@ BUSY_BACKOFF_S = 0.5
 BUSY_BACKOFF_MAX_S = 4.0
 # Below this a retry can only end as a timeout, which would hide that Ollama was full.
 BUSY_MIN_ATTEMPT_S = 0.25
+# 16 chunks of 1024 JSON floats stay near 0.4 MiB; the bound leaves headroom only.
+EMBED_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 class OllamaHTTPError(Exception):
@@ -399,6 +401,47 @@ class OllamaHTTPClient:
     ) -> dict[str, object]:
         return self._metadata(
             "/api/show", {"model": model}, timeout_s=timeout_s, cancelled=cancelled
+        )
+
+    def embed(
+        self,
+        *,
+        model: str,
+        inputs: Sequence[str],
+        timeout_s: float,
+        cancelled: Callable[[], bool] = lambda: False,
+        keep_alive: str | int | None = None,
+    ) -> dict[str, object]:
+        """One non-streaming ``/api/embed`` call; the caller validates the vectors.
+
+        ``truncate`` is off so an over-long input fails instead of being cut, and no
+        ``dimensions`` field is sent: the model's native width is the contract.
+        """
+        if (
+            isinstance(inputs, (str, bytes))
+            or not inputs
+            or any(not isinstance(item, str) or not item for item in inputs)
+        ):
+            raise ValueError("Invalid embedding input")
+        body: dict[str, object] = {"model": model, "input": list(inputs), "truncate": False}
+        if keep_alive is not None:
+            body["keep_alive"] = keep_alive
+
+        def consume(
+            response: http.client.HTTPResponse, progress: Callable[[], None]
+        ) -> dict[str, object]:
+            data = response.read(EMBED_MAX_RESPONSE_BYTES + 1)
+            if len(data) > EMBED_MAX_RESPONSE_BYTES:
+                raise OllamaHTTPError("internal")
+            return _json(data)
+
+        return self._request(
+            "POST",
+            "/api/embed",
+            body,
+            timeout_s=timeout_s,
+            cancelled=cancelled,
+            consume=consume,
         )
 
     def chat(

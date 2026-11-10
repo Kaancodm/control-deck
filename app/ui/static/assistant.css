@@ -1,4 +1,4 @@
-.assistant-page { display: grid; gap: var(--space-4); min-width: 0; overflow-wrap: anywhere; }
+.assistant-page { display: grid; gap: var(--space-3); min-width: 0; overflow-wrap: anywhere; }
 .assistant-page > *, .assistant-page .panel, .assistant-page form, .assistant-page details { min-width: 0; max-width: 100%; }
 .assistant-page .panel, .assistant-page pre, .assistant-page input, .assistant-page select, .assistant-page textarea {
   max-width: 100%;
@@ -11,12 +11,36 @@
 .assistant-page summary { min-height: var(--control-size); display: block; cursor: pointer; overflow-wrap: anywhere; }
 .assistant-page button { max-width: 100%; white-space: normal; text-align: center; }
 .assistant-page pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-page pre:not([hidden]) {
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-small);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.assistant-page article { padding-block: var(--space-2); border-top: 1px solid var(--color-line); }
+.assistant-page .panel > h2 { margin-top: 0; }
 .assistant-page .check, .assistant-page li, .assistant-page ul, .assistant-page label {
   min-width: 0;
   max-width: 100%;
   overflow-wrap: anywhere;
 }
 .assistant-page .check input { width: auto; flex: 0 0 auto; }
+.assistant-page > h1 { margin-block: 0; }
+.assistant-page > .chip-row, .assistant-lede { margin: 0; }
+.assistant-lede { color: var(--color-text-2); }
+.assistant-page .panel { margin: 0; }
+.assistant-dialog > h2 { margin-bottom: 0; }
+.assistant-dialog label[for="message"] { margin-top: 0; }
+details.panel.assistant-fold > summary { display: flex; align-items: center; font-weight: 650; }
+details.panel.assistant-fold > summary h2 { margin: 0; font-size: inherit; font-weight: inherit; }
+details.panel.assistant-fold[open] > summary { margin-bottom: var(--space-2); }
+.assistant-page .form-stack > details.more { margin-block: var(--space-2) 0; }
+.assistant-facts { display: grid; gap: var(--space-2); margin: var(--space-3) 0; }
+.assistant-facts > div { display: grid; gap: .125rem; padding-bottom: var(--space-2); border-bottom: 1px solid var(--color-line); }
+.assistant-facts dt { color: var(--color-muted); font-size: .8125rem; }
+.assistant-facts dd { margin: 0; }
 @media (max-width: 40rem) {
   .assistant-page button,
   .assistant-page .button,

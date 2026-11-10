@@ -53,6 +53,9 @@ def test_knowledge_browser_selection_and_export(
         page.goto(base + "/ui/knowledge")
         page.get_by_label("Passwort", exact=True).fill(password)
         page.get_by_role("button", name="Anmelden", exact=True).click()
+        if width <= 860:
+            # Up to 860 px "Wissen" sits in the menu; the tab bar holds the five quick links.
+            page.get_by_text("Menü", exact=True).click()
         page.get_by_role("link", name="Wissen", exact=True).click()
         page.get_by_label("Suchtext", exact=True).fill("Synthetic knowledge")
         page.get_by_label("Datenklasse des Auftrags (Pflicht)").select_option("local_only")

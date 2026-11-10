@@ -235,18 +235,51 @@ def resolve_search() -> SearchAdapter:
     return load_search(os.environ)
 
 
+@dataclass(frozen=True)
+class AssistantSwitches:
+    """Assistant switch states and the names of missing settings, never their values."""
+
+    loopback_enabled: bool
+    loopback_missing: tuple[str, ...]
+    web_enabled: bool
+    provider: str
+    web_missing: tuple[str, ...]
+
+
+def assistant_switches(environment: Mapping[str, str] | None = None) -> AssistantSwitches:
+    """Single source for the loopback and web switch states (activation text and overview)."""
+    env = os.environ if environment is None else environment
+    loopback_missing = tuple(
+        name
+        for name in ("DECK_OLLAMA_URL", "DECK_ASSISTANT_OLLAMA_MODEL")
+        if not env.get(name, "").strip()
+    )
+    provider = env.get("DECK_ASSISTANT_SEARCH_PROVIDER", "").strip()
+    web_missing: list[str] = []
+    if not env.get("DECK_ASSISTANT_WEB_ALLOWLIST", "").strip():
+        web_missing.append("DECK_ASSISTANT_WEB_ALLOWLIST")
+    if provider not in {"mediawiki", "searxng"}:
+        web_missing.append("DECK_ASSISTANT_SEARCH_PROVIDER")
+    elif provider == "mediawiki" and not env.get("DECK_ASSISTANT_MEDIAWIKI_API", "").strip():
+        web_missing.append("DECK_ASSISTANT_MEDIAWIKI_API")
+    elif provider == "searxng" and not env.get("DECK_ASSISTANT_SEARXNG_URL", "").strip():
+        web_missing.append("DECK_ASSISTANT_SEARXNG_URL")
+    return AssistantSwitches(
+        loopback_enabled=env.get("DECK_ASSISTANT_OLLAMA") == "1",
+        loopback_missing=loopback_missing,
+        web_enabled=env.get("DECK_ASSISTANT_WEB") == "1",
+        provider=provider,
+        web_missing=tuple(web_missing),
+    )
+
+
 def activation_status(environment: Mapping[str, str] | None = None) -> tuple[str, ...]:
     """Name missing switches without printing their values."""
-    env = os.environ if environment is None else environment
+    switches = assistant_switches(environment)
     lines: list[str] = []
-    if env.get("DECK_ASSISTANT_OLLAMA") == "1":
-        missing = [
-            name
-            for name in ("DECK_OLLAMA_URL", "DECK_ASSISTANT_OLLAMA_MODEL")
-            if not env.get(name, "").strip()
-        ]
-        if missing:
-            lines.append("Loopback unvollständig: " + ", ".join(missing))
+    if switches.loopback_enabled:
+        if switches.loopback_missing:
+            lines.append("Loopback unvollständig: " + ", ".join(switches.loopback_missing))
         else:
             lines.append(
                 "Loopback ist eingeschaltet. Die Identität bleibt unbelegt, "
@@ -256,20 +289,10 @@ def activation_status(environment: Mapping[str, str] | None = None) -> tuple[str
         lines.append(
             "Modellstandard ist der Mock, kein Live-Modell. DECK_ASSISTANT_OLLAMA ist aus."
         )
-    if env.get("DECK_ASSISTANT_WEB") == "1":
-        provider = env.get("DECK_ASSISTANT_SEARCH_PROVIDER", "").strip()
-        missing_web: list[str] = []
-        if not env.get("DECK_ASSISTANT_WEB_ALLOWLIST", "").strip():
-            missing_web.append("DECK_ASSISTANT_WEB_ALLOWLIST")
-        if provider not in {"mediawiki", "searxng"}:
-            missing_web.append("DECK_ASSISTANT_SEARCH_PROVIDER")
-        elif provider == "mediawiki" and not env.get("DECK_ASSISTANT_MEDIAWIKI_API", "").strip():
-            missing_web.append("DECK_ASSISTANT_MEDIAWIKI_API")
-        elif provider == "searxng" and not env.get("DECK_ASSISTANT_SEARXNG_URL", "").strip():
-            missing_web.append("DECK_ASSISTANT_SEARXNG_URL")
-        if missing_web:
-            lines.append("Web unvollständig: " + ", ".join(missing_web))
-        elif provider == "mediawiki":
+    if switches.web_enabled:
+        if switches.web_missing:
+            lines.append("Web unvollständig: " + ", ".join(switches.web_missing))
+        elif switches.provider == "mediawiki":
             lines.append(
                 "Enzyklopädie-Suche über die MediaWiki-API ist konfiguriert. "
                 "Das ist keine allgemeine Websuche."

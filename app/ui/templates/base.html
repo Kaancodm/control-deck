@@ -3,54 +3,85 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#090E19">
   <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true,"historyCacheSize":0}'>
   <title>{% block title %}Control Deck{% endblock %}</title>
   <link rel="stylesheet" href="/ui/static/app.css">
   {% block head_extra %}{% endblock %}
   <script src="/ui/static/vendor/htmx.min.js" defer></script>
 </head>
-<body>
+{% from 'partials/icons.html' import icon %}
+{% set nav = nav|default('') %}{% set nav_counts = nav_counts|default({}) %}
+<body class="{{ 'is-owner' if owner else 'is-guest' }}">
   <a class="skip-link" href="#content">Zum Inhalt</a>
-  <div class="app-shell">
-    <header class="app-header">
-      <a class="brand" href="/ui/tasks">◈ Control Deck</a>
-      {% if owner %}
-      <details class="menu">
-        <summary>Menü</summary>
-        <div class="menu-panel">
-          <nav aria-label="Weitere Bereiche">
-            <a href="/ui/lanes">Lanes</a><a href="/ui/chat">Lokaler Chat</a><a href="/ui/assistant">Assistent</a><a href="/ui/audit">Audit</a>
-          </nav>
-          <form action="/ui/logout-all" method="post">
-            {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Überall abmelden</button>
-          </form>
-        </div>
-      </details>
-      <form action="/ui/logout" method="post" class="inline-form">
-        {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Abmelden</button>
-      </form>
-      <nav class="main-nav" aria-label="Hauptnavigation">
-        <a href="/ui/tasks">Aufträge</a><a href="/ui/tasks/new">Neuer Auftrag</a><a href="/ui/knowledge">Wissen</a>
+  <div class="shell">
+    {% if owner %}
+    <aside class="sidebar" aria-label="Bereiche">
+      <a class="brand" href="{{ home_path }}"><b aria-hidden="true">◈</b>Control Deck</a>
+      <p class="side-card"><b>Owner-Konsole</b><small>Ein Owner, lokales Deck</small></p>
+      {% for group, title in [('workspace', 'Workspace'), ('control', 'Steuerung')] %}
+      <p class="side-section" id="side-{{ group }}">{{ title }}</p>
+      <nav class="side-nav" aria-labelledby="side-{{ group }}">
+        {% for item in nav_items if item.group == group %}
+        <a href="{{ item.href }}"{% if item.key == nav %} aria-current="page"{% endif %}>{{ icon(item.icon) }}<span>{{ item.label }}</span>{% if nav_counts.get(item.key) is not none %}<span class="nav-count" aria-hidden="true">{{ nav_counts[item.key] }}</span>{% endif %}</a>
+        {% endfor %}
       </nav>
-      {% endif %}
-    </header>
-    {% if owner and controls %}
-    <aside id="control-status" aria-label="Runner-Steuerung" hx-get="/ui/fragments/status"
-           hx-trigger="every 15s" hx-swap="innerHTML">
-      {% include 'partials/control_status.html' %}
+      {% endfor %}
+      <div class="side-note">
+        <p class="eyebrow eyebrow--dot">Menschlich geführt</p>
+        <p>Start-Freigabe und Review bleiben getrennt. Merge und Server-Eingriff nur nach deinem GO.</p>
+      </div>
+      <p class="side-user"><span class="avatar" aria-hidden="true">◈</span><span><b>Owner</b><small>angemeldet</small></span></p>
     </aside>
     {% endif %}
-    <main id="content">
-      {% if error %}{% set message = error_messages.get(error) %}
-      <p class="notice error" role="alert">
-        <strong>{{ message[0] if message else 'Diese Aktion ist nicht möglich.' }}</strong>
-        {{ message[1] if message else 'Eingabe prüfen und erneut versuchen.' }}
-        <span class="hint">(Code: {{ error }})</span>
-      </p>
+    <div class="shell-main">
+      <header class="topbar">
+        {% if owner %}
+        <p class="crumb"><a class="crumb-home" href="{{ home_path }}">Deck</a><span class="crumb-sep" aria-hidden="true">/</span><b>{% block crumb %}{% for item in nav_items if item.key == nav %}{{ item.label }}{% else %}Control Deck{% endfor %}{% endblock %}</b>{% block topbar_badge %}{% endblock %}</p>
+        <div class="topbar-actions">
+          <form action="/ui/logout" method="post" class="inline-form">
+            {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Abmelden</button>
+          </form>
+          <details class="menu">
+            <summary>Menü</summary>
+            <div class="menu-panel">
+              <nav class="menu-nav" aria-label="Weitere Bereiche">
+                {% for item in nav_items if not item.tab_label %}<a href="{{ item.href }}"{% if item.key == nav %} aria-current="page"{% endif %}>{{ icon(item.icon) }}<span>{{ item.label }}</span></a>{% endfor %}
+              </nav>
+              <form action="/ui/logout-all" method="post">
+                {% include 'partials/csrf.html' %}<button type="submit" class="quiet">Überall abmelden</button>
+              </form>
+            </div>
+          </details>
+        </div>
+        {% else %}
+        <a class="brand" href="/ui/login"><b aria-hidden="true">◈</b>Control Deck</a>
+        {% endif %}
+      </header>
+      {% if owner and controls %}
+      <aside id="control-status" aria-label="Runner-Steuerung" hx-get="/ui/fragments/status"
+             hx-trigger="every 15s" hx-swap="innerHTML">
+        {% include 'partials/control_status.html' %}
+      </aside>
       {% endif %}
-      {% block content %}{% endblock %}
-    </main>
-    <footer>Lokales Deck · Darstellung themebar · Live-Inbetriebnahme separat</footer>
+      <main id="content">
+        {% if error %}{% set message = error_messages.get(error) %}
+        <p class="notice error" role="alert">
+          <strong>{{ message[0] if message else 'Diese Aktion ist nicht möglich.' }}</strong>
+          {{ message[1] if message else 'Eingabe prüfen und erneut versuchen.' }}
+          <span class="hint">(Code: {{ error }})</span>
+        </p>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </main>
+      <footer>Lokales Deck · Darstellung themebar · Live-Inbetriebnahme separat</footer>
+    </div>
+    {% if owner %}
+    <nav class="tabbar" aria-label="Schnellzugriff">
+      {% for item in nav_items if item.tab_label %}<a href="{{ item.href }}"{% if item.key == nav %} aria-current="page"{% endif %}>{{ icon(item.icon) }}<span>{{ item.tab_label }}</span></a>{% endfor %}
+    </nav>
+    {% endif %}
   </div>
 </body>
 </html>

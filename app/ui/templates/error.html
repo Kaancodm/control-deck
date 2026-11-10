@@ -3,6 +3,7 @@
 {% block content %}
 <section class="panel"><h1>Aktion nicht verfügbar</h1>
 <p>Die Eingabe, der aktuelle Zustand oder die lokale Konfiguration erlaubt diese Aktion nicht.</p>
-<a class="button" href="/ui/tasks">Aufträge anzeigen</a>
-<a href="/ui/login">Zum Login</a></section>
+<p class="error-actions"><a class="button" href="/ui/tasks">Aufträge anzeigen</a>
+<a class="button quiet" href="{{ home_path }}">Zur Übersicht</a>
+<a class="button ghost" href="/ui/login">Zum Login</a></p></section>
 {% endblock %}

@@ -74,21 +74,118 @@ def render(name: str, **context: object) -> str:
     return views.TEMPLATES.env.get_template(name).render({**base, **context})
 
 
-def test_phone_header_shows_three_main_links_one_logout_and_a_menu() -> None:
-    outline = Outline(render("error.html", error=None))
-    header = [href for href, nesting in outline.links if not nesting][:4]
-    # Brand link plus at most three main links are visible before the page content starts.
-    assert header == ["/ui/tasks", "/ui/tasks", "/ui/tasks/new", "/ui/knowledge"]
-    assert [href for href, nesting in outline.links if nesting == ("Menü",)] == [
+class Regions(HTMLParser):
+    """Collect link targets per shell region: sidebar, menu navigation and tab bar."""
+
+    REGIONS = ("sidebar", "menu-nav", "tabbar")
+
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.stack: list[str | None] = []
+        self.links: dict[str, list[str]] = {name: [] for name in self.REGIONS}
+        self.feed(html)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        classes = (dict(attrs).get("class") or "").split()
+        region = next((name for name in self.REGIONS if name in classes), None)
+        if tag == "a":
+            current = next((name for name in reversed(self.stack) if name), None)
+            if current:
+                self.links[current].append(dict(attrs).get("href") or "")
+        elif tag not in {"svg", "path", "rect", "circle", "input", "br", "meta", "link"}:
+            self.stack.append(region)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag not in {"a", "svg", "path", "rect", "circle", "input", "br", "meta", "link"}:
+            self.stack.pop()
+
+
+def test_shell_navigation_matrix_one_logout_and_a_menu() -> None:
+    # Replaces the former three-link phone header (K10): sidebar, menu and tab bar.
+    html = render("error.html", error=None)
+    regions = Regions(html)
+    assert regions.links["sidebar"][0] == "/ui/overview"  # brand
+    assert regions.links["sidebar"][1:] == [
+        "/ui/overview",
+        "/ui/tasks",
+        "/ui/tasks/new",
+        "/ui/knowledge",
         "/ui/lanes",
-        "/ui/chat",
         "/ui/assistant",
+        "/ui/overview?open=meldungen#meldungen",
+        "/ui/overview#offen",
+        "/ui/chat",
         "/ui/audit",
     ]
+    assert regions.links["tabbar"] == [
+        "/ui/overview",
+        "/ui/lanes",
+        "/ui/assistant",
+        "/ui/overview?open=meldungen#meldungen",
+        "/ui/overview#offen",
+    ]
+    assert regions.links["menu-nav"] == [
+        "/ui/tasks",
+        "/ui/tasks/new",
+        "/ui/knowledge",
+        "/ui/chat",
+        "/ui/audit",
+    ]
+    assert not set(regions.links["menu-nav"]) & set(regions.links["tabbar"])
+    assert set(regions.links["menu-nav"]) | set(regions.links["tabbar"]) == set(
+        regions.links["sidebar"][1:]
+    )
+    outline = Outline(html)
     assert [text for text, nesting in outline.buttons if not nesting] == ["Abmelden"]
     assert [text for text, nesting in outline.buttons if nesting == ("Menü",)] == [
         "Überall abmelden"
     ]
+    assert html.count(">Menü<") == 1
+    tab_labels = re.findall(r'class="tabbar".*?</nav>', html, re.S)[0]
+    assert [label for label in re.findall(r"<span>([^<]+)</span>", tab_labels)] == [
+        "Übersicht",
+        "Lanes",
+        "Assistent",
+        "Meldungen",
+        "Offen",
+    ]
+
+
+@pytest.mark.parametrize(
+    "path,key",
+    [
+        ("/ui/overview", "overview"),
+        ("/ui/tasks", "tasks"),
+        ("/ui/tasks/0b6f6a8e-3c1d-4d1e-9a51-2f7a7e1d1c11", "tasks"),
+        ("/ui/tasks/new", "new"),
+        ("/ui/failed", "tasks"),
+        ("/ui/knowledge", "knowledge"),
+        ("/ui/knowledge/search", "knowledge"),
+        ("/ui/lanes", "lanes"),
+        ("/ui/assistant", "assistant"),
+        ("/ui/assistant/orders/x", "assistant"),
+        ("/ui/chat", "chat"),
+        ("/ui/audit", "audit"),
+        ("/ui/audit.csv", ""),
+        ("/ui/login", ""),
+        ("/", ""),
+        ("/ui/tasksx", ""),
+    ],
+)
+def test_nav_key_uses_the_longest_prefix(path: str, key: str) -> None:
+    assert views.nav_key(path) == key
+
+
+def test_active_navigation_is_marked_in_every_region() -> None:
+    html = render("error.html", error=None, nav="lanes")
+    assert html.count('href="/ui/lanes" aria-current="page"') == 2  # sidebar and tab bar
+    assert 'href="/ui/tasks" aria-current="page"' not in html
+
+
+def test_guest_pages_have_no_navigation() -> None:
+    html = render("login.html", owner=False)
+    for marker in ('class="sidebar"', 'class="tabbar"', "hx-get", ">Menü<", "Abmelden"):
+        assert marker not in html
 
 
 def test_task_form_shows_only_title_and_instructions_until_more_options_is_opened() -> None:

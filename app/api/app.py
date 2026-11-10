@@ -17,7 +17,7 @@ from app.ui.auth import AuthConfigurationError
 from app.ui.files import UiFileError
 from app.ui.knowledge import router as knowledge_ui_router
 from app.ui.middleware import UiSecurityMiddleware
-from app.ui.routes import UiError, ui_error_handler
+from app.ui.routes import UiError, root_router, ui_error_handler
 from app.ui.routes import router as ui_router
 
 
@@ -45,6 +45,7 @@ def create_app() -> FastAPI:
     ):
         app.add_exception_handler(exception, ui_error_handler)
     app.include_router(health.router)
+    app.include_router(root_router)
     app.include_router(tasks.router, prefix="/api/v1")
     app.include_router(worker.router, prefix="/api/v1")
     app.include_router(control.router, prefix="/api/v1")

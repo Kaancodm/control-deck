@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://control-deck.local/schemas/channel_turn.v1.json",
+  "title": "Normalized inbound channel turn v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "channel",
+    "account",
+    "external_thread_id",
+    "external_message_id",
+    "role",
+    "text",
+    "occurred_at",
+    "data_class",
+    "ingest_method",
+    "source_ref"
+  ],
+  "properties": {
+    "schema_version": {"const": "channel_turn.v1"},
+    "channel": {"enum": ["deck_ui", "slack", "n8n", "grok", "claude", "claude_code"]},
+    "account": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$"},
+    "external_thread_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
+    },
+    "external_message_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?!.*://)(?!deck-reply:)[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
+    },
+    "role": {"enum": ["owner", "assistant"]},
+    "text": {"type": "string", "minLength": 1, "maxLength": 16000},
+    "occurred_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "data_class": {"enum": ["local_only", "cloud_redacted", "cloud_ok"]},
+    "ingest_method": {"enum": ["deck_ui", "live_push", "import_file", "owner_typed"]},
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^(deck_ui|slack|n8n|grok|claude|claude_code|file|backfill):[A-Za-z0-9][A-Za-z0-9._/#+-]{0,279}$"
+        },
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "in_reply_to": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/#+-]{0,199}$"
+    }
+  }
+}

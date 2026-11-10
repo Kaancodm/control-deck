@@ -721,8 +721,19 @@ def test_partial_restore_never_reports_success(
     task_id = _task(db_session).id
     if failure == "knowledge_contract":
         with knowledge_store.engine.begin() as connection:
-            connection.execute(text("UPDATE deck_kb.contract SET version='unknown'"))
-    result = _complete_backup(tmp_path)
+            connection.execute(
+                text(
+                    "ALTER TABLE deck_kb.documents ALTER COLUMN data_class SET DEFAULT 'local_only'"
+                )
+            )
+    try:
+        result = _complete_backup(tmp_path)
+    finally:
+        if failure == "knowledge_contract":
+            with knowledge_store.engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE deck_kb.documents ALTER COLUMN data_class DROP DEFAULT")
+                )
     if failure == "row_evidence":
         path = tmp_path / "backups" / result.name / "manifest.json"
         manifest = json.loads(path.read_text())
@@ -770,24 +781,49 @@ def test_partial_restore_never_reports_success(
         central.dispose()
 
 
-@pytest.mark.parametrize("source", ["argument", "environment"])
+@pytest.mark.parametrize("source", ["argument", "environment", "archive_version"])
 def test_restore_checks_contract_against_configured_spec(
-    db_session, tmp_path, restore_target, knowledge_restore_target, monkeypatch, source
+    db_session,
+    tmp_path,
+    restore_target,
+    knowledge_restore_target,
+    monkeypatch,
+    source,
+    knowledge_store,
 ):
+    from app.operations import restore
+
     _task(db_session)
+    if source == "archive_version":
+        with knowledge_store.engine.begin() as connection:
+            connection.execute(text("UPDATE deck_kb.contract SET version='unknown'"))
     result = _complete_backup(tmp_path)
     real = EmbeddingSpec("ollama", "qwen3-embedding:0.6b", 1024)
     kwargs = {}
     if source == "argument":
         kwargs["embedding_spec"] = real
-    else:
+    elif source == "environment":
         monkeypatch.setenv("DECK_KB_EMBEDDING_PROVIDER", real.provider)
         monkeypatch.setenv("DECK_KB_EMBEDDING_MODEL", real.model)
         monkeypatch.setenv("DECK_KB_EMBEDDING_DIMENSION", str(real.dimension))
     with pytest.raises(OperationError) as error:
         _restore_complete(tmp_path, result.name, restore_target, knowledge_restore_target, **kwargs)
-    # The fake-contract backup was restored, then refused against the real spec.
-    assert error.value.code == "restore_partial_failure"
+    assert error.value.code == "knowledge_contract_mismatch"
+    for url in (restore_target, knowledge_restore_target):
+        engine = create_engine(url)
+        try:
+            with engine.connect() as connection:
+                restore._require_empty_target(connection)
+                assert connection.scalar(text("SELECT to_regclass('public.tasks')")) is None
+                assert connection.scalar(text("SELECT to_regnamespace('deck_kb')")) is None
+        finally:
+            engine.dispose()
+    phases = db_session.scalars(
+        select(OperationEvent.phase)
+        .where(OperationEvent.operation_type == "restore")
+        .order_by(OperationEvent.id)
+    ).all()
+    assert phases == ["failed"]
 
 
 def test_restore_rejects_invalid_embedding_configuration_before_any_change(

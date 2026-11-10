@@ -128,22 +128,30 @@ These add to the human gates above; `AGENTS.md` still wins on conflict.
 ## How we work with Claude (research-based)
 
 Owner research, 2026-10-29 (method: vendor docs read, re-verified; status: proven unless marked).
-Public sources: `code.claude.com/docs/en/best-practices`, `.../sub-agents`, `.../model-config`.
-Role split is an owner decision, not a research finding. `AGENTS.md` and Human gates still win.
+Public sources: `code.claude.com/docs/en/best-practices`, `.../sub-agents`, `.../model-config`,
+`platform.claude.com/docs/en/build-with-claude/effort`, `.../models/fable-5-1/overview`.
+Role split, team rules, and handoff template below are owner decisions, not research findings.
+`AGENTS.md` and Human gates still win.
 
-### Roles per task
+### Roles per task (owner decision)
 
-- **Planning model (Fable):** plans in Plan Mode and writes the ticket/handoff; does not build.
-  Select it explicitly (`/model fable`); it is never the default. Leave its effort at the
-  default `high`; raise to `max` only for hard architecture decisions.
-- **Build model (Opus):** implements and fixes from the ticket in a fresh session.
-- **Review/small-fix account:** reviews diffs and makes small, scoped fixes only.
-- **Security and code-quality reviews:** run by a separate reviewer in a fresh session without
-  the build context (`/code-review`, `/security-review`, `REVIEW.md`, the `reviewer` agent).
-  The reviewer is never the same model or session that wrote the change; provider rotation
-  follows `AGENTS.md` and ADR 0008.
+Current team split (owner decision; model mechanics proven):
+
+- **Planning (Fable or another strong planner):** plans in Plan Mode and writes the
+  ticket/handoff; does not build. In Claude Code, select Fable explicitly (`/model fable`);
+  it is never the default, and its default effort is `high` (proven). Recommendation: keep
+  `high` as default and raise to `max`/`xhigh` only for hard architecture or
+  capacity-critical work.
+- **Building (Opus or Gemini):** implements and fixes from the ticket in a fresh session.
+- **Review/small-fix account:** reviews diffs from other workers and makes small, scoped fixes
+  only; it must **not** review its own fixes (a different worker/model reviews those).
+- **Security and code-quality reviews:** run by a different worker/model than the builder in a
+  fresh session without the build context (proven: fresh session, `/code-review`,
+  `/security-review`, `REVIEW.md`, or a read-only `reviewer` subagent on `sonnet`/`haiku` with
+  `Read, Grep, Glob`; owner decision / principle: builder and reviewer are never the same
+  worker/model, and provider rotation follows `AGENTS.md` and ADR 0008).
 - Do not run Fable in non-interactive `claude -p` runs: there it may bill usage credits
-  without asking. Pin models explicitly in scripts.
+  without asking (proven). Recommendation: pin models explicitly in scripts.
 
 ### Keep context small
 
@@ -151,29 +159,37 @@ Role split is an owner decision, not a research finding. `AGENTS.md` and Human g
   large request of its own).
 - After a pause of more than about 1 h (prompt-cache lifetime), start fresh with a short
   summary instead of resuming the old session.
-- After two failed corrections: `/clear` and write a better prompt instead of a third fix.
+- **After two failed attempts:** `/clear` and write a better prompt instead of a third fix
+  (proven); in delegated builds, **stop and report to the coordinator** instead of guessing
+  (team rule).
 - Read targeted files and line ranges, not whole trees. Use subagents only for parallel work,
   long outputs, or independent reviews; they share the same usage quota and return short
   summaries.
 - Put long results in files (ticket, `SPEC.md`, report, `HANDOFF.md`), not in the chat.
 - CLAUDE.md is guidance only; hard limits belong in hooks and `permissions.deny`.
 
-### Handoff format (planning model -> build model)
+### Handoff format (team format — owner decision)
 
-A subagent or fresh session sees only the handoff, not the planning chat, and built-in
-Explore/Plan agents do not load CLAUDE.md. The handoff must therefore be self-contained and
-repeat the rules that matter. Write it with `/plan-ticket` (`tasks/TEMPLATE.md`) and cover:
+Proven mechanics: a subagent or fresh session sees only the handoff, not the planning chat,
+and built-in Explore/Plan agents do not load `CLAUDE.md`. The handoff must therefore be
+self-contained and repeat the rules that matter (including stating the goal as an outcome,
+"done when ...").
+
+The checklist below is **our team format (owner decision, not proven)** — write it with
+`/plan-ticket` (`tasks/TEMPLATE.md`) and cover:
 
 1. **Goal:** what is different afterwards, as an outcome ("done when ...").
 2. **Context/files:** files to change or create, with `file:line` where useful.
 3. **Non-goals:** files and areas not to touch, forbidden actions (no deps, no push, no prod).
-4. **Steps:** atomic, one commit each.
+4. **Steps:** atomic.
 5. **Acceptance/tests:** exact commands (`make lint`, `make test`, ...) and expected result;
-   the build model reports command plus output tail.
+   the build worker reports command plus output tail.
 6. **Risks:** what can break, rollback note for medium/high risk.
-7. **Open owner decisions:** questions the build model must not decide; on doubt, stop and ask.
+7. **Open owner decisions (team-format field):** questions the build worker must not decide;
+   on doubt, stop and ask.
 
-Stop rule for the build model: after two failed attempts, stop and report instead of guessing.
+After two failed attempts: `/clear` and write a better prompt (proven); in delegated builds,
+stop and report to the coordinator (team rule).
 
 ### Provenance
 

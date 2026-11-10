@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import Literal
 
 from app.kb.contracts import EmbeddingSpec, KnowledgeError
@@ -22,6 +23,20 @@ from app.workers.lanes.ollama_keep_alive import KeepAliveSetting
 _log = logging.getLogger(__name__)
 
 Purpose = Literal["document", "query"]
+
+# Qwen3-Embedding is asymmetric: queries carry a task instruction, documents stay bare.
+# Bound to the exact model tag so another model never inherits it. Owner A/B, 2026-11-10.
+QWEN3_QUERY_INSTRUCTION = (
+    "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: "
+)
+QUERY_INSTRUCTIONS: Mapping[str, str] = MappingProxyType(
+    {"qwen3-embedding:0.6b": QWEN3_QUERY_INSTRUCTION}
+)
+
+
+def query_instruction(spec: EmbeddingSpec) -> str:
+    """The fixed query prefix for this model tag, or an empty string."""
+    return QUERY_INSTRUCTIONS.get(spec.model, "")
 
 
 def failure_code(exc: OllamaHTTPError) -> str:
@@ -59,6 +74,7 @@ class OllamaEmbeddings:
         self._spec = spec
         self._timeout_s = timeout_s
         self._keep_alive = keep_alive
+        self._query_prefix = query_instruction(spec)
 
     def __repr__(self) -> str:
         return f"OllamaEmbeddings(model={self._spec.model!r}, dimension={self._spec.dimension})"
@@ -71,7 +87,9 @@ class OllamaEmbeddings:
         return self._embed(check_inputs(texts), purpose="document")
 
     def embed_query(self, text: str) -> tuple[float, ...]:
-        return self._embed(check_inputs((text,)), purpose="query")[0]
+        # Bound the caller's text first; the fixed prefix is not counted against it.
+        (checked,) = check_inputs((text,))
+        return self._embed((self._query_prefix + checked,), purpose="query")[0]
 
     def _embed(self, texts: tuple[str, ...], *, purpose: Purpose) -> tuple[tuple[float, ...], ...]:
         detail: dict[str, object] = {

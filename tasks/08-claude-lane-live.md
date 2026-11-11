@@ -43,12 +43,14 @@ Die Lane `codex` bleibt unveraendert gesperrt.
 | Der Containervertrag setzt fest `--network=none` | `app/workers/sandbox.py:148` |
 | Der Executor nutzt fest das Platzhalter-Image | `app/workers/lanes/claude.py:238`, `app/workers/sandbox.py:22` |
 | `--live` verlangt den Executor `ollama-live` | `app/workers/runner_main.py:94-103` |
-| Der Supervisor waehlt im Live-Modus fest `ollama-live` | `app/workers/daemon.py:83-93` |
+| Der Supervisor prueft die Live-Konfiguration an zwei Stellen und waehlt fest `ollama-live` | `app/workers/daemon.py:81-93`, `:131-136` |
 | Der Supervisor reicht nur sieben Variablen weiter | `app/workers/daemon.py:20-28` |
 | Ein Test bindet `deploy/runner.env.example` an genau diese Liste | `tests/unit/test_operations_service.py:383-388` |
 | `run_process` verlangt einen absoluten Programmpfad | `app/workers/process.py:71` |
 | Gesundheitsgruende der Lane sind fest `simulation_*` | `app/workers/claude_lane.py:87-92` |
-| Der Canary ist fest auf Ollama gelegt (Lane, Datenklasse, Log-Name) | `scripts/live_canary.py:46-55`, `:74`, `:128`, `:140`, `:179`, `:183` |
+| Der Canary ist fest auf Ollama gelegt (Lane, Datenklasse, Nutzlastvergleich, Log-Name, Zaehler) | `scripts/live_canary.py:46-55`, `:74`, `:102-115`, `:128`, `:140`, `:179`, `:183` |
+| Die Gesundheitsansicht kennt nur gelistete Gruende; nur `live_ready` ergibt den Modus `live` | `app/audit/health.py:16-46`, `:147-169` |
+| Ein `cloud_ok`-Auftrag braucht eine konfigurierte Blockliste | `app/privacy/gate.py:212-213` |
 | `REVIEW.md` verbietet `docker`-Aenderungen im Code und neue Netzendpunkte | `REVIEW.md:9-10`, `:13-14` |
 | API und Ollama-Runner laufen unter dem Dienstkonto, die CLI-Anmeldung liegt auf einem zweiten Konto | `docs/BETRIEB_OHNE_LAPTOP.md:30-31`, `:54-55`, `:110` |
 
@@ -131,9 +133,11 @@ Kein Transport. Fuer laufende Runner aendert sich nichts.
      und `--env=NO_PROXY=` (leer). Nichts davon ist von aussen waehlbar.
    - Jeder Containerbefehl, auch mit `none`, bekommt fest `--pull=never` und
      `--log-driver=none`.
-   - Tests: der Codex-Befehl enthaelt nie `deck-claude-profile` und nie `provider`; der
-     Befehl enthaelt keines von `--network=host`, `--privileged`, `--cap-add`, `--device`,
-     `--volume`, `docker.sock`.
+   - Tests: fuer beide Netzmodi steht genau ein `--network=`-Argument im Befehl, und es
+     lautet `none` oder `deck-claude-egress`; der Codex-Befehl enthaelt nie
+     `deck-claude-profile` und nie das Egress-Netz (`tests/unit/test_codex_cleanroom.py`
+     bleibt als Regressionsprobe gruen); der Befehl enthaelt keines von `--network=host`,
+     `--privileged`, `--cap-add`, `--device`, `--volume`, `docker.sock`.
 6. `app/workers/sandbox.py`, `tests/unit/test_cleanroom_live.py` (neu) — Live-Starter
    `run_in_cleanroom_live`. Er nimmt keine `CleanroomSimulation` an.
    - Programm: eine absolute Modulkonstante fuer den Docker-Client. Kein `PATH`-Lookup,
@@ -194,9 +198,13 @@ Kein Transport. Fuer laufende Runner aendert sich nichts.
     `tests/integration/test_claude_lane.py` — die heute festen Gruende `simulation_*`
     (`app/workers/claude_lane.py:87-92`) haengen vom Profil ab; alle neuen Gruende aus
     Schritt 9 kommen in die bekannte Liste der Gesundheitsansicht, damit sie nicht als
-    `unknown` erscheinen. Die Live-Probe nutzt dasselbe Generationsprotokoll wie die
-    Ollama-Lane (`app/workers/ollama_lane.py:72-77`). Per Test belegen: Nur ein Executor mit
-    Profil `live` attestiert Live-Herkunft (`app/workers/runner.py:72-77`).
+    `unknown` erscheinen, und die Modusbestimmung (`app/audit/health.py:147-169`) ordnet
+    sie dem Modus `live` zu. Weil die Live-Verfuegbarkeit jetzt Aufrufe nach aussen macht,
+    uebernimmt `ClaudeLaneRunner` im Profil `live` das Muster `probe_pending` plus
+    `probe_generation` der Ollama-Lane (`app/workers/ollama_lane.py:42-55`, `:72-77`); dazu
+    ein Fall fuer `claude` in `tests/integration/test_lane_probe_generation.py`. Per Test
+    belegen: Nur ein Executor mit Profil `live` attestiert Live-Herkunft
+    (`app/workers/runner.py:72-77`).
 11. `app/workers/runner_main.py`, `tests/unit/test_claude_runner_cli.py`,
     `tests/unit/test_ollama_live_executor.py` — Executor `claude-live`. Reihenfolge und
     Ergebnis je Kombination:
@@ -212,7 +220,12 @@ Kein Transport. Fuer laufende Runner aendert sich nichts.
     | `--simulate` mit `claude-live` | Parser-Fehler |
 
 12. `app/workers/daemon.py`, `tests/unit/test_runner_daemon.py` — der Supervisor waehlt den
-    Live-Executor nach Lane und endet ohne gueltige Claude-Konfiguration mit Exit 78. Er
+    Live-Executor nach Lane und endet ohne gueltige Claude-Konfiguration mit Exit 78. Beide
+    Pruefstellen (`run_loop`, `:81-82`, und `main`, `:131-136`) nutzen fuer `claude` die neue
+    Funktion. Der bestehende Fall in `tests/unit/test_runner_daemon.py:42` aendert sich im
+    selben Commit: `claude` endet ohne `DECK_LIVE_ENABLED` mit `live_disabled` und ohne das
+    Claude-Flag mit `claude_live_disabled`; `codex` endet weiter mit
+    `live_lane_not_supported`. Er
     reicht `DECK_CLAUDE_LIVE_ENABLED`, `DECK_CLAUDE_IMAGE` und `DECK_DOCKER_HOST` **nur** an
     Kinder der Lane `claude` weiter. Fuer die Lane `claude` im Live-Modus ruft er den Sweep
     aus Schritt 6 beim Start, vor jedem Versuch und beim Stoppen auf; sein Zeitlimit je
@@ -230,17 +243,23 @@ Kein Transport. Fuer laufende Runner aendert sich nichts.
     `_ENVIRONMENT` und in der Vorlage ergaenzen (`DECK_CLAUDE_LIVE_ENABLED=0`, leeres
     `DECK_CLAUDE_IMAGE=`, leeres `DECK_DOCKER_HOST=`), weil
     `test_runner_env_example_contains_only_daemon_allowlist` beide Listen gleich verlangt.
-15. `docs/OPERATIONS.md` (`:82`, `:96`), `docs/BETRIEB_OHNE_LAPTOP.md` (`:41-44`) — die
+15. `docs/OPERATIONS.md` (`:80-82`, `:93-97`), `docs/BETRIEB_OHNE_LAPTOP.md` (`:41-44`) — die
     Saetze «Live nur fuer Ollama» berichtigen: Fuer `claude` gibt es einen Live-Executor, der
-    ohne die Owner-Nachweise aus Teil D nicht eingeschaltet wird.
+    ohne die Owner-Nachweise aus Teil D nicht eingeschaltet wird. Die Tabelle der Exit-Codes
+    bekommt die neuen Codes aus Schritt 3.
 
 ### Teil D: Canary, Doku und Owner-Nachweise (`stage/08d-claude-live-canary`)
 
 16. `scripts/live_canary.py`, `tests/unit/test_live_canary.py`,
     `tests/integration/test_live_canary.py` — Option `--worker` (`ollama` als Standard,
-    `claude` neu). Der Claude-Canary nutzt einen synthetischen `cloud_ok`-Auftrag, erlaubt
-    nur die Lane `claude`, prueft `claude.log` und erwartet `review`, Profil `live`,
-    Lane-Status `ok` / `live_ready`. `--worker claude --submit` prueft zuerst
+    `claude` neu). `canary_task` nimmt die Lane als Argument; Nutzlastvergleich, Log-Name
+    und Lane-Zaehler richten sich nach ihr. Der Claude-Canary nutzt einen synthetischen
+    `cloud_ok`-Auftrag, erlaubt nur die Lane `claude`, prueft `claude.log` und erwartet
+    `review`, Profil `live`, Lane-Status `ok` / `live_ready`. Er braucht eine konfigurierte
+    Blockliste (`DECK_BLOCKLIST_PATH`), sonst weist die Datenschranke ihn ab; ist der
+    Routine-Wake eingeschaltet, erzeugt er wie jeder `cloud_ok`-Auftrag eine Wake-Zeile
+    (`app/transport/outbox.py:60-69`). Beides steht danach in `docs/LIVE_CANARY.md`.
+    `--worker claude --submit` prueft zuerst
     `load_claude_live_config` und ist ein Owner-Schritt am Betriebsort, weil er
     Abo-Kontingent verbraucht. Tests pruefen nur `check_canary` mit Datenbankzeilen und
     rufen keinen Starter auf; der bestehende Fall «Simulation faellt durch» gilt auch fuer
@@ -275,16 +294,21 @@ Fuer jeden Teil:
 ```bash
 make lint
 make test
+uv run alembic -x target=test upgrade head
 uv run alembic -x target=test check
+uv run alembic -c alembic_kb.ini upgrade head
 uv run alembic -c alembic_kb.ini check
 make reference
 make validate
 grep -rnF -e "--network=host" -e "--privileged" -e "--cap-add" -e "--device" -e "docker.sock" app/
+git fetch origin
 git diff --stat origin/main...HEAD -- schemas/ app/schemas/ alembic/ alembic_kb/
 ```
 
-Erwartet: die ersten sechs enden mit exit 0, ohne neue Skips und ohne neue Revision; `grep`
-findet nichts; `git diff --stat` ist leer.
+Erwartet: `make lint`, `make test`, die vier Alembic-Befehle, `make reference` und
+`make validate` enden mit exit 0, ohne neue Revision; mit Test-Datenbank gibt es keine Skips
+in `tests/integration/test_claude_lane.py` und `tests/integration/test_live_canary.py`;
+`grep` findet nichts; `git diff --stat` ist leer.
 
 Zusaetzlich je Teil:
 
@@ -326,7 +350,11 @@ Diese Punkte sind Owner-Nachweise am Betriebsort und gehoeren nicht in einen PR
 - Die gepinnte CLI nimmt `--setting-sources ""` an (`unproven`).
 - Werkzeuge, MCP, Hooks und Plugins sind wirklich abgeschaltet.
 - Rootless-Daemon, UID, Dateisystem, Ressourcen; Aufraeumen bei Client-Absturz und
-  Daemon-Neustart; die Meldung von `rm --force` bei schon entferntem Container.
+  Daemon-Neustart; die Meldung von `rm --force` bei schon entferntem Container; ob das
+  Aufraeumbudget von zwei Sekunden am Betriebsort reicht.
+- Der Docker-Client arbeitet mit genau der Umgebung aus Schritt 6 gegen den rootless
+  Daemon (`unproven`); das Image startet `claude --version` ohne Netz und ohne Anmeldung
+  (`unproven`).
 - Ausgangsweg gemaess E2: Der Anbieter ist erreichbar. Nicht erreichbar sind der Host ueber
   das Gateway des internen Netzes, die Datenbanken, andere Dienste und private Adressen. Eine
   DNS-Abfrage aus dem Reinraum nach aussen scheitert. Welche der dokumentierten Hosts ein
@@ -334,7 +362,8 @@ Diese Punkte sind Owner-Nachweise am Betriebsort und gehoeren nicht in einen PR
 - Kein anderer Container mountet `deck-claude-profile`.
 - Abo-Anmeldung im Volume, Erneuerung der Anmeldung, Kontomodell, ausgeschaltete
   Zusatzabrechnung.
-- Keine versteckten Wiederholungen (`CLAUDE_CODE_MAX_RETRIES=0` wirkt, `unproven`);
+- Keine versteckten Wiederholungen (`CLAUDE_CODE_MAX_RETRIES=0` wirkt, `unproven`; ob
+  weitere Wiederholungs-Variablen der CLI gesetzt werden muessen, klaert der Owner-Nachweis);
   abgelaufene Anmeldung, Anbieter-Sperre, Rate-Limit, echte JSON-Abschlussmerkmale.
 - Erster echter Canary-Lauf und inhaltliche Faelle des Owners.
 

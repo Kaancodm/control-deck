@@ -4,7 +4,7 @@ Status: ABGELEITET AUS PLAN v1.1 (Drive, 03.11.2026); kompakt; nicht startklar, 
 Branch-Vorschlag: `stage/18-abnahme-1-0`
 Abhaengig von: allen Etappen 1 bis 17; VB-10 (Referenz-Testset)
 Entscheidungen: Plan-Frage 12 (Takt), Entscheid ueber optionale Etappen 19, 20
-Reviewer: Claude (gerade Etappe)
+Reviewer: SuperGrok (nur Code). Plan v1.1 nannte Claude (gerade Etappe); seit dem Nachtrag zu ADR 0008 vom 2026-11-11 gilt das nicht mehr.
 Abnahme laut Plan v1.1: volles Testset ueber alle Lanes gruen, SECURITY-Checkliste, Tag v1.0.
 
 ## 1 Ziel
@@ -67,7 +67,7 @@ Abhaengigkeitstabelle, `CHANGELOG.md`, Version `1.0.0`, Release-Anleitung, Go/No
 ## 7 Definition of Done
 
 Protokoll und Checkliste vollstaendig; Go/No-Go im PR; Owner-GO fuer Merge; Tag durch Owner;
-PR-Template mit Reviewer **Claude** und "Bewusst offen".
+PR-Template mit Reviewer **SuperGrok** und "Bewusst offen".
 
 ## 8 Blocker-Regel
 

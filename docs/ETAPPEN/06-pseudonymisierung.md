@@ -4,7 +4,7 @@ Status: startklar, sobald VB-1, VB-3, VB-4, VB-6 erfuellt und Etappe 5 gemergt i
 Branch-Vorschlag: `stage/06-pseudonymisierung`
 Abhaengig von: VB-1, VB-3, VB-4, VB-6, Etappe 5 (Vertrag `ScanHit`)
 Entscheidungen: E2, E3, E8, E12 (Empfehlungen gelten als Default)
-Reviewer: Claude (gerade Etappe)
+Reviewer: SuperGrok (nur Code). Plan v1.1 nannte Claude (gerade Etappe); seit dem Nachtrag zu ADR 0008 vom 2026-11-11 gilt das nicht mehr.
 Abnahme laut Plan v1.1: Roundtrip verlustfrei; Map nur lokal.
 
 ## 1 Ziel
@@ -169,7 +169,7 @@ Keine Spalte in `results` oder `tasks` wird geaendert (Schema v1 bleibt unveraen
 - `make lint` und `make test` gruen; Integrationstests gegen `DECK_TEST_DATABASE_URL`; `alembic upgrade head` und `alembic downgrade -1` sauber; `alembic check` leer.
 - `make reference` gruen inklusive Faelle 005 und 006.
 - `docs/REDAKTION.md` beschreibt Kinds, Platzhalter, Ablauf, Leckschutz; `docs/DATENBANK.md` fuehrt `redaction_maps`.
-- PR-Template ausgefuellt: Etappe `stage/06-pseudonymisierung`, Reviewer **Claude**, Abschnitt "Bewusst offen" aus Abschnitt 10 uebernommen, "Secrets/PII geprueft" mit Hinweis auf synthetische Fixtures.
+- PR-Template ausgefuellt: Etappe `stage/06-pseudonymisierung`, Reviewer **SuperGrok**, Abschnitt "Bewusst offen" aus Abschnitt 10 uebernommen, "Secrets/PII geprueft" mit Hinweis auf synthetische Fixtures.
 - Kein Modellaufruf, keine Netzverbindung in Tests.
 
 ## 8 Blocker-Regel

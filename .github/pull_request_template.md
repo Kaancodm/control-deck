@@ -20,7 +20,7 @@
 
 ## Reviewer-Anbieter
 
-<!-- z. B. Codex, Claude -->
+<!-- SuperGrok (nur Code). Merge nur durch Grok Bot nach einmaligem Ja des Owners. -->
 
 ## Bewusst offen
 

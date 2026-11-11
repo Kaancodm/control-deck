@@ -3,7 +3,10 @@
 ## Etappe
 
 Ticket 5 / B: `deploy/ausrollen.sh` nach Abschnitt 6 des Ausroll-Reviews, mit ShellCheck in CI.
-Builder: Codex. Externes Review: Fable; noch ausstehend. Status: nur geplant.
+Builder: Cursor. Externes Review: SuperGrok (nur Code); noch ausstehend. Status: nur geplant.
+Nachtrag 2026-11-11: Codex und Gemini Pro sind nicht mehr im Einsatz. Ablauf laut ADR 0008
+(Nachtrag): Cursor baut, SuperGrok reviewt nur den Code, der Owner sagt einmal Ja, nur
+Grok Bot mergt. Die aeltere Zuweisung an Codex und Fable gilt nicht mehr.
 Umsetzungsbranch: `stage/05-b-ausrollen-script`; Start erst nach gruenem A.
 
 ## Ziel
@@ -15,9 +18,9 @@ Vorlage; seine Platzhalter, Echo-Funktionen und unzureichenden Fehlerpfade gelte
 
 ## Rahmen
 
-- Reihenfolge A -> B -> C -> D. B gruen bedeutet Abnahme + CI + Fable-Review ohne offene Befunde;
-  erst dann C. Merge nur nach Owner-GO. Nur der Owner fuehrt danach Server-Schritte 1–15 aus.
-- Codex testet ausschliesslich mit Fake-Befehlen und synthetischer privater Konfiguration;
+- Reihenfolge A -> B -> C -> D. B gruen bedeutet Abnahme + CI + Review durch SuperGrok ohne offene Befunde;
+  erst dann C. Der Owner sagt einmal Ja, danach mergt nur Grok Bot. Nur der Owner fuehrt danach Server-Schritte 1–15 aus.
+- Cursor testet ausschliesslich mit Fake-Befehlen und synthetischer privater Konfiguration;
   kein SSH, Dienststart, Paketinstallation, Login oder Netzaufruf am Betriebsort.
 - Blocker 1(b) gilt fuer den iPhone-Test: kein Deck-Backup/Update, kein automatischer Wechsel
   nach A; Blocker 1(c) ist A. B2-Abdeckung der zentralen DB muss separat nachgewiesen sein.

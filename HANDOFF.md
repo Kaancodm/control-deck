@@ -25,10 +25,11 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
   - Auftraege lassen sich im Deck nicht verketten; `parent_task_id` wird nicht ausgewertet.
   - Einziger weiterer offener PR: #56 (Systemprompt, Draft).
 - Owner-Vorgaben vom 2026-11-11 (Owner-Aussage, im Repo nicht belegt): Planer Claude,
-  Builder Cursor mit dem Modell Opus, fuer kleine Auftraege Sonnet, Review Grok. Codex und
-  Gemini Pro sind nicht mehr im Team. Ein Betriebs-Bot verwaltet Router, Chat-Oberflaeche und
-  lokale Modelle am Betriebsort. Die Benutzerkonten dort bleiben unveraendert. Altprojekte
-  werden nicht eingespeist.
+  Builder Cursor mit dem Modell Opus, fuer kleine Auftraege Sonnet, fuer komplexe bei Bedarf
+  Fable (nur interaktiv, siehe `CLAUDE.md`), Review Grok. Codex und Gemini Pro sind nicht mehr
+  im Team. Ein Betriebs-Bot verwaltet Router, Chat-Oberflaeche und lokale Modelle am
+  Betriebsort. Die Benutzerkonten dort bleiben unveraendert. Altprojekte werden nicht
+  eingespeist.
 
 ## Offene Punkte
 

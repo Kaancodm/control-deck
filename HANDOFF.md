@@ -6,8 +6,7 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
 
 - Branch `claude/fervent-pasteur-upzu9m`, letzter Commit vor dieser Datei `4e32a02`.
 - Draft-PR #84 «docs(tasks): plan build ticket 08 for the Claude lane live profile» gegen
-  `main`. CI beim Schreiben: `quality` lief noch, GitGuardian gruen, CodeRabbit ueberspringt
-  Drafts.
+  `main`. CI auf dem Commit `41b5bcd`: `quality` und GitGuardian gruen.
 - Inhalt des PR: `tasks/08-claude-lane-live.md` (Teile A bis D, 19 Schritte,
   Owner-Entscheide E1 bis E6, Risiken und Rueckweg) und diese Uebergabe. Kein Code, kein
   Schema, keine Migration.
@@ -26,7 +25,8 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
   - Auftraege lassen sich im Deck nicht verketten; `parent_task_id` wird nicht ausgewertet.
   - Einziger weiterer offener PR: #56 (Systemprompt, Draft).
 - Owner-Vorgaben vom 2026-11-11 (Owner-Aussage, im Repo nicht belegt): Planer Claude,
-  Builder Cursor, Review Grok. Codex und Gemini Pro sind nicht mehr im Team. Ein Betriebs-Bot
+  Builder Cursor mit dem Modell Opus, Review Grok. Codex und Gemini Pro sind nicht mehr im
+  Team. Ein Betriebs-Bot
   verwaltet Router, Chat-Oberflaeche und lokale Modelle am Betriebsort. Die Benutzerkonten
   dort bleiben unveraendert. Altprojekte werden nicht eingespeist.
 

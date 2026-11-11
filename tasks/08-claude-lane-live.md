@@ -5,8 +5,9 @@
 Ticket 8: Live-Profil fuer die Lane `claude` (Nachfolge von Etappe 12, die nur die Simulation
 gebaut hat). Vier Teile A bis D. Jeder Teil ist eine eigene Builder-Session, ein Branch
 `stage/08x-<slug>` und ein Draft-PR gegen `main`. Teil B beginnt erst, wenn Teil A gemergt ist,
-und so weiter. Builder: Cursor. Externes Review: Grok. Planer: Claude. Status: geplant; die
-Owner-Entscheide E1 bis E6 liegen vor, Teil A kann beginnen.
+und so weiter. Builder: Cursor mit dem Modell Opus (Owner-Aussage vom 2026-11-11, im Repo
+nicht belegt). Externes Review: Grok. Planer: Claude. Status: geplant; die Owner-Entscheide
+E1 bis E6 liegen vor, Teil A kann beginnen.
 
 Abweichung von der Vorlage, bewusst: ein Dokument fuer vier PRs statt vier Dateien, und Grok
 statt der Rotation aus ADR 0008, weil der Planer Claude ist und das Review von einem anderen

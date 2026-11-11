@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+def embedding_vector(text, dimension):
+    """Deterministic non-zero synthetic vector; equal text gives an equal vector."""
+    values = []
+    counter = 0
+    while len(values) < dimension:
+        digest = hashlib.sha256(counter.to_bytes(4, "big") + text.encode()).digest()
+        values.extend((byte + 1) / 256 for byte in digest)
+        counter += 1
+    return values[:dimension]
 
 
 class OllamaStub:
@@ -20,9 +32,16 @@ class OllamaStub:
         initial_delay_s=0,
         header_delay_s=0,
         status_by_path=None,
+        status_sequence_by_path=None,
+        retry_after=None,
+        error_body=b'{"error":"synthetic provider error marker"}',
         raw_by_path=None,
         show_extra=None,
         show_by_model=None,
+        embed_dimension=1024,
+        embed_model=None,
+        embed_count_delta=0,
+        embed_extra=None,
     ):
         self.models = models
         self.output = output
@@ -33,9 +52,20 @@ class OllamaStub:
         self.initial_delay_s = initial_delay_s
         self.header_delay_s = header_delay_s
         self.status_by_path = status_by_path or {}
+        self.status_sequence_by_path = {
+            path: list(codes) for path, codes in (status_sequence_by_path or {}).items()
+        }
+        self.retry_after = retry_after
+        self.error_body = error_body
         self.raw_by_path = raw_by_path or {}
         self.show_extra = show_extra or {}
         self.show_by_model = show_by_model or {}
+        # /api/embed: width per vector, echoed model (None echoes the request),
+        # vectors more or fewer than inputs, and extra top-level response fields.
+        self.embed_dimension = embed_dimension
+        self.embed_model = embed_model
+        self.embed_count_delta = embed_count_delta
+        self.embed_extra = embed_extra or {}
         self.requests = []
         self.chat_started = threading.Event()
         self.disconnected = threading.Event()
@@ -71,14 +101,19 @@ class OllamaStub:
                         fixture.chat_started.set()
                     if fixture._stop.wait(fixture.header_delay_s):
                         return
-                    status = fixture.status_by_path.get(self.path, 200)
+                    sequence = fixture.status_sequence_by_path.get(self.path)
+                    status = (
+                        sequence.pop(0) if sequence else fixture.status_by_path.get(self.path, 200)
+                    )
                     self.send_response(status)
                     self.send_header("Content-Type", "application/x-ndjson")
                     self.send_header("Connection", "close")
+                    if status == 503 and fixture.retry_after is not None:
+                        self.send_header("Retry-After", fixture.retry_after)
                     self.end_headers()
                     self.close_connection = True
                     if status != 200:
-                        self.wfile.write(b'{"error":"synthetic provider error marker"}')
+                        self.wfile.write(fixture.error_body)
                     elif self.path in fixture.raw_by_path:
                         self.wfile.write(fixture.raw_by_path[self.path])
                     elif self.path == "/api/version":
@@ -92,6 +127,23 @@ class OllamaStub:
                                 "model_info": {"fixture.context_length": 4096},
                                 **fixture.show_extra,
                                 **fixture.show_by_model.get(body["model"], {}),
+                            }
+                        )
+                    elif self.path == "/api/embed":
+                        inputs = body["input"]
+                        count = max(0, len(inputs) + fixture.embed_count_delta)
+                        texts = (inputs * (count // max(1, len(inputs)) + 1))[:count]
+                        self.write_json(
+                            {
+                                "model": fixture.embed_model or body["model"],
+                                "embeddings": [
+                                    embedding_vector(text, fixture.embed_dimension)
+                                    for text in texts
+                                ],
+                                "total_duration": 1000,
+                                "load_duration": 0,
+                                "prompt_eval_count": len(inputs),
+                                **fixture.embed_extra,
                             }
                         )
                     elif self.path == "/api/chat":

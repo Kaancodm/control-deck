@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from contextlib import contextmanager
 
@@ -42,6 +43,16 @@ def get_session_factory(*, for_tests: bool = False) -> sessionmaker[Session]:
         return _test_session_factory
     assert _session_factory is not None
     return _session_factory
+
+
+def get_background_session_factory() -> sessionmaker[Session]:
+    """Pick the DB used by background assistant work (integration CI has only the test URL)."""
+    runtime = os.environ.get("DECK_DATABASE_URL", "").strip()
+    if runtime:
+        return get_session_factory()
+    if os.environ.get("DECK_TEST_DATABASE_URL", "").strip():
+        return get_session_factory(for_tests=True)
+    return get_session_factory()
 
 
 @contextmanager

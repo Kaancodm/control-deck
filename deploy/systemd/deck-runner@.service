@@ -18,7 +18,8 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=@REPOSITORY@/runs
-KillMode=control-group
+# SIGTERM reaches only the supervisor, which stops its attempt group itself.
+KillMode=mixed
 TimeoutStopSec=15
 
 [Install]

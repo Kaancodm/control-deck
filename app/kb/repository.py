@@ -8,22 +8,24 @@ from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.schemas import DataClass
-from app.kb.config import require_simulation
+from app.kb.config import EmbeddingSettings, KbSettings, load_kb_settings
 from app.kb.contracts import (
     CONTRACT_VERSION,
-    EMBEDDING_DIMENSION,
-    EMBEDDING_MODEL,
     MAX_DOCUMENT_BYTES,
+    SCHEMA_EMBEDDING_DIMENSION,
     ContextBlock,
+    EmbeddingSpec,
     KnowledgeError,
     allowed_classes,
     digest_text,
     validate_contexts,
 )
-from app.kb.embeddings import FakeLocalEmbeddings, vector_literal
+from app.kb.embeddings import EmbeddingProvider, FakeLocalEmbeddings, vector_literal
+from app.kb.ollama_embeddings import OllamaEmbeddings
 from app.privacy.config import get_privacy_settings
 from app.privacy.normalization import NormalizationError
 from app.privacy.scanner import FindingKind, scan_text
+from app.workers.lanes.ollama_http import OllamaHTTPClient
 
 
 def check_knowledge_text(title: str, content: str, data_class: DataClass) -> None:
@@ -54,74 +56,100 @@ def check_knowledge_text(title: str, content: str, data_class: DataClass) -> Non
         raise KnowledgeError("knowledge_privacy_gate")
 
 
+def check_contract(engine: Engine, spec: EmbeddingSpec, *, write: bool = False) -> None:
+    """Compare the database with the configured spec only; no provider is contacted."""
+    if spec.dimension != SCHEMA_EMBEDDING_DIMENSION:
+        raise KnowledgeError("knowledge_contract_mismatch")
+    try:
+        with engine.connect() as connection:
+            record = connection.execute(
+                text(
+                    "SELECT version, embedding_model, embedding_dimension "
+                    "FROM deck_kb.contract WHERE id = 1"
+                )
+            ).one()
+            if tuple(record) != (CONTRACT_VERSION, spec.model, spec.dimension):
+                raise KnowledgeError("knowledge_contract_mismatch")
+            metadata = inspect(connection)
+            columns = {
+                column["name"]: column
+                for column in metadata.get_columns("documents", schema="deck_kb")
+            }
+            classification = columns.get("data_class")
+            if (
+                classification is None
+                or classification["nullable"]
+                or classification.get("default")
+            ):
+                raise KnowledgeError("knowledge_contract_mismatch")
+            dimension = connection.scalar(
+                text(
+                    "SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
+                    "WHERE attrelid = 'deck_kb.chunks'::regclass AND attname = 'embedding'"
+                )
+            )
+            if dimension != f"vector({spec.dimension})":
+                raise KnowledgeError("knowledge_contract_mismatch")
+            protected = connection.scalar(
+                text(
+                    "SELECT count(*) FROM pg_trigger "
+                    "WHERE NOT tgisinternal AND tgenabled = 'O' AND "
+                    "((tgrelid = 'deck_kb.documents'::regclass "
+                    "AND tgname = 'immutable_documents') OR "
+                    "(tgrelid = 'deck_kb.chunks'::regclass AND tgname = 'immutable_chunks'))"
+                )
+            )
+            if protected != 2:
+                raise KnowledgeError("knowledge_contract_mismatch")
+            for table in ("documents", "chunks"):
+                privileges = ("SELECT", "INSERT") if write else ("SELECT",)
+                for privilege in privileges:
+                    if not connection.scalar(
+                        text("SELECT has_table_privilege(current_user, :table, :privilege)"),
+                        {"table": "deck_kb." + table, "privilege": privilege},
+                    ):
+                        raise KnowledgeError("knowledge_permission_denied")
+    except SQLAlchemyError:
+        raise KnowledgeError("knowledge_contract_unavailable") from None
+
+
 class KnowledgeStore:
     """Independent transactions; callers must not hold task/lease transactions."""
 
-    def __init__(self, engine: Engine, *, embeddings: FakeLocalEmbeddings | None = None) -> None:
+    def __init__(self, engine: Engine, *, embeddings: EmbeddingProvider | None = None) -> None:
         self.engine = engine
-        self.embeddings = embeddings or FakeLocalEmbeddings()
+        self.embeddings: EmbeddingProvider = embeddings or FakeLocalEmbeddings()
+
+    @property
+    def spec(self) -> EmbeddingSpec:
+        return self.embeddings.spec
 
     def check_contract(self, *, write: bool = False) -> None:
+        check_contract(self.engine, self.spec, write=write)
+
+    def _vectors(self, pieces: tuple[str, ...]) -> tuple[str, ...]:
+        vectors = self.embeddings.embed_documents(pieces)
+        if len(vectors) != len(pieces):
+            raise KnowledgeError("embedding_malformed")
+        return tuple(vector_literal(item, dimension=self.spec.dimension) for item in vectors)
+
+    def _already_stored(self, document_id: UUID, expected: tuple[object, ...]) -> bool:
         try:
             with self.engine.connect() as connection:
-                record = connection.execute(
+                existing = connection.execute(
                     text(
-                        "SELECT version, embedding_model, embedding_dimension "
-                        "FROM deck_kb.contract WHERE id = 1"
-                    )
-                ).one()
-                if tuple(record) != (
-                    CONTRACT_VERSION,
-                    self.embeddings.model,
-                    self.embeddings.dimension,
-                ):
-                    raise KnowledgeError("knowledge_contract_mismatch")
-                if (
-                    self.embeddings.dimension != EMBEDDING_DIMENSION
-                    or self.embeddings.model != EMBEDDING_MODEL
-                ):
-                    raise KnowledgeError("knowledge_contract_mismatch")
-                metadata = inspect(connection)
-                columns = {
-                    column["name"]: column
-                    for column in metadata.get_columns("documents", schema="deck_kb")
-                }
-                classification = columns.get("data_class")
-                if (
-                    classification is None
-                    or classification["nullable"]
-                    or classification.get("default")
-                ):
-                    raise KnowledgeError("knowledge_contract_mismatch")
-                dimension = connection.scalar(
-                    text(
-                        "SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
-                        "WHERE attrelid = 'deck_kb.chunks'::regclass AND attname = 'embedding'"
-                    )
-                )
-                if dimension != f"vector({EMBEDDING_DIMENSION})":
-                    raise KnowledgeError("knowledge_contract_mismatch")
-                protected = connection.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_trigger "
-                        "WHERE NOT tgisinternal AND tgenabled = 'O' AND "
-                        "((tgrelid = 'deck_kb.documents'::regclass "
-                        "AND tgname = 'immutable_documents') OR "
-                        "(tgrelid = 'deck_kb.chunks'::regclass AND tgname = 'immutable_chunks'))"
-                    )
-                )
-                if protected != 2:
-                    raise KnowledgeError("knowledge_contract_mismatch")
-                for table in ("documents", "chunks"):
-                    privileges = ("SELECT", "INSERT") if write else ("SELECT",)
-                    for privilege in privileges:
-                        if not connection.scalar(
-                            text("SELECT has_table_privilege(current_user, :table, :privilege)"),
-                            {"table": "deck_kb." + table, "privilege": privilege},
-                        ):
-                            raise KnowledgeError("knowledge_permission_denied")
+                        "SELECT source_task_id, title, data_class, content_sha256 "
+                        "FROM deck_kb.documents WHERE id = :id"
+                    ),
+                    {"id": document_id},
+                ).one_or_none()
         except SQLAlchemyError:
-            raise KnowledgeError("knowledge_contract_unavailable") from None
+            raise KnowledgeError("knowledge_write_unavailable") from None
+        if existing is None:
+            return False
+        if tuple(existing) != expected:
+            raise KnowledgeError("knowledge_export_conflict")
+        return True
 
     def put_document(
         self,
@@ -134,9 +162,12 @@ class KnowledgeStore:
     ) -> UUID:
         check_knowledge_text(title, content, data_class)
         self.check_contract(write=True)
-        pieces = tuple(content[start : start + 1500] for start in range(0, len(content), 1500))
-        vectors = tuple(vector_literal(self.embeddings.embed(piece)) for piece in pieces)
         digest = digest_text(content)
+        # A repeated export must not load the embedding model (and evict the chat model).
+        if self._already_stored(document_id, (source_task_id, title, data_class.value, digest)):
+            return document_id
+        pieces = tuple(content[start : start + 1500] for start in range(0, len(content), 1500))
+        vectors = self._vectors(pieces)
         try:
             with self.engine.begin() as connection:
                 inserted = connection.scalar(
@@ -257,7 +288,7 @@ class KnowledgeStore:
             raise KnowledgeError("invalid_search_limit")
         check_knowledge_text("Search", query, DataClass.LOCAL_ONLY)
         self.check_contract()
-        vector = vector_literal(self.embeddings.embed(query))
+        vector = vector_literal(self.embeddings.embed_query(query), dimension=self.spec.dimension)
         try:
             with self.engine.connect() as connection:
                 identifiers = connection.scalars(
@@ -280,8 +311,29 @@ class KnowledgeStore:
         )
 
 
-def configured_store() -> KnowledgeStore:
-    """Use only the explicit simulation profile and an isolated test database."""
+def build_embeddings(settings: EmbeddingSettings) -> EmbeddingProvider:
+    """Construct the configured provider; no connection is opened here."""
+    if settings.spec.provider == "fake":
+        return FakeLocalEmbeddings()
+    if settings.ollama_url is None:
+        raise KnowledgeError("knowledge_embedding_configuration_invalid")
+    return OllamaEmbeddings(
+        client=OllamaHTTPClient(settings.ollama_url),
+        spec=settings.spec,
+        timeout_s=settings.timeout_s,
+        keep_alive=settings.keep_alive,
+    )
+
+
+def configured_store(settings: KbSettings | None = None) -> KnowledgeStore:
+    """Validate profile, embeddings and database selection before any connection.
+
+    Only ``runtime`` selects ``DECK_KB_DATABASE_URL``; ``simulation`` stays on the
+    ``_test`` knowledge database. The engine connects lazily, at the first operation.
+    """
+    selected = load_kb_settings() if settings is None else settings
+    embeddings = build_embeddings(selected.embedding)
     return KnowledgeStore(
-        create_engine(require_simulation(), pool_pre_ping=True, hide_parameters=True)
+        create_engine(selected.database_url, pool_pre_ping=True, hide_parameters=True),
+        embeddings=embeddings,
     )

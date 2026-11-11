@@ -12,6 +12,7 @@ from app.core.schemas import DataClass, Worker
 from app.db.state_machine import TaskState
 from app.ui import views
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
+from app.ui.progress import attempt_progress
 
 
 def request(path="/ui/chat", *, session="s" * 43):
@@ -172,6 +173,16 @@ def test_all_rendered_post_forms_include_csrf(template, state):
         workers=Worker,
         reply=SimpleNamespace(answer="Synthetic reply", simulation=True),
         draft_json="{}",
+        progress=attempt_progress(
+            status=state.value,
+            current_attempt=0,
+            started_attempts=(),
+            result_attempt=None,
+            result_status=None,
+            error_code=None,
+            execution_profile=None,
+            fallback_pending=False,
+        ),
     )
     posts = [form for form in Forms(markup).forms if form["method"] == "post"]
     assert posts

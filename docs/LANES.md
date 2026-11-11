@@ -46,8 +46,25 @@ Signalziel und eine ausdrückliche Umgebungs-Allowlist. Geerbte Provider-Variabl
 `OLLAMA_HOST`, Proxy-Werte und das Benutzer-HOME werden nicht weitergegeben.
 stdout und stderr werden gleichzeitig gelesen und getrennt begrenzt; Standardgrenzen
 sind 4 MiB und 64 KiB. Timeout und Abbruch beenden und ernten die Prozessgruppe.
-Die Dauer ist das Minimum aus Task-Limit, Adapter-Limit (Standard 600 Sekunden) und
-verbleibender Owner-Deadline. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
+Die Dauer ist das Minimum aus `policy.timeout_s` (Standard 900 Sekunden, Grenze 30 bis
+7200) und der verbleibenden Owner-Deadline. Die Adapter-Obergrenze ist dieselbe
+Schema-Grenze 7200 und unterschreitet den Standard 900 nicht mehr. Ein explizit
+kleineres Adapter-Limit gilt nur, wenn der Aufruf es setzt, zum Beispiel in einem
+kurzen Test. Der Dienstsupervisor wartet standardmässig bis zu derselben Grenze
+von 7200 Sekunden. Er bricht einen erlaubten Versuch nicht mehr still nach 3600
+Sekunden ab. Der Versuch selbst endet bei `policy.timeout_s`. Ein von aussen
+beendeter Runner, der kein Ergebnis schreibt, bekommt vom Lease-Reaper genau
+ein `worker_unavailable`. Das ist kein `timeout` und keine zweite Warteschlange.
+Die Erholung bleibt auf derselben Lane, innerhalb von `max_attempts`. Das ist
+die Lease-Regel aus Etappe 10, nicht ein unbegrenzter gleicher Versuch. Ein
+`worker_unavailable` oder `timeout`, den der laufende Runner selbst speichert,
+geht weiter zur naechsten zulaessigen Lane. Der Reaper ruft diese Fallback-Regel
+nicht zusaetzlich auf. Jedes neu geschriebene Verloren-Ergebnis zaehlt genau
+einmal als unbekannter Lane-Versuch. Eine verspaetete Antwort der alten Lease
+wird abgewiesen. Der Ollama-Transport bleibt
+davon getrennt: 120 Sekunden bis zum ersten
+Chunk, danach 60 Sekunden Leerlauf. Das ist keine Ergebnisfrist und keine
+Kanal-Quittung. Pro Versuch gibt es höchstens einen `run`-Aufruf und keinen
 versteckten Retry. Inventarprüfungen verwenden ein eigenes begrenztes `list`.
 
 | Ergebnis | `result.v1` |
@@ -125,6 +142,11 @@ oder mehrdeutige Metadaten erhöhen den Fallback nicht. Prüfung und Chat verwen
 Wert. Die Schätzung lautet `ceil(UTF-8-Bytes / 3) + 1024` für Vorlage und Ausgabe.
 Gleichheit mit `num_ctx` ist erlaubt; ein Token darüber ergibt vor dem Chat-Request
 `context_limit_exceeded`. Serverfehler bleiben Fehler ohne Teilausgabe oder Adapter-Retry.
+Einzige Ausnahme ist HTTP 503 bei voller Ollama-Warteschlange (`OLLAMA_MAX_QUEUE`): Ollama
+weist den Request vor der Inferenz ab. Der Client sendet ihn innerhalb desselben Zeitbudgets
+höchstens viermal, mit 0,5, 1 und 2 Sekunden Abstand oder gemäss `Retry-After`, gedeckelt
+auf 4 Sekunden. Der `attempt` zählt dabei nicht weiter. Bleibt der Dienst ausgelastet,
+meldet der Versuch `rate_limited`; die Queue plant ihn nach den Regeln aus Etappe 10 neu ein.
 
 Die Verfügbarkeit wird pro konfiguriertem Modell geprüft. Ein fehlendes oder ungeeignetes
 Modell sperrt keine anderen einzeln bestätigten Modelle. Die Queue überspringt Aufgaben
@@ -190,6 +212,54 @@ diesen Commit:
 - [Dateizugriffe im CLI](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/cmd/interactive.go)
 - [Daemon-Cloud-Policy](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/internal/cloud/policy.go)
 - [Client-Konfiguration](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/api/client.go)
+
+### Embedding-Vertrag `/api/embed`
+
+Die Wissens-DB nutzt `OllamaHTTPClient.embed` im API-Prozess, nicht den Runner (ADR 0011).
+Der Aufruf erbt Loopback-only, keinen Proxy, keine Weiterleitung, `Connection: close`, die
+503-Wiederholung innerhalb desselben Budgets und den Abbruch aus dem HTTP-Vertrag oben.
+
+Vor dem ersten `/api/embed`-Aufruf (je Adapter-Instanz gecacht, bei Modellwechsel erneut
+geprueft) fuehrt `OllamaEmbeddings` ueber den gemeinsamen Helper der Chat-Lane (`show_local_model`,
+`is_remote_model_info` in `app/workers/lanes/ollama.py`) ein `POST /api/show` fuer
+`<modell>:local` aus. Meldet `/api/show` `remote_host`, `remote_model` oder eine Cloud-Kennung,
+bricht der Adapter fail-closed mit `embedding_model_remote` (HTTP 503) ab, bevor Wissenstext an
+`/api/embed` gesendet wird; schlaegt `/api/show` selbst fehl (404, 503, Timeout, defektes JSON),
+bricht der Adapter ebenfalls vor `/api/embed` ab. Der Body von `/api/show` wird nie geloggt.
+
+Request, nicht streamend: `POST /api/embed` mit `model` als konfigurierte Kennung plus `:local`,
+`input` als Liste nicht leerer Strings (hoechstens 16), `truncate: false` und optional
+`keep_alive`. Ein `dimensions`-Feld wird nie gesendet; die native Breite ist der Vertrag.
+Antworten sind auf 2 MiB begrenzt und werden mit dem strikten JSON-Leser geparst (doppelte
+Schluessel und nicht endliche Konstanten scheitern). Erwartet werden `model` (konfigurierte
+Kennung mit oder ohne `:local`) und `embeddings` mit genau einem Vektor je Eingabe; `error`,
+`remote_host` oder `remote_model` in der `/api/embed`-Antwort fuehren zusaetzlich zu
+`embedding_malformed`. Es gibt keinen Pull, keinen Warmup und keinen periodischen Probe-Aufruf.
+
+Quellenstand `v0.40.14`, Commit `9a3e8177767245acc62b735eba7d5d8a553606d0`, gelesen am
+2026-11-10 ueber die oeffentlichen Rohdateien
+[api/types.go](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/api/types.go)
+und [server/routes.go](https://github.com/ollama/ollama/blob/9a3e8177767245acc62b735eba7d5d8a553606d0/server/routes.go);
+Methode: Quelltextlektuere ohne Ausfuehrung. Status: Feldnamen `proven` am Quelltext, Verhalten
+am Server `unproven`.
+
+- `EmbedRequest` kennt `model`, `runner`, `input`, `keep_alive`, `truncate` (Zeiger auf bool),
+  `dimensions` und `options`. Ohne Feld oder mit `true` wird gekuerzt; nur `false` ist strikt.
+- `EmbedResponse` kennt `model`, `embeddings` (`float32`), `total_duration`, `load_duration` und
+  `prompt_eval_count`, aber **keine** Remote-Felder. Deshalb prueft der Adapter vor dem ersten
+  `/api/embed` `/api/show` auf `<modell>:local` (`embedding_model_remote`); die Remote-Pruefung
+  auf `EmbedResponse` bleibt als zweite Schranke fuer kuenftige Formataenderungen.
+- Mit `truncate: false` ergibt eine zu lange Eingabe HTTP 400 (im Deck
+  `embedding_input_too_long`, API 422); der Handler laedt das Modell vorher trotzdem. Das Deck
+  liest den Server-Fehlertext nie und ordnet nur nach Status zu; auch NaN oder Inf ergeben 400.
+- Ein fehlendes Modell ergibt 404 (`embedding_model_missing`).
+- Vektoren werden serverseitig L2-normalisiert; NaN oder Inf ergeben 400.
+- `EmbedHandler` leitet nur Modelle mit Cloud-Quelle weiter; eine eigene Pruefung auf `:local`
+  oder auf lokale Aliase mit Remote-Ziel ist im Handler nicht ersichtlich. Dass `/api/embed`
+  den Suffix `:local` annimmt und 1024-dimensionale Vektoren liefert, ist fuer `v0.40.14`
+  belegt (Quelle: Owner-Messung vom 2026-11-10; Methode: `curl` am Server; Status: `proven`
+  fuer diese Version). Der Preflight des Owner-Rollouts wiederholt die Pruefung nach jedem
+  Ollama-Update. `OLLAMA_NO_CLOUD=1` am Dienst bleibt Voraussetzung.
 
 ## Claude in Etappe 12
 

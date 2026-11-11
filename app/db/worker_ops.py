@@ -32,6 +32,7 @@ from app.db.state_machine import TaskState, TaskTransition
 from app.db.transitions import LeaseOwnershipError, fenced_transition_task
 from app.redaction.engine import RedactionError
 from app.redaction.repository import rehydrate_for_task
+from app.transport.outbox import note_completion
 from app.workers.contracts import ControlAction, ControlDecision, ExecutionProfile
 from app.workers.lane_status import LaneHealthState, record_completed_attempt, update_lane_status
 from app.workers.provenance import safe_execution_metadata
@@ -489,6 +490,7 @@ def submit_worker_result(
         error_code=failure_code,
         execution_profile=execution_profile,
     )
+    note_completion(session, updated)
     session.flush()
     session.refresh(updated)
     return updated

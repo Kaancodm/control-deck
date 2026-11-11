@@ -57,6 +57,9 @@ def audit_selection(filters: AuditFilter) -> Select[Any]:
         cast(literal(None), Text).label("phase"),
         Event.detail,
         func.coalesce(Event.detail["lane"].astext, Event.detail["worker"].astext).label("lane"),
+    ).where(
+        # Taskless conversation/memory audit rows are not task events.
+        Event.task_id.is_not(None)
     )
     operations = select(
         literal("operation").label("source"),

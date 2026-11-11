@@ -1,6 +1,7 @@
 # Agent rules (Control Deck)
 
-These rules apply to all automated contributors (Cursor Cloud Agent, Claude Code, Codex, etc.).
+These rules apply to all automated contributors (Claude for planning, Cursor for builds,
+SuperGrok for code review, Grok Bot for merges).
 
 ## Security and privacy
 
@@ -20,9 +21,17 @@ These rules apply to all automated contributors (Cursor Cloud Agent, Claude Code
 
 - Run `make lint` and `make test` before marking work complete.
 - Add or update tests when changing validation, schemas, or core behavior.
-- Agents must **not** merge pull requests; a human owner gives final GO.
+- Only **Grok Bot** merges, and only after the owner says yes once. Other agents and bots, including Fable, do not merge.
 
-## Review workflow
+## Workflow
 
-- Implementation may use Cursor; review should rotate across providers (e.g. Codex, Claude) per project policy.
-- Follow Architecture Decision Records in `docs/DECISIONS/` when making structural choices.
+Codex and Gemini Pro are not used.
+
+1. The owner gives the goal in one sentence.
+2. Claude plans and writes a short build ticket with a check command.
+3. Cursor builds in a branch. The check command must pass.
+4. SuperGrok reviews the code only.
+5. The owner says yes once. Then Grok Bot merges.
+
+Follow Architecture Decision Records in `docs/DECISIONS/` when making structural choices.
+The review rotation in ADR 0008 is superseded by the amendment dated 2026-11-11.

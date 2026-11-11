@@ -1,5 +1,7 @@
 # Control Deck
 
+[![CodeFactor](https://www.codefactor.io/repository/github/kaancodm/control-deck/badge/main)](https://www.codefactor.io/repository/github/kaancodm/control-deck/overview/main)
+
 Lokale Steuerzentrale für KI-gestützte Aufgaben — ohne bezahlte APIs zur Laufzeit.
 Dieses Repository enthält API, PostgreSQL-Queue, Übergabe-Schemas (`task.v1`, `result.v1`),
 Abnahme, Datenschranke und lokale Pseudonymisierung.

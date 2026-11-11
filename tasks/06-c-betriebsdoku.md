@@ -3,7 +3,10 @@
 ## Etappe
 
 Ticket 6 / C: Betriebsdoku an den geprueften Code und die Owner-Entscheide anpassen.
-Builder: Codex. Externes Review: Fable; noch ausstehend. Status: nur geplant.
+Builder: Cursor. Externes Review: SuperGrok (nur Code); noch ausstehend. Status: nur geplant.
+Nachtrag 2026-11-11: Codex und Gemini Pro sind nicht mehr im Einsatz. Ablauf laut ADR 0008
+(Nachtrag): Cursor baut, SuperGrok reviewt nur den Code, der Owner sagt einmal Ja, nur
+Grok Bot mergt. Die aeltere Zuweisung an Codex und Fable gilt nicht mehr.
 Umsetzungsbranch: `stage/06-c-betriebsdoku`; Start erst nach gruenem B, damit A und B belegbar sind.
 
 ## Ziel
@@ -14,9 +17,9 @@ bewusst gesperrten Runnern. Die Doku behauptet keine erfolgreiche Inbetriebnahme
 
 ## Rahmen
 
-- Reihenfolge A -> B -> C -> D; C gruen = Abnahme, CI und Fable-Review ohne offene Befunde.
-- Danach erst D; Server-Schritte 1–15 fuehrt anschliessend der Owner einzeln aus, nicht Codex.
-- Merge nur nach Owner-GO. Dieser Bauauftrag aendert ausschliesslich `docs/OPERATIONS.md`.
+- Reihenfolge A -> B -> C -> D; C gruen = Abnahme, CI und Review durch SuperGrok ohne offene Befunde.
+- Danach erst D; Server-Schritte 1–15 fuehrt anschliessend der Owner einzeln aus, nicht der Builder.
+- Der Owner sagt einmal Ja, danach mergt nur Grok Bot. Dieser Bauauftrag aendert ausschliesslich `docs/OPERATIONS.md`.
 - Blocker 1 = (b) fuer den iPhone-Test; (c) ist Ticket A. Ohne bestaetigten Runtime-KB-Vertrag
   kein Deck-Backup/Update; vorhandene B2-Abdeckung der zentralen DB muss nachgewiesen werden.
 - Blocker 2 bleibt offen bis B2-Timername, Manager und Kollisionsentscheidung vorliegen.

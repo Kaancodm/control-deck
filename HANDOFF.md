@@ -32,8 +32,9 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
 
 ## Offene Punkte
 
-- E1 bis E6 sind nicht beantwortet. Ohne sie beginnt Teil A nicht. E4 (unter welchem Konto
-  der Claude-Runner laeuft) ist die heikelste Frage.
+- E1 bis E6 sind beantwortet: «Ja zu allen» (Owner-Aussage vom 2026-11-11, im Repo nicht
+  belegt). Damit laeuft der Claude-Runner unter dem Dienstkonto mit eigener Anmeldung (E4).
+  Ein Merge-GO fuer PR #84 liegt noch nicht vor.
 - Hermes und n8n: Der Installationszustand am Betriebsort ist unbekannt. Der Owner fuehrt
   zuerst einen lesenden Statusbefehl aus; erst danach folgen Einschaltbefehle.
 - Vorschlag, nicht beauftragt: ein kleiner Bauauftrag «Anlege-Token», bevor Hermes oder n8n
@@ -47,18 +48,16 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
 - ADR 0008 und `AGENTS.md` nennen Codex in der Review-Rotation. Ein Nachtrag ist ein
   Owner-Entscheid.
 - Bewusst nicht gemacht: kein Server-Zugriff, kein Docker, keine echte CLI, kein Merge.
-- Diese Datei liegt auf Wunsch des Owners («abspeichern») im Branch von PR #84. Ob sie im
-  PR bleibt, entscheidet der Owner vor dem Merge.
+- Diese Datei liegt mit Zustimmung des Owners im Branch von PR #84.
 
 ## Naechster Schritt
 
-- Der Owner beantwortet E1 bis E6 im Abschnitt «Offene Fragen» von
-  `tasks/08-claude-lane-live.md` und gibt GO oder einen Aenderungswunsch zu PR #84.
-  Abnahme-Befehl auf dem Branch:
+- Der Owner gibt das Merge-GO fuer PR #84. Danach baut der Builder Teil A aus
+  `tasks/08-claude-lane-live.md` (Schritte 1 bis 4) auf `stage/08a-claude-live-decision`.
+  Abnahme-Befehl fuer Teil A:
 
   ```bash
-  make lint
+  make lint && uv run pytest tests/unit/test_live_config.py -q
   ```
 
-- Danach: `/clear`, neue Session, Teil A bauen (`stage/08a-claude-live-decision`), und
-  `/plan-ticket` fuer das naechste Ticket.
+- Danach: `/clear`, neue Session, `/plan-ticket` fuer das naechste Ticket.

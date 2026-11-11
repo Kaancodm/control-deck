@@ -5,7 +5,8 @@
 Ticket 8: Live-Profil fuer die Lane `claude` (Nachfolge von Etappe 12, die nur die Simulation
 gebaut hat). Vier Teile A bis D. Jeder Teil ist eine eigene Builder-Session, ein Branch
 `stage/08x-<slug>` und ein Draft-PR gegen `main`. Teil B beginnt erst, wenn Teil A gemergt ist,
-und so weiter. Builder: Cursor. Externes Review: Grok. Planer: Claude. Status: nur geplant.
+und so weiter. Builder: Cursor. Externes Review: Grok. Planer: Claude. Status: geplant; die
+Owner-Entscheide E1 bis E6 liegen vor, Teil A kann beginnen.
 
 Abweichung von der Vorlage, bewusst: ein Dokument fuer vier PRs statt vier Dateien, und Grok
 statt der Rotation aus ADR 0008, weil der Planer Claude ist und das Review von einem anderen
@@ -18,6 +19,7 @@ Herkunft der Vorgaben:
 | GO fuer den Claude-Live-Schalter | Owner, 2026-11-11, Owner-Aussage in der Planungssitzung | unproven by repo |
 | Codex ist nicht mehr im Team | Owner, 2026-11-11, Owner-Aussage | unproven by repo |
 | Benutzerkonten am Betriebsort bleiben unveraendert | Owner, 2026-11-11, Owner-Aussage | unproven by repo |
+| E1 bis E6: «Ja zu allen» | Owner, 2026-11-11, Owner-Aussage in der Planungssitzung | unproven by repo |
 | Codestellen unter «Ausgangslage» | Repo, 2026-11-11, Dateien gelesen, zweifach gegengeprueft | proven |
 | CLI nutzt `HTTPS_PROXY`, kein SOCKS, URL braucht ein Schema | `code.claude.com/docs/en/network-config`, 2026-11-11, Herstellerdoku gelesen | proven fuer die Doku, unproven fuer CLI 2.1.317 |
 | Abo-Zugangsdaten liegen im Konfigurationsverzeichnis, `CLAUDE_CONFIG_DIR` verschiebt sie | `code.claude.com/docs/en/authentication`, 2026-11-11, Herstellerdoku gelesen | proven fuer die Doku |
@@ -373,8 +375,9 @@ Konto, ein Nachzug von ADR 0008.
 
 ## Offene Fragen (TODO)
 
-Der Owner beantwortet E1 bis E6 vor dem Start von Teil A, einzeln oder mit einem «Ja zu allen
-Empfehlungen». Der Builder entscheidet keine dieser Fragen.
+Stand 2026-11-11: Der Owner hat E1 bis E6 mit «Ja zu allen» beantwortet. Es gilt jeweils die
+Empfehlung in der rechten Spalte; ADR 0012 (Schritt 1) haelt sie fest. Der Builder entscheidet
+keine dieser Fragen neu.
 
 | ID | Frage | Empfehlung |
 |----|-------|------------|

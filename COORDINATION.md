@@ -1,19 +1,36 @@
 # Koordination
 
-Zweck: eine gemeinsame Statusliste für alle Coding-Tools (Claude 1, Claude 2, Grok 2, Grok 3, Cursor, Grok Bot).
+Stand: 11.11.2026. Angaben zum Betrieb: Quelle Owner-Auftrag vom 11.11.2026, Methode Angabe des Owners, Status im Repository unproven.
+
+Diese Datei ist die eine gemeinsame Standliste für die gesamte Arbeit auf GitHub und auf dem deck-server. Sie gilt für alle Werkzeuge: Claude 1, Claude 2, Grok 2, Grok 3, Cursor und Grok Bot. Der Owner spricht nur mit Grok Bot. Grok Bot koordiniert und hält diese Datei aktuell.
 
 ## Regeln
 
-1. Diese Datei lesen, bevor irgendeine Arbeit beginnt.
-2. Eine Aufgabe beanspruchen, indem eine Zeile eingetragen wird, bevor ein Branch angefasst wird.
-3. Nie an einem Branch arbeiten, den jemand anders beansprucht hat.
+1. Diese Datei vor jeder Arbeit lesen.
+2. Eine Aufgabe mit einer Zeile beanspruchen, bevor ein Branch oder ein Serverdienst angefasst wird.
+3. Nie an einem Branch oder Dienst arbeiten, den jemand anders beansprucht hat.
 4. Die Zeile aktualisieren, wenn die Arbeit erledigt ist.
-5. Nur Grok Bot merged, und nur nach dem einzelnen Ja des Owners. Kein Auto-Merge.
+5. Nur Grok Bot führt den Merge aus, und nur nach dem einmaligen Ja des Owners. Kein Auto-Merge.
+6. Änderungen am Server (Installationen, Neustarts, Konfiguration) nur durch Grok Bot oder mit ausdrücklichem GO des Owners.
+7. Keine Geheimnisse in dieser Datei.
 
-## Status
+## GitHub
 
 | Aufgabe | Wer | Branch | PR | Stand | Zuletzt aktualisiert |
-|---------|-----|--------|----|-------|----------------------|
-| Konflikte PR #86 loesen | Grok Bot | stage/refactor-ollama-chat | #86 | in Arbeit | 2026-11-11 |
-| Ticket 08 Teil A | Cursor Cloud Agent | stage/08a-claude-live-decision | offen | in Arbeit | 2026-11-11 |
-| Badge + Codex raus in Docs | Cursor Cloud Agent | (eigener Branch) | offen | in Arbeit | 2026-11-11 |
+| --- | --- | --- | --- | --- | --- |
+| Konflikte PR #86 lösen | Grok Bot | `stage/refactor-ollama-chat` | #86 | in Arbeit | 11.11.2026 |
+| Ticket 08 Teil A | Cursor Cloud Agent | `stage/08a-claude-live-decision` | offen | in Arbeit | 11.11.2026 |
+| Badge + Codex raus in Docs | Cursor Cloud Agent | `cursor/workflow-docs-codefactor-b0cb` | #87 | Entwurf | 11.11.2026 |
+| Systemprompt-Entwurf | offen | `docs/systemprompt` | #56 | Überarbeitung 12.11. | 11.11.2026 |
+
+## deck-server
+
+| Dienst | Wer | Stand | Nächster Schritt |
+| --- | --- | --- | --- |
+| OmniRoute | Grok Bot | läuft | Owner fügt restliche Gratis-Keys hinzu |
+| Open WebUI | Grok Bot | läuft, Signup aus | Owner legt Admin-Konto an |
+| Ollama (Version fix, kein Update) | Grok Bot | läuft | Modell-Aufräumen wartet auf Owner-Ja |
+| n8n | Grok Bot | läuft | Owner legt Owner-Konto an |
+| Hermes Agent | Grok Bot | läuft | Kontextlänge erhöhen nach RAM-Check |
+| Egress-Proxy (E2) | Grok Bot | nicht gestartet | braucht eigenes GO |
+| Ollama auf PC Bruder | Grok Bot | geplant | wenn Owner am PC |

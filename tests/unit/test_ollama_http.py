@@ -132,6 +132,33 @@ def test_incomplete_or_malformed_stream_discards_partial_output(chunks):
         assert not hasattr(caught.value, "content")
 
 
+@pytest.mark.parametrize(
+    "bad_chunk",
+    [
+        chunk(done=True, remote_host="https://remote.invalid"),
+        chunk(done=True, message={"role": "assistant", "content": "", "tool_calls": [{}]}),
+    ],
+    ids=["remote_host", "tool_calls"],
+)
+@pytest.mark.parametrize("method", ["chat", "chat_with_chunks"])
+def test_remote_host_and_tool_calls_rejected_by_both_chat_methods(method, bad_chunk):
+    with OllamaStub(chat_chunks=[chunk("partial"), bad_chunk]) as stub:
+        client = OllamaHTTPClient(stub.url)
+        with pytest.raises(OllamaHTTPError) as caught:
+            if method == "chat":
+                chat(client)
+            else:
+                client.chat_with_chunks(
+                    model=MODEL,
+                    messages=[{"role": "user", "content": "synthetic payload"}],
+                    timeout_s=2,
+                    cancelled=lambda: False,
+                    on_chunk=lambda _: None,
+                )
+        assert caught.value.reason == "internal"
+        assert "partial" not in repr(caught.value)
+
+
 def test_length_is_distinct_and_thinking_is_discarded():
     thought = chunk("answer")
     thought["message"]["thinking"] = "private reasoning marker"

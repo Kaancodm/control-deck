@@ -10,6 +10,8 @@ SuperGrok for code review, Grok Bot for merges).
 - Do **not** commit IP addresses, hostnames, or infrastructure-specific URLs in code or docs.
 - Do **not** open network connections to production systems or user machines unless explicitly requested.
 
+Agents must read [COORDINATION.md](COORDINATION.md) first.
+
 ## Dependencies and scope
 
 - Do **not** add new runtime or dev dependencies without a clear justification in the pull request description.

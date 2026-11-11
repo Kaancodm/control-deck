@@ -23,7 +23,7 @@ Diese Datei ist die eine gemeinsame Standliste für die gesamte Arbeit auf GitHu
 | Badge + Codex raus in Docs | Cursor Cloud Agent | `cursor/workflow-docs-codefactor-b0cb` | #87 | erledigt (gemergt) | 11.11.2026 |
 | Koordinationsliste | Cursor Cloud Agent | `docs/coordination` | #89 | erledigt (gemergt, f459255) | 11.11.2026 |
 | Systemprompt-Entwurf | offen | `docs/systemprompt` | #56 | Überarbeitung 12.11. | 11.11.2026 |
-| Ollama-HTTP aufräumen | Cursor Cloud Agent | `stage/cleanup-ollama-http` | offen | Entwurf | 11.11.2026 |
+| Ollama-HTTP aufräumen | Cursor Cloud Agent | `stage/cleanup-ollama-http` | #90 | Entwurf | 11.11.2026 |
 
 ## deck-server
 

@@ -2,7 +2,7 @@
 
 Checklist for `/code-review` and for the `reviewer` agent (`.claude/agents/reviewer.md`).
 Correctness and safety only; style is covered by `ruff` and `mypy`. A finding names the file
-and line, the violated rule, and the smallest fix. Merge needs an explicit GO from the owner.
+and line, the violated rule, and the smallest fix. Merge needs one yes from the owner; only Grok Bot merges. Other agents and bots, including Fable, do not merge.
 
 ## 1. Security
 

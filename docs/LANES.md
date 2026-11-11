@@ -266,7 +266,9 @@ am Server `unproven`.
 `ClaudeExecutor` unterstützt ausschliesslich das ausdrückliche Profil `simulation`.
 Der Standard `disabled` meldet ohne Prozessstart `unavailable` / `live_profile_unavailable`.
 Die mitgelieferte Fake-Container-CLI startet nur die Fake-Claude-CLI. Sie simuliert einen
-Lebenszyklus und ist keine Sandbox. Es gibt keinen Executable-Override oder Live-Schalter.
+Lebenszyklus und ist keine Sandbox. Es gibt keinen Executable-Override. Eine
+Konfigurationsprüfung nach [ADR 0012](DECISIONS/0012-claude-lane-live.md) ist vorhanden;
+einen Live-Executor gibt es noch nicht.
 
 ```bash
 uv run python -m app.workers.runner_main --worker claude --simulate --once --executor claude-fake-cli
@@ -357,7 +359,9 @@ Das Live-Profil bleibt gesperrt. Separat nachzuweisen sind:
 - Abgelaufene Anmeldung, Anbieter-Sperre, Rate-Limit, keine versteckten Wiederholungen
   und echte JSON-Abschlussmerkmale prüfen. Inhaltliche Fälle liefert der Owner.
 
-Nichts davon wurde ausgeführt. Es gibt keinen automatischen Login oder Live-Schalter.
+Nichts davon wurde ausgeführt. Es gibt keinen automatischen Login. Eine
+Konfigurationsprüfung nach [ADR 0012](DECISIONS/0012-claude-lane-live.md) ist vorhanden;
+einen Live-Executor gibt es noch nicht.
 Quellenstand 2026-11-03:
 
 - [Offizieller Release 2.1.317](https://github.com/anthropics/claude-code/releases/tag/v2.1.317)

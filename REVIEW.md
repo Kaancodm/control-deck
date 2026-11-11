@@ -8,6 +8,9 @@ and line, the violated rule, and the smallest fix. Merge needs one yes from the 
 
 - No server, deployment, or network changes in this repository. No commands against
   production hosts, no database roles, no `tailscale`, `systemd`, or `docker` changes in code.
+  Narrow exception (ADR 0012): the cleanroom starter in `app/workers/sandbox.py` may invoke
+  the local Docker client, and only under the fixed contract recorded in that ADR. No other
+  `docker` use is covered. Every other rule in this section stays.
 - Input from tasks (instructions, inputs, file paths) is untrusted: path traversal, shell
   injection, and oversized payloads must be rejected by validation, not by convention.
 - Cloud workers are called only through the official CLIs (`claude -p`, `codex exec`).

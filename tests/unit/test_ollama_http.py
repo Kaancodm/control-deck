@@ -214,6 +214,33 @@ def test_local_suffix_response_uses_configured_name():
         assert response.content == "answer"
 
 
+@pytest.mark.parametrize("method", ["chat", "chat_with_chunks"])
+@pytest.mark.parametrize(
+    "bad_chunk",
+    [
+        chunk(done=True, remote_host="https://remote.invalid"),
+        chunk(done=True, message={"role": "assistant", "content": "", "tool_calls": [{}]}),
+    ],
+)
+def test_chat_and_streaming_reject_remote_host_and_tool_calls(method, bad_chunk):
+    with OllamaStub(chat_chunks=[bad_chunk]) as stub:
+        client = OllamaHTTPClient(stub.url)
+        with pytest.raises(OllamaHTTPError) as caught:
+            if method == "chat":
+                client.chat(
+                    model=MODEL, payload_text="payload", timeout_s=2, cancelled=lambda: False
+                )
+            else:
+                client.chat_with_chunks(
+                    model=MODEL,
+                    messages=[{"role": "user", "content": "payload"}],
+                    timeout_s=2,
+                    cancelled=lambda: False,
+                    on_chunk=lambda _: None,
+                )
+        assert caught.value.reason == "internal"
+
+
 EMBED_MODEL = "embed-fixture:0.6b:local"
 
 

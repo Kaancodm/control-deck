@@ -444,25 +444,21 @@ class OllamaHTTPClient:
             consume=consume,
         )
 
-    def chat(
+    def _chat_stream(
         self,
         *,
         model: str,
-        payload_text: str = "",
-        messages: list[dict[str, object]] | None = None,
+        messages: list[dict[str, object]],
         timeout_s: float,
         cancelled: Callable[[], bool],
-        format_json: bool = False,
-        num_ctx: int = 4096,
-        num_predict: int | None = None,
-        temperature: float = 0,
-        keep_alive: str | int | None = "1m",
-        think: bool | None = None,
+        format_json: bool,
+        num_ctx: int,
+        num_predict: int | None,
+        temperature: float,
+        keep_alive: str | int | None,
+        think: bool | None,
+        on_chunk: Callable[[str], None] | None,
     ) -> ChatResponse:
-        if messages is None:
-            chat_messages: list[dict[str, object]] = [{"role": "user", "content": payload_text}]
-        else:
-            chat_messages = messages
         if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
             raise ValueError("Invalid chat temperature")
         if not math.isfinite(float(temperature)) or not 0 <= float(temperature) <= 2:
@@ -474,7 +470,7 @@ class OllamaHTTPClient:
             options["num_predict"] = num_predict
         body: dict[str, object] = {
             "model": model,
-            "messages": chat_messages,
+            "messages": messages,
             "stream": True,
             "truncate": False,
             "shift": False,
@@ -528,6 +524,8 @@ class OllamaHTTPClient:
                     output_size += len(content.encode("utf-8"))
                     if output_size > self.max_output_bytes:
                         raise OllamaHTTPError("internal")
+                    if on_chunk is not None and content:
+                        on_chunk(content)
                     output.append(content)
                     progress()
                     if chunk["done"]:
@@ -564,6 +562,39 @@ class OllamaHTTPClient:
             streaming=True,
         )
 
+    def chat(
+        self,
+        *,
+        model: str,
+        payload_text: str = "",
+        messages: list[dict[str, object]] | None = None,
+        timeout_s: float,
+        cancelled: Callable[[], bool],
+        format_json: bool = False,
+        num_ctx: int = 4096,
+        num_predict: int | None = None,
+        temperature: float = 0,
+        keep_alive: str | int | None = "1m",
+        think: bool | None = None,
+    ) -> ChatResponse:
+        if messages is None:
+            chat_messages: list[dict[str, object]] = [{"role": "user", "content": payload_text}]
+        else:
+            chat_messages = messages
+        return self._chat_stream(
+            model=model,
+            messages=chat_messages,
+            timeout_s=timeout_s,
+            cancelled=cancelled,
+            format_json=format_json,
+            num_ctx=num_ctx,
+            num_predict=num_predict,
+            temperature=temperature,
+            keep_alive=keep_alive,
+            think=think,
+            on_chunk=None,
+        )
+
     def chat_with_chunks(
         self,
         *,
@@ -578,101 +609,16 @@ class OllamaHTTPClient:
         think: bool | None = None,
         on_chunk: Callable[[str], None],
     ) -> ChatResponse:
-        if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):
-            raise ValueError("Invalid chat temperature")
-        if not math.isfinite(float(temperature)) or not 0 <= float(temperature) <= 2:
-            raise ValueError("Invalid chat temperature")
-        options: dict[str, object] = {"temperature": float(temperature), "num_ctx": num_ctx}
-        if num_predict is not None:
-            if type(num_predict) is not int or not 1 <= num_predict <= 2**31 - 1:
-                raise ValueError("Invalid num_predict")
-            options["num_predict"] = num_predict
-        body: dict[str, object] = {
-            "model": model,
-            "messages": messages,
-            "stream": True,
-            "truncate": False,
-            "shift": False,
-            "options": options,
-        }
-        if keep_alive is not None:
-            body["keep_alive"] = keep_alive
-        if think is not None:
-            body["think"] = think
-
-        def consume(
-            response: http.client.HTTPResponse, progress: Callable[[], None]
-        ) -> ChatResponse:
-            pending = bytearray()
-            output: list[str] = []
-            output_size = 0
-            total_size = 0
-            terminal: dict[str, object] | None = None
-            while data := response.read1(4096):
-                total_size += len(data)
-                if total_size > self.max_stream_bytes:
-                    raise OllamaHTTPError("internal")
-                pending.extend(data)
-                while b"\n" in pending:
-                    line, _, remaining = pending.partition(b"\n")
-                    pending = bytearray(remaining)
-                    if len(line) > self.max_line_bytes or terminal is not None:
-                        raise OllamaHTTPError("internal")
-                    chunk = _json(bytes(line))
-                    message = chunk.get("message")
-                    if (
-                        chunk.get("model") not in {model, model.removesuffix(":local")}
-                        or type(chunk.get("done")) is not bool
-                        or "error" in chunk
-                        or chunk.get("remote_host")
-                        or chunk.get("remote_model")
-                        or not isinstance(message, dict)
-                        or message.get("role") != "assistant"
-                        or not isinstance(message.get("content"), str)
-                        or message.get("tool_calls")
-                        or message.get("images")
-                    ):
-                        raise OllamaHTTPError("internal")
-                    content = message["content"]
-                    if "\0" in content:
-                        raise OllamaHTTPError("internal")
-                    output_size += len(content.encode("utf-8"))
-                    if output_size > self.max_output_bytes:
-                        raise OllamaHTTPError("internal")
-                    if content:
-                        on_chunk(content)
-                    output.append(content)
-                    progress()
-                    if chunk["done"]:
-                        if chunk.get("done_reason") not in {"stop", "length"}:
-                            raise OllamaHTTPError("internal")
-                        terminal = chunk
-                    elif chunk.get("done_reason"):
-                        raise OllamaHTTPError("internal")
-                if len(pending) > self.max_line_bytes:
-                    raise OllamaHTTPError("internal")
-            if pending or terminal is None:
-                raise OllamaHTTPError("internal")
-            content = "".join(output)
-            return ChatResponse(
-                content=content,
-                done_reason=str(terminal["done_reason"]),
-                model=model,
-                prompt_eval_count=_count(terminal.get("prompt_eval_count")),
-                eval_count=_count(terminal.get("eval_count")),
-                load_duration=_duration_ns(terminal.get("load_duration")),
-                prompt_eval_duration=_duration_ns(terminal.get("prompt_eval_duration")),
-                eval_duration=_duration_ns(terminal.get("eval_duration")),
-                total_duration=_duration_ns(terminal.get("total_duration")),
-                output_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
-            )
-
-        return self._request(
-            "POST",
-            "/api/chat",
-            body,
+        return self._chat_stream(
+            model=model,
+            messages=messages,
             timeout_s=timeout_s,
             cancelled=cancelled,
-            consume=consume,
-            streaming=True,
+            format_json=False,
+            num_ctx=num_ctx,
+            num_predict=num_predict,
+            temperature=temperature,
+            keep_alive=keep_alive,
+            think=think,
+            on_chunk=on_chunk,
         )

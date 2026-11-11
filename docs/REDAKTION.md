@@ -61,8 +61,11 @@ Platzhalter interpretiert.
 2. Datenschranke ausfuehren und jede Textdatei genau einmal sicher lesen. Derselbe gelesene
    Inhalt wird fuer den Versandtext verwendet.
 3. Titel, Anweisung, Input-Metadaten und -Inhalte, Abnahmeregeln sowie Labels als Markdown
-   rendern. Freigegebene Kontext-Snapshots aus `context_refs` werden mit ihrem
-   Freigabe-Digest eingebunden; nicht aufgeloeste oder veraenderte Kontexte sperren den Payload.
+   rendern. Freigegebene Kontext-Snapshots aus `context_refs` erscheinen je als `## Context`
+   mit ihrem Text, ohne Digest. Vor dem Rendern vergleicht `prepare_task_payload` die Digests
+   der geladenen Snapshots mit `context_hashes` der letzten Operator-Freigabe (`task.approve`);
+   eine Abweichung sperrt den Payload mit `context_approval_hash_mismatch`. Nicht aufgeloeste
+   Kontexte sperren ihn ebenfalls.
 4. Bei `cloud_redacted` den vollstaendigen Text scannen, die sechs unterstuetzten Arten
    ersetzen und die Zuordnungen atomar speichern.
 5. Den gesamten redigierten Text erneut scannen. Jeder Resttreffer sperrt den Payload;

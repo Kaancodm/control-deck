@@ -1,50 +1,65 @@
 # HANDOFF
 
-Stand: 2026-11-04. Uebergabe aus der Session "Live-Stack-Review". Langfassung mit
-Begruendungen und SHAs: `docs/SESSIONS/2026-11-04-live-stack-review.md`.
+Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
 
 ## Stand
 
-- Branch dieser Uebergabe: `claude/session-handoff-docs-on6j3g`, Basis `main@a33cc3f` (#37 gemergt).
-- `main` enthaelt die Etappen 1 bis 17, die P1-Nacharbeit (#37), Mobile-UX (#35) und die
-  Referenzfaelle 013/014 (#36). Etappe 18 ist nicht gestartet, kein Tag, Version bleibt `0.1.0`.
-- Live-Stack Ollama (ADR 0009) liegt als Draft-Kette vor: #39 -> #40 -> #41 -> #42 -> #44 -> #45
-  -> #46 -> #47, darauf #48 (Lasttest). Alle auf `main@a33cc3f` rebasiert, `quality` und
-  GitGuardian auf den Heads gruen. #43 (Parallel-ADR) wurde zugunsten von #39 zurueckgezogen.
-- Aus dem Review entstanden zwei eigenstaendige Draft-PRs gegen `main`:
-  - #49 `fix/runner-artifacts-after-commit`: `result.json` und Lane-Log erst nach dem Commit,
-    neuer Fehlercode `artifact_publication_failed`. 3 neue Integrationstests, 22 gruen.
-  - #50 `test/operations-user-unit-verify`: systemd-Verifikation im User-Scope mit
-    Negativkontrolle, aus #39 ausgelagert. 41 Unit-Tests gruen.
-- #38 `plan/04-07-inbetriebnahme`: vier Bautickets A bis D in `tasks/`, Review durch Fable offen.
-- In dieser Session wurden keine `make lint` oder `make test` Laeufe auf `main` ausgefuehrt;
-  die Zahlen oben stammen aus den PR-Beschreibungen und der CI.
+- Branch `claude/fervent-pasteur-upzu9m`, letzter Commit vor dieser Datei `4e32a02`.
+- Draft-PR #84 «docs(tasks): plan build ticket 08 for the Claude lane live profile» gegen
+  `main`. CI auf dem Commit `41b5bcd`: `quality` und GitGuardian gruen.
+- Inhalt des PR: `tasks/08-claude-lane-live.md` (Teile A bis D, 19 Schritte,
+  Owner-Entscheide E1 bis E6, Risiken und Rueckweg) und diese Uebergabe. Kein Code, kein
+  Schema, keine Migration.
+- Gegenpruefung des Auftrags: ein Lese-Review gegen den Code und drei Pruefer (externe
+  Annahmen gegen Herstellerdoku, Sicherheit, Testbarkeit). Befunde sind in den Commits
+  `fdb1be6` und `4e32a02` eingearbeitet. Niemand hat Docker oder eine echte CLI gestartet.
+- `make lint`: exit 0.
+- `make test`: exit 2 mit `22 failed, 2744 passed, 56 skipped, 1004 errors`. Alle Fehler
+  liegen in `tests/integration/`, weil in der Cloud-Umgebung kein PostgreSQL auf dem lokalen
+  Port laeuft. Kein Unit-Test ist rot. Massgeblich ist der CI-Lauf am PR.
+- Befunde aus dem Repo (gelesen am 2026-11-11, Stellen stehen im Auftrag):
+  - Ollama live braucht nur Konfiguration am Betriebsort; fuer `claude` und `codex` gibt es
+    keinen Live-Code.
+  - Auftraege anlegen ueber die API verlangt das Owner-Token, das auch freigeben kann. Ein
+    Token nur zum Anlegen gibt es nicht.
+  - Auftraege lassen sich im Deck nicht verketten; `parent_task_id` wird nicht ausgewertet.
+  - Einziger weiterer offener PR: #56 (Systemprompt, Draft).
+- Owner-Vorgaben vom 2026-11-11 (Owner-Aussage, im Repo nicht belegt): Planer Claude,
+  Builder Cursor mit dem Modell Opus, fuer kleine Auftraege Sonnet, fuer komplexe bei Bedarf
+  Fable (nur interaktiv, siehe `CLAUDE.md`), Review Grok. Codex und Gemini Pro sind nicht mehr
+  im Team. Ein Betriebs-Bot verwaltet Router, Chat-Oberflaeche und lokale Modelle am
+  Betriebsort. Die Benutzerkonten dort bleiben unveraendert. Altprojekte werden nicht
+  eingespeist.
 
 ## Offene Punkte
 
-- Kein PR ist gemergt. Jeder Merge braucht ein explizites GO des Owners.
-- Reihenfolge fuer Merges ist vorgeschlagen, nicht entschieden: zuerst #49 und #50 (klein,
-  gegen `main`), dann #39 ff. in Kettenfolge, #48 zuletzt. #38 ist Planung und unabhaengig.
-- Blocker 2 aus #38 (Timername und Manager fuer B2) ist offen; nichts raten.
-- Echte Modelllaeufe, Owner-Canary (`make canary`), Server-Konfiguration und Restore-Probe
-  sind Owner-Nachweise und wurden nicht durchgefuehrt.
-- Folge-Issue auf dem Stack (`docs/FOLGE_ISSUE_RUNNER_2026-11-04.md`): Wiederaufnahme
-  unvollstaendig veroeffentlichter Artefakte. #49 schliesst die Ursache, nicht das Aufraeumen.
-- Browser-Tests (Playwright/Chromium) laufen nur in CI zuverlaessig; lokal je nach Umgebung rot.
-- Setup-Script der Cloud-Umgebung scheitert bei `createdb` (Passwort-Auth fuer `root` auf
-  Port 5432). Fuer Doku-Arbeit irrelevant, fuer Integrationstests im Container zu beheben.
+- E1 bis E6 sind beantwortet: «Ja zu allen» (Owner-Aussage vom 2026-11-11, im Repo nicht
+  belegt). Damit laeuft der Claude-Runner unter dem Dienstkonto mit eigener Anmeldung (E4).
+- Das Merge-GO fuer PR #84 liegt vor (Owner-Aussage vom 2026-11-11, im Repo nicht belegt).
+  Den Merge fuehrt der Owner selbst aus; Agenten mergen nicht (`AGENTS.md`).
+- Hermes und n8n: Der Installationszustand am Betriebsort ist unbekannt. Der Owner fuehrt
+  zuerst einen lesenden Statusbefehl aus; erst danach folgen Einschaltbefehle.
+- Vorschlag, nicht beauftragt: ein kleiner Bauauftrag «Anlege-Token», bevor Hermes oder n8n
+  Zugriff auf die API erhalten.
+- Schutzpunkte fuer den Betrieb: Das Deck verlangt exakt die gepinnte Ollama-Version
+  (ADR 0009). Das Embedding-Modell der Wissens-DB (ADR 0011) und die Modelle aus der
+  Router-Datei duerfen nicht geloescht werden.
+- Veraltet im Repo und nicht angefasst: Statusspalte in `docs/ETAPPEN/README.md`, Kopf von
+  `tasks/04-a-kb-runtime-migration.md` (mit #59 gemergt), `CLAUDE.md` nennt fuer die CI
+  `postgres:17`, der Workflow nutzt ein pgvector-Image.
+- ADR 0008 und `AGENTS.md` nennen Codex in der Review-Rotation. Ein Nachtrag ist ein
+  Owner-Entscheid.
+- Bewusst nicht gemacht: kein Server-Zugriff, kein Docker, keine echte CLI, kein Merge.
+- Diese Datei liegt mit Zustimmung des Owners im Branch von PR #84.
 
 ## Naechster Schritt
 
-- Review von #49 lesen und GO oder Aenderungswunsch geben. Pruefpfad:
-  `app/workers/runner.py` (Reihenfolge Commit -> Artefakte), `docs/RUNNER.md`,
-  `tests/integration/test_host_runner.py`.
-  Abnahme-Befehl auf dem Branch `fix/runner-artifacts-after-commit`:
+- Sobald PR #84 gemergt ist, baut der Builder Teil A aus
+  `tasks/08-claude-lane-live.md` (Schritte 1 bis 4) auf `stage/08a-claude-live-decision`.
+  Abnahme-Befehl fuer Teil A:
 
   ```bash
-  make lint
-  uv run pytest tests/integration/test_host_runner.py
+  make lint && uv run pytest tests/unit/test_live_config.py -q
   ```
 
-- Danach: `/clear`, neue Session, `/plan-ticket` fuer die naechste Etappe oder das naechste
-  Ticket aus #38 (A: `tasks/04-a-kb-runtime-migration.md`).
+- Danach: `/clear`, neue Session, `/plan-ticket` fuer das naechste Ticket.

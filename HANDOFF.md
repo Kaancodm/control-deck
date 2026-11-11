@@ -35,7 +35,8 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
 
 - E1 bis E6 sind beantwortet: «Ja zu allen» (Owner-Aussage vom 2026-11-11, im Repo nicht
   belegt). Damit laeuft der Claude-Runner unter dem Dienstkonto mit eigener Anmeldung (E4).
-  Ein Merge-GO fuer PR #84 liegt noch nicht vor.
+- Das Merge-GO fuer PR #84 liegt vor (Owner-Aussage vom 2026-11-11, im Repo nicht belegt).
+  Den Merge fuehrt der Owner selbst aus; Agenten mergen nicht (`AGENTS.md`).
 - Hermes und n8n: Der Installationszustand am Betriebsort ist unbekannt. Der Owner fuehrt
   zuerst einen lesenden Statusbefehl aus; erst danach folgen Einschaltbefehle.
 - Vorschlag, nicht beauftragt: ein kleiner Bauauftrag «Anlege-Token», bevor Hermes oder n8n
@@ -53,7 +54,7 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
 
 ## Naechster Schritt
 
-- Der Owner gibt das Merge-GO fuer PR #84. Danach baut der Builder Teil A aus
+- Sobald PR #84 gemergt ist, baut der Builder Teil A aus
   `tasks/08-claude-lane-live.md` (Schritte 1 bis 4) auf `stage/08a-claude-live-decision`.
   Abnahme-Befehl fuer Teil A:
 

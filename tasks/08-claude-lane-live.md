@@ -6,12 +6,12 @@ Ticket 8: Live-Profil fuer die Lane `claude` (Nachfolge von Etappe 12, die nur d
 gebaut hat). Vier Teile A bis D. Jeder Teil ist eine eigene Builder-Session, ein Branch
 `stage/08x-<slug>` und ein Draft-PR gegen `main`. Teil B beginnt erst, wenn Teil A gemergt ist,
 und so weiter. Builder: Cursor mit dem Modell Opus (Owner-Aussage vom 2026-11-11, im Repo
-nicht belegt). Externes Review: Grok. Planer: Claude. Status: geplant; die Owner-Entscheide
+nicht belegt). Externes Review: SuperGrok (nur Code). Planer: Claude. Status: geplant; die Owner-Entscheide
 E1 bis E6 liegen vor, Teil A kann beginnen.
 
-Abweichung von der Vorlage, bewusst: ein Dokument fuer vier PRs statt vier Dateien, und Grok
-statt der Rotation aus ADR 0008, weil der Planer Claude ist und das Review von einem anderen
-Anbieter kommen muss.
+Abweichung von der Vorlage, bewusst: ein Dokument fuer vier PRs statt vier Dateien. Review ist
+SuperGrok (nur Code), nicht die alte Rotation aus ADR 0008. Der Nachtrag vom 2026-11-11 ersetzt
+diese Rotation. Der Planer bleibt Claude; der Reviewer bleibt ein anderer Arbeiter.
 
 Herkunft der Vorgaben:
 
@@ -389,5 +389,8 @@ keine dieser Fragen neu.
 | E5 | Genau ein Modell in `lanes.claude.models`, als volle Modell-ID mit Versionsteil (im Code erzwungen); nicht die staerkste Klasse und Zusatzabrechnung aus (Owner-Nachweis)? | Ja. `CLAUDE.md` warnt vor Abrechnung ohne Rueckfrage in `claude -p`. |
 | E6 | `REVIEW.md` bekommt die enge Ausnahme aus Schritt 2? | Ja. Ohne sie kann kein Review von Teil B ohne Befund enden. |
 
-TODO Planer: ADR 0008 und `AGENTS.md:27` nennen Codex in der Review-Rotation. Ob ein Nachtrag
+TODO Planer: ADR 0008 und `AGENTS.md` nannten Codex in der Review-Rotation. Ob ein Nachtrag
 folgt, entscheidet der Owner; dieser Auftrag aendert beide nicht.
+Nachtrag 2026-11-11, entschieden: ADR 0008 hat einen Nachtrag, `AGENTS.md` beschreibt den
+aktuellen Ablauf. Review ist SuperGrok (nur Code). Nur Grok Bot mergt. Dieser Bauauftrag
+aendert die beiden Dateien weiterhin nicht.

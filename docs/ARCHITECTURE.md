@@ -13,7 +13,7 @@ Dieses Dokument beschreibt die Zielarchitektur und Leitentscheide fuer Control D
 | Datenschutz | `data_class` Pflicht; Schranken vor Routing (ADR 0005) |
 | Worker | Nur offizielle CLIs, keine API-Keys (ADR 0006) |
 | Freigabe | Mensch als letzte Instanz; Wissens-DB nach GO (ADR 0007) |
-| Entwicklung | Builder Cursor; Review anderer Anbieter (ADR 0008) |
+| Entwicklung | Cursor baut; SuperGrok reviewt nur den Code; nur Grok Bot mergt nach einmaligem Ja des Owners (ADR 0008, Nachtrag 2026-11-11) |
 
 Details: `docs/DECISIONS/0001-*.md` bis `0008-*.md`.
 

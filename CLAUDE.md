@@ -95,7 +95,7 @@ type errors fail lint even when ruff is clean.
 
 ## Human gates (hard rules)
 
-- **Merge only after an explicit GO from the repository owner.** Agents never merge.
+- **Merge only after the owner says yes once.** Only Grok Bot merges. Other agents and bots, including Fable, do not merge.
 - **No server changes**, no deployments, no database roles, no network connections to
   production or user machines.
 - No new runtime or dev dependencies without a justification in the PR description.
@@ -118,7 +118,7 @@ These add to the human gates above; `AGENTS.md` still wins on conflict.
 - **Checks and test database:** see Commands and Database and tests.
 - **Production:** agents deploy, run production migrations, or connect to production only
   on an explicit owner GO for that action (as `AGENTS.md` allows on explicit request);
-  otherwise the agent only prepares the change. Merges stay with the owner (Human gates).
+  otherwise the agent only prepares the change. After the owner says yes once, only Grok Bot merges (Human gates).
 - **Public repo:** the repository is and stays public. No personal data, no private exports,
   no schema dumps that contain data.
 - **Provenance:** knowledge entries and research claims name their source (repo-relative path
@@ -133,31 +133,31 @@ Public sources: `code.claude.com/docs/en/best-practices`, `.../sub-agents`, `...
 Role split, team rules, and handoff template below are owner decisions, not research findings.
 `AGENTS.md` and Human gates still win.
 
-### Roles per task (owner decision)
+### Roles per task (owner decision, 2026-11-11)
 
-Current team split (owner decision; model mechanics proven):
+Codex and Gemini Pro are no longer used. The earlier split (Opus or Gemini builds; review
+rotates across providers, for example Codex and Claude) is superseded. Builder and reviewer
+stay different workers. The steps below are the owner decision; the planner notes under them
+are still the proven model mechanics.
 
-- **Planning (Fable or another strong planner):** plans in Plan Mode and writes the
-  ticket/handoff; does not build. In Claude Code, select Fable explicitly (`/model fable`);
-  it is never the default. Default effort `high` applies only to Fable (proven);
-  Opus/Sonnet/Haiku start at `medium` (proven), and for other models set effort explicitly
-  per task. Recommendation: keep Fable at `high` and raise to `max`/`xhigh` only for hard
-  architecture or capacity-critical work.
-- **Building (Opus or Gemini):** implements and fixes from the ticket in a fresh session.
-- **Review/small-fix account:** in Claude Code, the account defaults to Opus (Opus 5.5 on
-  Pro/Max, proven), which is also the builder model. Therefore, reviews of Opus builds must
-  not use the default Opus model — run them with a different model or provider (e.g. a
-  read-only `sonnet`/`haiku` `reviewer` subagent limited to `Read, Grep, Glob` [proven], or a
-  Grok/Gemini worker), and small, scoped fixes written by the review account are themselves
-  reviewed afterward by another worker/model (owner decision / `[B principle]`).
-- **Security and code-quality reviews:** run by a different worker/model than the builder in a
-  fresh session without the build context (proven: fresh session, `/code-review`,
-  `/security-review`, `REVIEW.md`, or a read-only `reviewer` subagent on `sonnet`/`haiku`
-  limited to `Read, Grep, Glob`; owner decision / `[B principle]`: `builder != reviewer` —
-  builder and reviewer are never the same worker/model, and provider rotation follows
-  `AGENTS.md` and ADR 0008).
+1. The owner gives the goal in one sentence.
+2. Claude plans and writes a short build ticket with a check command. Claude does not build
+   that ticket in the same session.
+3. Cursor builds in a branch. The check command must pass.
+4. SuperGrok reviews the code only. SuperGrok does not build and does not merge.
+5. The owner says yes once. Then Grok Bot merges.
+
+Only Grok Bot merges. Other agents and bots, including Fable, do not merge.
+
+Planner notes that still apply when Claude plans:
+
+- In Claude Code, select a strong planner explicitly when one is required. Default effort
+  `high` applies only to Fable (proven); Opus/Sonnet/Haiku start at `medium` (proven), and
+  for other models set effort explicitly per task. Recommendation: keep Fable at `high` and
+  raise to `max`/`xhigh` only for hard architecture or capacity-critical planning.
 - Do not run Fable in non-interactive `claude -p` runs: there it may bill usage credits
-  without asking (proven). Recommendation: pin models explicitly in scripts.
+  without asking (proven). Recommendation: pin models explicitly in scripts. Fable does not
+  merge.
 
 ### Keep context small
 
@@ -209,7 +209,7 @@ Research claims and knowledge entries follow the **Provenance** rule under Worki
 - Reference cases live in `tests/reference/cases/NNN-<slug>.yaml`; the case `id` must equal the
   file stem.
 - `uv run` uses the project `.venv`; do not install packages globally.
-- Branch naming for stage work: `stage/NN-<slug>`. Review provider rotates per stage (ADR 0008).
+- Branch naming for stage work: `stage/NN-<slug>`. Review is SuperGrok, code only (ADR 0008, amendment 2026-11-11).
 
 ## References
 

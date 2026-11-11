@@ -3,7 +3,10 @@
 ## Etappe
 
 Ticket 4 / A: Runtime-Ziel fuer die KB-Migration, einschliesslich Blocker 1(c).
-Builder: Codex. Externes Review: Fable, anderer Anbieter als der Builder; noch ausstehend.
+Builder: Cursor. Externes Review: SuperGrok (nur Code); noch ausstehend.
+Nachtrag 2026-11-11: Codex und Gemini Pro sind nicht mehr im Einsatz. Ablauf laut ADR 0008
+(Nachtrag): Cursor baut, SuperGrok reviewt nur den Code, der Owner sagt einmal Ja, nur
+Grok Bot mergt. Die aeltere Zuweisung an Codex und Fable gilt nicht mehr.
 Status: nur geplant. Umsetzungsbranch: `stage/04-a-kb-runtime-migration`.
 Die Nummer ist eine Ticketnummer; sie ersetzt nicht die historische Etappe 4.
 
@@ -17,11 +20,11 @@ des Live-Wissensadapters. Heute verwendet `alembic_kb/env.py` immer den Test-URL
 ## Rahmen
 
 - Feste Reihenfolge: Plan-PR, dann A -> B -> C -> D; keine Tagesplanung oder Parallelstarts.
-- Ein Ticket ist repo-seitig gruen, wenn seine Abnahme, CI und Fables Review gruen sind und
-  offene Befunde erledigt sind. Erst dann beginnt das naechste Ticket. Merge nur nach Owner-GO.
+- Ein Ticket ist repo-seitig gruen, wenn seine Abnahme, CI und das Review von SuperGrok gruen sind und
+  offene Befunde erledigt sind. Erst dann beginnt das naechste Ticket. Der Owner sagt einmal Ja, danach mergt nur Grok Bot.
 - Folge-PRs basieren auf dem geprueften Vorgaenger-Head oder dessen gemergtem Stand;
   keinen Merge vorwegnehmen. `TICKET_BASE` bezeichnet jeweils den dokumentierten PR-Basis-Commit.
-- Codex baut Repo-Code; danach fuehrt der Owner Server-Schritte 1 bis 15 einzeln aus,
+- Cursor baut Repo-Code; danach fuehrt der Owner Server-Schritte 1 bis 15 einzeln aus,
   jeweils erst nach bestandenem Vorgaenger. Dieser Auftrag fuehrt keine Server-Schritte aus.
 - Entscheid Blocker 1: (b) fuer den iPhone-Test, (c) als dieses Ticket. Bei (b) kein Deck-Backup
   und kein `make update`; vorhandene B2-Sicherung muss die zentrale DB nachweislich abdecken.

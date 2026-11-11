@@ -17,7 +17,9 @@ begrenzen. ADR 0006 für die offiziellen Cloud-CLIs bleibt unverändert.
   nicht verwendet.
 - `DECK_LIVE_ENABLED` aktiviert nur mit exakt `1` oder `true`. Es gehört zusammen
   mit `DECK_OLLAMA_URL` in die Runner-Env-Datei. Simulation bleibt ausdrücklich
-  wählbar und ignoriert das Live-Flag. Claude und Codex bleiben gesperrt.
+  wählbar und ignoriert das Live-Flag. Codex bleibt gesperrt. Für die Lane `claude`
+  gilt diese Sperre nicht mehr; [ADR 0012](0012-claude-lane-live.md) ersetzt sie. Ohne die
+  dort festgelegten Schalter bleibt auch `claude` aus.
 - Der erste Vertrag pinnt **exakt Ollama 0.40.14**. Ein grösseres Versionsfenster
   braucht neue Quellprüfung und Vertragsnachweise. Abweichungen verhindern Claims.
 - Nur lokal konfigurierte Modelle mit explizitem Tag sind erlaubt. Cloud-Kennungen,

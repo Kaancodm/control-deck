@@ -2,7 +2,7 @@
 
 Antwort: `N. em` oder `N. 2`. Agenten halten diese Liste aktuell (`AGENTS.md`).
 
-1. Regeln auf main, Branch `cursor/align-agent-rules-10a1`
+1. Regeln auf main, PR #92, Branch `cursor/align-agent-rules-10a1`
    em: Grok Bot mergt den Entwurf nach deinem Ja.
    Option 2: Nicht mergen.
    Unterschied: em uebernimmt die neuen Rollen auf main, Option 2 laesst main beim Stand von PR #90.

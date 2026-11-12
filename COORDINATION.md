@@ -26,7 +26,7 @@ Regeln: siehe `AGENTS.md`.
 | Koordinationsliste | Cursor Cloud Agent | `docs/coordination` | #89 | erledigt (gemergt, f459255, mergedAt 2026-11-11T21:29:25Z) | 12.11.2026 |
 | Systemprompt-Entwurf | Grok Bot | `docs/systemprompt` | #56 | pausiert (Owner Grok Bot). GitHub: offen, Entwurf, mergedAt leer | 12.11.2026 |
 | Ollama-HTTP aufräumen | Cursor Cloud Agent | `stage/cleanup-ollama-http` | #90 | erledigt (gemergt, 190a507, mergedAt 2026-11-11T22:13:38Z) | 12.11.2026 |
-| Regeln angleichen | Cursor Cloud Agent | `cursor/align-agent-rules-10a1` | #92 | Entwurf offen | 12.11.2026 |
+| Regeln angleichen | Cursor Cloud Agent | `cursor/align-agent-rules-10a1` | #92 | erledigt (gemergt, a105245, mergedAt 2026-11-12T22:51:01Z, mergedBy Kaancodm) | 12.11.2026 |
 
 ## deck-server
 

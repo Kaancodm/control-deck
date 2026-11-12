@@ -2,10 +2,10 @@
 
 Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
 
-1. PR #92 auf main, Branch `cursor/align-agent-rules-10a1`
+1. PR #93 auf main, Branch `cursor/clear-merged-go-10a1`
    em: Ja, dieser Entwurf soll auf main.
    Option 2: Nicht auf main.
-   Unterschied: em legt die Regeln auf main, Option 2 laesst main bei PR #90.
+   Unterschied: em nimmt die erledigte Frage zu PR #92 von der Liste, Option 2 laesst sie auf main.
 
 2. Egress-Proxy (E2) starten
    em: Aus lassen.

@@ -20,3 +20,10 @@ Offen: GO fuer PR #92, Egress-Proxy, Ollama-Modelle. Risiko: Engineering Lead un
 PR #92, Commit `643e620`. Keine Produktänderung. Leaderboard-Zeile Cursor auf gruen.
 Check: `gh pr checks 92`. quality pass (7m40s), CodeFactor pass, GitGuardian pass.
 Offen: GO fuer den Entwurf, Egress-Proxy, Ollama-Modelle. Risiko: keines aus diesem CI-Lauf.
+
+## 2026-11-12 23:40 — Cursor — Phase AGENTS.md wiederhergestellt
+
+Commit `38e6cf6` ersetzte `AGENTS.md` durch `@AGENTS.md`. Die Rollenzeilen fuer Kaan und Engineering Lead standen nicht im Diff.
+Wiederhergestellt aus `6e1de94`, plus die Hermes-Rolle aus `prompts/hermes.md`: lokaler Agent, nur lokales Ollama, keine Keys.
+Check: `make lint && make test`, Exit 0. 2806 passed, 1082 skipped, 1 Starlette-Warnung, 90.68s.
+Offen: GO fuer PR #92. Risiko: Kaan und Engineering Lead bleiben ohne eigene Rolle.

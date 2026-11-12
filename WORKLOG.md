@@ -41,3 +41,9 @@ PR #92 ist gemergt: `a105245`, mergedAt 2026-11-12T22:51:01Z, mergedBy Kaancodm.
 `CLAUDE.md` nennt den Merge nicht mehr als offenes GO. `COORDINATION.md` und `LEADERBOARD.md` auf erledigt.
 Check: `make lint && make test`, Exit 0. 2806 passed, 1082 skipped, 1 Starlette-Warnung, 85.93s.
 Offen: Egress-Proxy, Ollama-Modelle. Risiko: keines.
+
+## 2026-11-12 23:58 — Cursor — Phase PR #93 auf der GO-Liste
+
+Entwurf #93. `CLAUDE.md` Punkt 1 fragt das Ja fuer diesen Entwurf. Egress-Proxy ist Punkt 2, Ollama-Modelle Punkt 3.
+Check: `make lint` nach dieser Zeile, Exit 0. Die volle Suite steht im Eintrag darueber.
+Offen: GO fuer PR #93, Egress-Proxy, Ollama-Modelle. Risiko: keines.

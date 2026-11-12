@@ -3,10 +3,9 @@
 ## Etappe
 
 Ticket 7 / D: Abschnitt Inbetriebnahme mit T1–T17 als leerer PASS/FAIL-Vorlage.
-Builder: Cursor. Externes Review: SuperGrok (nur Code); noch ausstehend. Status: nur geplant.
-Nachtrag 2026-11-11: Codex und Gemini Pro sind nicht mehr im Einsatz. Ablauf laut ADR 0008
-(Nachtrag): Cursor baut, SuperGrok reviewt nur den Code, der Owner sagt einmal Ja, nur
-Grok Bot mergt. Die aeltere Zuweisung an Codex und Fable gilt nicht mehr.
+Builder: Cursor. Rollen, Modelle und Merge: `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12).
+Der Nachtrag 2026-11-11 (SuperGrok reviewt nur den Code; Gemini Pro nicht im Einsatz) gilt nicht mehr.
+Status: nur geplant.
 Umsetzungsbranch: `stage/07-d-inbetriebnahme-checkliste`; Start erst nach gruenem C.
 
 ## Ziel
@@ -17,7 +16,7 @@ spaetere Live-/Restore-Abnahme. Kein Feld behauptet einen bereits ausgefuehrten 
 
 ## Rahmen
 
-- Reihenfolge A -> B -> C -> D; D gruen = Vorlagenpruefung, CI und Review durch SuperGrok ohne offene Befunde.
+- Reihenfolge A -> B -> C -> D; D gruen = Vorlagenpruefung, CI und Review laut `AGENTS.md` ohne offene Befunde.
 - Erst danach Server-Schritte 1–15 durch den Owner, jeden einzeln und erst nach gruenem
   Vorgaenger; Eingriffe brauchen dessen jeweiliges GO. Der Owner sagt einmal Ja, danach mergt nur Grok Bot.
 - Gruene D-Vorlage bedeutet keine gruene Inbetriebnahme. Blocker 2 sperrt den Ausrollpfad
@@ -88,7 +87,7 @@ Ruecknahme offener Sicherheitskriterien, rotem Check oder offenem Review. Keine 
 
 Die Tabelle wird erst waehrend der Owner-Pruefung ausgefuellt. `docs/ABNAHME_1_0.md` (neu, spaeter),
 Lasttest, Live-Adapter, echte Isolations-/Restore-Nachweise und Release-Tag gehoeren nicht zu D.
-Das Review von SuperGrok wird erst nach tatsaechlicher Rueckmeldung als bestanden eingetragen.
+Das Review laut `AGENTS.md` wird erst nach tatsaechlicher Rueckmeldung als bestanden eingetragen.
 
 ## Offene Fragen (TODO)
 

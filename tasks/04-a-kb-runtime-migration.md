@@ -3,10 +3,8 @@
 ## Etappe
 
 Ticket 4 / A: Runtime-Ziel fuer die KB-Migration, einschliesslich Blocker 1(c).
-Builder: Cursor. Externes Review: SuperGrok (nur Code); noch ausstehend.
-Nachtrag 2026-11-11: Codex und Gemini Pro sind nicht mehr im Einsatz. Ablauf laut ADR 0008
-(Nachtrag): Cursor baut, SuperGrok reviewt nur den Code, der Owner sagt einmal Ja, nur
-Grok Bot mergt. Die aeltere Zuweisung an Codex und Fable gilt nicht mehr.
+Builder: Cursor. Rollen, Modelle und Merge: `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12).
+Der Nachtrag 2026-11-11 (SuperGrok reviewt nur den Code; Gemini Pro nicht im Einsatz) gilt nicht mehr.
 Status: nur geplant. Umsetzungsbranch: `stage/04-a-kb-runtime-migration`.
 Die Nummer ist eine Ticketnummer; sie ersetzt nicht die historische Etappe 4.
 
@@ -20,7 +18,7 @@ des Live-Wissensadapters. Heute verwendet `alembic_kb/env.py` immer den Test-URL
 ## Rahmen
 
 - Feste Reihenfolge: Plan-PR, dann A -> B -> C -> D; keine Tagesplanung oder Parallelstarts.
-- Ein Ticket ist repo-seitig gruen, wenn seine Abnahme, CI und das Review von SuperGrok gruen sind und
+- Ein Ticket ist repo-seitig gruen, wenn seine Abnahme, CI und das Review laut `AGENTS.md` gruen sind und
   offene Befunde erledigt sind. Erst dann beginnt das naechste Ticket. Der Owner sagt einmal Ja, danach mergt nur Grok Bot.
 - Folge-PRs basieren auf dem geprueften Vorgaenger-Head oder dessen gemergtem Stand;
   keinen Merge vorwegnehmen. `TICKET_BASE` bezeichnet jeweils den dokumentierten PR-Basis-Commit.

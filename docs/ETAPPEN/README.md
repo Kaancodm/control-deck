@@ -5,15 +5,17 @@ Etappen ohne Rueckfragen gebaut werden koennen. Quelle der Etappenliste ist **Pl
 (Drive-Dokument "VON: Claude | Control Deck Plan v1.1 Architektur und 18 Etappen | 2026-11-03").
 Die Architektur v0 ist veraltet und wird nicht verwendet.
 
-Aktueller Ablauf (Nachtrag zu ADR 0008, 2026-11-11): Der Owner gibt das Ziel in einem Satz.
-Claude schreibt einen kurzen Bauauftrag mit Pruefbefehl. Cursor baut in einem Branch; der
-Pruefbefehl muss bestehen. SuperGrok reviewt nur den Code. Der Owner sagt einmal Ja, danach
-mergt nur Grok Bot. Andere Agenten und Bots, einschliesslich Fable, mergen nicht. Codex und
-Gemini Pro sind nicht mehr im Einsatz.
+Aktueller Ablauf (Nachtrag zu ADR 0008, 2026-11-12): steht in `AGENTS.md`. If anything conflicts, AGENTS.md wins.
+Claude plant mit `/advisor` (Fable). Cursor baut. Claude baut nur komplexe Auftraege, und nur
+wenn der Auftrag das ausdruecklich sagt (Opus 5.5, Effort medium). Gemini Pro ist Lead
+Full-Stack Developer und Pair-Programming-Partner, gesteuert von Grok Bot, ohne Merge-Recht
+und nicht Security-Head. Der Owner sagt einmal Ja, danach mergt nur Grok Bot. Claude, Fable,
+Gemini und Cursor mergen nicht. Codex ist nicht im Einsatz. Der Nachtrag vom 2026-11-11
+(SuperGrok reviewt nur den Code; Gemini Pro nicht im Einsatz) gilt nicht mehr.
 
 Die Reviewer-Spalte und der Tagesplan weiter unten halten den Reviewer aus Plan v1.1 fest
 (ungerade Etappen Codex, gerade Etappen Claude). Das ist die Historie dieser Liste, nicht
-der aktuelle Reviewer.
+der aktuelle Rollenstand. Der aktuelle Ablauf steht oben und in `AGENTS.md`.
 
 ## Stand der Etappen
 
@@ -129,11 +131,11 @@ Empfehlung zuerst. Ohne Entscheid baut der Builder die Empfehlung.
 
 ## Arbeitsregeln fuer Builder-Agents
 
-1. Ein Branch `stage/NN-<slug>` und ein Draft-PR je Etappe; PR-Template vollstaendig, Reviewer-Anbieter SuperGrok (nur Code).
+1. Ein Branch `stage/NN-<slug>` und ein Draft-PR je Etappe; PR-Template vollstaendig. Rollen und Merge stehen in `AGENTS.md`.
 2. Erst bauen, wenn alle VB der Spec erfuellt sind. Sonst stoppen und im PR oder Issue melden (Abschnitt 8 der Spec).
 3. Keine Rueckfragen im Verlauf: Default-Entscheidungen der Spec gelten. Abweichung nur nach Owner-Entscheid.
 4. `make lint` und `make test` vor jeder Meldung "fertig"; neue Abhaengigkeiten nur mit Begruendung im PR.
-5. Builder und andere Agenten mergen nicht. Nur Grok Bot mergt, nachdem der Owner einmal Ja gesagt hat. Nie auf `main` pushen, keine Server-Zugriffe, keine Secrets, keine Namen, keine IP-Literale, keine Hostnamen.
+5. Nur Grok Bot mergt, nachdem der Owner einmal Ja gesagt hat. Claude, Fable, Gemini und Cursor mergen nicht. Kein Force-Push. Nie auf `main` pushen. Deploy, Neustart, Migration, Server-Installation und Loeschung nur mit ausdruecklichem GO des Owners. Keine Secrets, keine Namen, keine IP-Literale, keine Hostnamen.
 6. Doku unter `docs/` auf Deutsch (de-CH, kein Eszett); Code, Kommentare, Commits Englisch (Conventional Commits).
 7. Jede Spec endet mit "Bewusst offen"; der PR uebernimmt diese Liste.
 

@@ -1,11 +1,11 @@
 # Bauauftrag NN-<slug>
 
 Vorlage fuer `/plan-ticket`. Kopie als `tasks/NN-<slug>.md` ablegen. Eine Etappe = ein Auftrag =
-ein Branch `stage/NN-<slug>` = ein Pull Request. Der Owner sagt einmal Ja, danach mergt nur Grok Bot.
+ein Branch `stage/NN-<slug>` = ein Pull Request. Der Owner sagt einmal Ja, danach mergt nur Grok Bot. Claude, Fable, Gemini und Cursor mergen nicht. If anything conflicts, AGENTS.md wins.
 
 ## Etappe
 
-<!-- Nummer und Name. Review: SuperGrok (nur Code). Nachtrag ADR 0008 vom 2026-11-11. -->
+<!-- Nummer und Name. Rollen: AGENTS.md. Nachtrag ADR 0008 vom 2026-11-12. -->
 
 ## Ziel
 

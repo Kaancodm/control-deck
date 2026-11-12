@@ -5,13 +5,20 @@
 Ticket 8: Live-Profil fuer die Lane `claude` (Nachfolge von Etappe 12, die nur die Simulation
 gebaut hat). Vier Teile A bis D. Jeder Teil ist eine eigene Builder-Session, ein Branch
 `stage/08x-<slug>` und ein Draft-PR gegen `main`. Teil B beginnt erst, wenn Teil A gemergt ist,
-und so weiter. Builder: Cursor mit dem Modell Opus (Owner-Aussage vom 2026-11-11, im Repo
-nicht belegt). Externes Review: SuperGrok (nur Code). Planer: Claude. Status: geplant; die Owner-Entscheide
-E1 bis E6 liegen vor, Teil A kann beginnen.
+und so weiter. Planer: Claude. Builder: Cursor. Status: Teil A ist gemergt (PR #88, siehe
+`COORDINATION.md`); die Owner-Entscheide E1 bis E6 liegen vor.
 
-Abweichung von der Vorlage, bewusst: ein Dokument fuer vier PRs statt vier Dateien. Review ist
-SuperGrok (nur Code), nicht die alte Rotation aus ADR 0008. Der Nachtrag vom 2026-11-11 ersetzt
-diese Rotation. Der Planer bleibt Claude; der Reviewer bleibt ein anderer Arbeiter.
+Nachtrag 2026-11-12: Die Modell- und Review-Saetze vom 2026-11-11 (Cursor mit Opus; SuperGrok
+reviewt nur den Code; Gemini Pro nicht im Einsatz) gelten nicht mehr. Aktuell steht der Ablauf
+in `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12). If anything conflicts, AGENTS.md wins. Claude
+plant mit `/advisor` (Fable). Cursor baut. Claude baut nur komplexe Auftraege, wenn der Auftrag
+das ausdruecklich sagt (Opus 5.5, Effort medium). Gemini Pro ist Lead Full-Stack Developer und
+Pair-Programming-Partner, gesteuert von Grok Bot, ohne Merge-Recht und nicht Security-Head.
+Nur Grok Bot mergt, und nur nach dem einmaligen Ja des Owners.
+
+Abweichung von der Vorlage, bewusst: ein Dokument fuer vier PRs statt vier Dateien. Der Planer
+bleibt Claude. Der Builder bleibt Cursor, ausser der Auftrag sagt ausdruecklich, dass Claude
+den komplexen Bau uebernimmt.
 
 Herkunft der Vorgaben:
 
@@ -389,8 +396,7 @@ keine dieser Fragen neu.
 | E5 | Genau ein Modell in `lanes.claude.models`, als volle Modell-ID mit Versionsteil (im Code erzwungen); nicht die staerkste Klasse und Zusatzabrechnung aus (Owner-Nachweis)? | Ja. `CLAUDE.md` warnt vor Abrechnung ohne Rueckfrage in `claude -p`. |
 | E6 | `REVIEW.md` bekommt die enge Ausnahme aus Schritt 2? | Ja. Ohne sie kann kein Review von Teil B ohne Befund enden. |
 
-TODO Planer: ADR 0008 und `AGENTS.md` nannten Codex in der Review-Rotation. Ob ein Nachtrag
-folgt, entscheidet der Owner; dieser Auftrag aendert beide nicht.
-Nachtrag 2026-11-11, entschieden: ADR 0008 hat einen Nachtrag, `AGENTS.md` beschreibt den
-aktuellen Ablauf. Review ist SuperGrok (nur Code). Nur Grok Bot mergt. Dieser Bauauftrag
-aendert die beiden Dateien weiterhin nicht.
+Nachtrag 2026-11-11, Historie: ADR 0008 bekam einen Nachtrag; Review war dort SuperGrok
+(nur Code). Nachtrag 2026-11-12: dieser Review-Satz und der Satz, Gemini Pro sei nicht im
+Einsatz, sind ersetzt. Massgebend ist `AGENTS.md`. Nur Grok Bot mergt. Dieser Bauauftrag
+aendert `AGENTS.md` und ADR 0008 weiterhin nicht.

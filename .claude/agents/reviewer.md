@@ -46,4 +46,4 @@ Style, formatting, naming taste, and import order. `ruff` and `mypy` cover those
 
 Return findings as a list, most severe first. For each: file and line, what is wrong, why it
 violates which rule above, and the smallest fix. End with one line: `GO-ready: yes` or
-`GO-ready: no` plus the blocking items. The owner decides on merge; you do not.
+`GO-ready: no` plus the blocking items. Only Grok Bot merges, and only after the owner says yes once. Claude, Fable, Gemini, and Cursor never merge. You do not merge. If anything conflicts, AGENTS.md wins.

@@ -13,7 +13,7 @@ Dieses Dokument beschreibt die Zielarchitektur und Leitentscheide fuer Control D
 | Datenschutz | `data_class` Pflicht; Schranken vor Routing (ADR 0005) |
 | Worker | Nur offizielle CLIs, keine API-Keys (ADR 0006) |
 | Freigabe | Mensch als letzte Instanz; Wissens-DB nach GO (ADR 0007) |
-| Entwicklung | Cursor baut; SuperGrok reviewt nur den Code; nur Grok Bot mergt nach einmaligem Ja des Owners (ADR 0008, Nachtrag 2026-11-11) |
+| Entwicklung | Claude plant (Fable ueber `/advisor`); Cursor baut; Claude baut nur komplexe Auftraege, wenn der Auftrag das ausdruecklich sagt (Opus 5.5, Effort medium); Gemini Pro ist Lead Full-Stack Developer und Pair-Programming-Partner, gesteuert von Grok Bot, ohne Merge-Recht und nicht Security-Head; nur Grok Bot mergt nach einmaligem Ja des Owners (ADR 0008, Nachtrag 2026-11-12). If anything conflicts, AGENTS.md wins. |
 
 Details: `docs/DECISIONS/0001-*.md` bis `0008-*.md`.
 

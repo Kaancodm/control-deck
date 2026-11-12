@@ -1,8 +1,28 @@
+## Wartet auf dein GO
+
+Antwort: `N. em` oder `N. 2`. Agenten halten diese Liste aktuell (`AGENTS.md`).
+
+1. Regeln auf main, Branch `cursor/align-agent-rules-10a1`
+   em: Grok Bot mergt den Entwurf nach deinem Ja.
+   Option 2: Nicht mergen.
+   Unterschied: em uebernimmt die neuen Rollen auf main, Option 2 laesst main beim Stand von PR #90.
+
+2. Egress-Proxy (E2) starten
+   em: Aus lassen.
+   Option 2: Start freigeben.
+   Unterschied: Option 2 startet den Proxy, em laesst ihn aus.
+   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+
+3. Ollama-Modelle aufraeumen
+   em: Nichts loeschen.
+   Option 2: Aufraeumen freigeben.
+   Unterschied: Option 2 darf Modelle entfernen, em laesst den Bestand.
+   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+
 # CLAUDE.md
 
 Project rules live in [AGENTS.md](AGENTS.md) and in `docs/DECISIONS/` (ADRs). This file adds
-commands, conventions, and gotchas for Claude Code. If anything here conflicts with `AGENTS.md`,
-`AGENTS.md` wins.
+commands, conventions, and gotchas for Claude Code. If anything conflicts, AGENTS.md wins.
 
 Work on **one task per session**; run `/clear` before starting the next one.
 
@@ -95,9 +115,11 @@ type errors fail lint even when ruff is clean.
 
 ## Human gates (hard rules)
 
-- **Merge only after the owner says yes once.** Only Grok Bot merges. Other agents and bots, including Fable, do not merge.
-- **No server changes**, no deployments, no database roles, no network connections to
-  production or user machines.
+- **Merge only after the owner says yes once.** Only Grok Bot merges. Claude, Fable, Gemini, and Cursor never merge.
+- **No deploy, restart, migration, server install, or deletion without an explicit owner GO**
+  for that action. No database roles and no network connections to production or user machines
+  without that same GO. Test commands against a database whose name ends in `_test` stay
+  covered by Database and tests above.
 - No new runtime or dev dependencies without a justification in the PR description.
 - No secrets, tokens, personal data, real names, e-mail addresses, IPs, or hostnames in code
   or docs.
@@ -116,9 +138,10 @@ These add to the human gates above; `AGENTS.md` still wins on conflict.
   (`…@users.noreply.github.com`; check `git config user.email`), never a personal address.
   No force-push, no rewriting of pushed history.
 - **Checks and test database:** see Commands and Database and tests.
-- **Production:** agents deploy, run production migrations, or connect to production only
-  on an explicit owner GO for that action (as `AGENTS.md` allows on explicit request);
-  otherwise the agent only prepares the change. After the owner says yes once, only Grok Bot merges (Human gates).
+- **Production:** deploy, restart, migration, server install, deletion, and any connection
+  to production need an explicit owner GO for that action. Otherwise the agent only prepares
+  the change. After the owner says yes once, only Grok Bot merges (Human gates). Claude,
+  Fable, Gemini, and Cursor never merge.
 - **Public repo:** the repository is and stays public. No personal data, no private exports,
   no schema dumps that contain data.
 - **Provenance:** knowledge entries and research claims name their source (repo-relative path
@@ -133,28 +156,28 @@ Public sources: `code.claude.com/docs/en/best-practices`, `.../sub-agents`, `...
 Role split, team rules, and handoff template below are owner decisions, not research findings.
 `AGENTS.md` and Human gates still win.
 
-### Roles per task (owner decision, 2026-11-11)
+### Roles per task (owner decision, 2026-11-12)
 
-Codex and Gemini Pro are no longer used. The earlier split (Opus or Gemini builds; review
-rotates across providers, for example Codex and Claude) is superseded. Builder and reviewer
-stay different workers. The steps below are the owner decision; the planner notes under them
-are still the proven model mechanics.
+Roles, models, merge rights, and gates are defined in `AGENTS.md`. This section repeats them
+so a Claude session that also loads this file cannot follow an older split. The 2026-11-11
+split (Claude plans, Cursor builds, SuperGrok reviews only; Codex and Gemini Pro unused) is
+superseded. Codex stays unused. Gemini Pro is in use, as below.
 
 1. The owner gives the goal in one sentence.
-2. Claude plans and writes a short build ticket with a check command. Claude does not build
-   that ticket in the same session.
+2. Claude plans with `/advisor` (Fable) and writes a short build ticket with a check command.
+   Claude does not build that ticket in the same session.
 3. Cursor builds in a branch. The check command must pass.
-4. SuperGrok reviews the code only. SuperGrok does not build and does not merge.
+4. Claude builds that ticket only when the brief explicitly says the job is complex. That
+   build uses Opus 5.5 at medium effort. Gemini Pro may pair-program as Lead Full-Stack
+   Developer, steered by Grok Bot. Gemini Pro has no merge rights and is not security head.
 5. The owner says yes once. Then Grok Bot merges.
 
-Only Grok Bot merges. Other agents and bots, including Fable, do not merge.
+Only Grok Bot merges. Claude, Fable, Gemini, and Cursor never merge.
 
 Planner notes that still apply when Claude plans:
 
-- In Claude Code, select a strong planner explicitly when one is required. Default effort
-  `high` applies only to Fable (proven); Opus/Sonnet/Haiku start at `medium` (proven), and
-  for other models set effort explicitly per task. Recommendation: keep Fable at `high` and
-  raise to `max`/`xhigh` only for hard architecture or capacity-critical planning.
+- Planning uses `/advisor` (Fable). Default effort `high` applies only to Fable (proven);
+  Opus starts at `medium` (proven). When Claude builds, pin Opus 5.5 at medium effort.
 - Do not run Fable in non-interactive `claude -p` runs: there it may bill usage credits
   without asking (proven). Recommendation: pin models explicitly in scripts. Fable does not
   merge.
@@ -202,6 +225,26 @@ stop and report to the coordinator (team rule).
 Research claims and knowledge entries follow the **Provenance** rule under Working rules
 (source, date, method, `proven`/`unproven`). Unproven tips stay out of rules.
 
+## Quota discipline
+
+- Plans: at most one page and at most seven steps.
+- Read only files the job needs.
+- Deliver in small finished pieces that are usable on their own.
+- If a job looks bigger than about 30% of the remaining quota, stop and propose a smaller cut first.
+
+## End-of-job report
+
+Mandatory at the end of every job. Same rules as `AGENTS.md` Reporting:
+
+- What was done.
+- What was checked: the command and the real output.
+- What is still open.
+- Risks.
+- Never claim done without verified check output. Never invent facts, paths, or test results.
+- Open items are numbered. Each item has `em` (the recommendation), `option 2`, and the
+  biggest difference in one sentence. The owner replies `N. em` or `N. 2`.
+- Update `Wartet auf dein GO` at the top of this file in the same job. If nothing needs a GO, write `Nichts offen.`
+
 ## Gotchas
 
 - `ruff format --check` runs in CI. Run `uv run ruff format .` before committing.
@@ -209,7 +252,7 @@ Research claims and knowledge entries follow the **Provenance** rule under Worki
 - Reference cases live in `tests/reference/cases/NNN-<slug>.yaml`; the case `id` must equal the
   file stem.
 - `uv run` uses the project `.venv`; do not install packages globally.
-- Branch naming for stage work: `stage/NN-<slug>`. Review is SuperGrok, code only (ADR 0008, amendment 2026-11-11).
+- Branch naming for stage work: `stage/NN-<slug>`. Roles and merge rights: `AGENTS.md` (ADR 0008, amendment 2026-11-12).
 
 ## References
 

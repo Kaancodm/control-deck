@@ -3,10 +3,9 @@
 ## Etappe
 
 Ticket 5 / B: `deploy/ausrollen.sh` nach Abschnitt 6 des Ausroll-Reviews, mit ShellCheck in CI.
-Builder: Cursor. Externes Review: SuperGrok (nur Code); noch ausstehend. Status: nur geplant.
-Nachtrag 2026-11-11: Codex und Gemini Pro sind nicht mehr im Einsatz. Ablauf laut ADR 0008
-(Nachtrag): Cursor baut, SuperGrok reviewt nur den Code, der Owner sagt einmal Ja, nur
-Grok Bot mergt. Die aeltere Zuweisung an Codex und Fable gilt nicht mehr.
+Builder: Cursor. Rollen, Modelle und Merge: `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12).
+Der Nachtrag 2026-11-11 (SuperGrok reviewt nur den Code; Gemini Pro nicht im Einsatz) gilt nicht mehr.
+Status: nur geplant.
 Umsetzungsbranch: `stage/05-b-ausrollen-script`; Start erst nach gruenem A.
 
 ## Ziel
@@ -18,7 +17,7 @@ Vorlage; seine Platzhalter, Echo-Funktionen und unzureichenden Fehlerpfade gelte
 
 ## Rahmen
 
-- Reihenfolge A -> B -> C -> D. B gruen bedeutet Abnahme + CI + Review durch SuperGrok ohne offene Befunde;
+- Reihenfolge A -> B -> C -> D. B gruen bedeutet Abnahme + CI + Review laut `AGENTS.md` ohne offene Befunde;
   erst dann C. Der Owner sagt einmal Ja, danach mergt nur Grok Bot. Nur der Owner fuehrt danach Server-Schritte 1–15 aus.
 - Cursor testet ausschliesslich mit Fake-Befehlen und synthetischer privater Konfiguration;
   kein SSH, Dienststart, Paketinstallation, Login oder Netzaufruf am Betriebsort.

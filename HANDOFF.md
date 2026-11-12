@@ -2,6 +2,8 @@
 
 Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
 
+Nachtrag 2026-11-12: Rollen, Modelle, Merge und Gates stehen in `AGENTS.md`. If anything conflicts, AGENTS.md wins. Die Notizen darunter sind der Sitzungsstand vom 2026-11-11 und gelten nicht als aktuelle Rollen- oder Merge-Regel. PR #84 ist gemergt (GitHub `mergedAt` 2026-11-11T19:24:36Z, Merge-Commit `2fbb91d`; Quelle GitHub API, 2026-11-12, proven fuer diese Felder).
+
 ## Stand
 
 - Branch `claude/fervent-pasteur-upzu9m`, letzter Commit vor dieser Datei `4e32a02`.
@@ -24,19 +26,24 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
     Token nur zum Anlegen gibt es nicht.
   - Auftraege lassen sich im Deck nicht verketten; `parent_task_id` wird nicht ausgewertet.
   - Einziger weiterer offener PR: #56 (Systemprompt, Draft).
-- Owner-Vorgaben vom 2026-11-11 (Owner-Aussage, im Repo nicht belegt): Planer Claude,
-  Builder Cursor mit dem Modell Opus, fuer kleine Auftraege Sonnet, fuer komplexe bei Bedarf
-  Fable (nur interaktiv, siehe `CLAUDE.md`), Review Grok. Codex und Gemini Pro sind nicht mehr
-  im Team. Ein Betriebs-Bot verwaltet Router, Chat-Oberflaeche und lokale Modelle am
-  Betriebsort. Die Benutzerkonten dort bleiben unveraendert. Altprojekte werden nicht
-  eingespeist.
+- Owner-Vorgaben vom 2026-11-11, nur noch Sitzungsprotokoll (Owner-Aussage, im Repo nicht
+  belegt; seit 2026-11-12 durch `AGENTS.md` ersetzt): damals Planer Claude, Builder Cursor
+  mit dem Modell Opus, fuer kleine Auftraege Sonnet, fuer komplexe bei Bedarf Fable, Review
+  Grok, Codex und Gemini Pro nicht im Team. Aktuell: Claude plant mit `/advisor` (Fable),
+  Cursor baut, Claude baut nur komplexe Auftraege wenn der Auftrag das ausdruecklich sagt
+  (Opus 5.5, Effort medium), Gemini Pro ist Lead Full-Stack Developer und
+  Pair-Programming-Partner ohne Merge-Recht und nicht Security-Head. Ein Betriebs-Bot
+  verwaltet Router, Chat-Oberflaeche und lokale Modelle am Betriebsort. Die Benutzerkonten
+  dort bleiben unveraendert. Altprojekte werden nicht eingespeist.
 
 ## Offene Punkte
 
 - E1 bis E6 sind beantwortet: «Ja zu allen» (Owner-Aussage vom 2026-11-11, im Repo nicht
   belegt). Damit laeuft der Claude-Runner unter dem Dienstkonto mit eigener Anmeldung (E4).
-- Das Merge-GO fuer PR #84 liegt vor (Owner-Aussage vom 2026-11-11, im Repo nicht belegt).
-  Den Merge fuehrt der Owner selbst aus; Agenten mergen nicht (`AGENTS.md`).
+- Das Merge-GO fuer PR #84 lag vor (Owner-Aussage vom 2026-11-11, im Repo nicht belegt).
+  Der Satz aus dieser Sitzung, der Owner merge selbst und Agenten mergten nicht, gilt nicht
+  mehr. Aktuell mergt nur Grok Bot, und nur nach dem Ja des Owners (`AGENTS.md`). PR #84 ist
+  gemergt (siehe Kopf).
 - Hermes und n8n: Der Installationszustand am Betriebsort ist unbekannt. Der Owner fuehrt
   zuerst einen lesenden Statusbefehl aus; erst danach folgen Einschaltbefehle.
 - Vorschlag, nicht beauftragt: ein kleiner Bauauftrag «Anlege-Token», bevor Hermes oder n8n
@@ -44,17 +51,20 @@ Stand: 2026-11-11. Uebergabe aus der Planungssession «Claude-Lane live».
 - Schutzpunkte fuer den Betrieb: Das Deck verlangt exakt die gepinnte Ollama-Version
   (ADR 0009). Das Embedding-Modell der Wissens-DB (ADR 0011) und die Modelle aus der
   Router-Datei duerfen nicht geloescht werden.
-- Veraltet im Repo und nicht angefasst: Statusspalte in `docs/ETAPPEN/README.md`, Kopf von
+- Sitzungsstand 2026-11-11, damals nicht angefasst: Statusspalte in `docs/ETAPPEN/README.md`, Kopf von
   `tasks/04-a-kb-runtime-migration.md` (mit #59 gemergt), `CLAUDE.md` nennt fuer die CI
   `postgres:17`, der Workflow nutzt ein pgvector-Image.
-- ADR 0008 und `AGENTS.md` nennen Codex in der Review-Rotation. Ein Nachtrag ist ein
-  Owner-Entscheid.
+- ADR 0008 hat die Review-Rotation (Codex und Claude) seit dem Nachtrag 2026-11-11 als
+  Historie. Der Nachtrag 2026-11-12 ersetzt zusaetzlich die Rolle «SuperGrok reviewt nur den
+  Code» und den Satz, Gemini Pro sei nicht im Einsatz. Massgebend ist `AGENTS.md`.
 - Bewusst nicht gemacht: kein Server-Zugriff, kein Docker, keine echte CLI, kein Merge.
 - Diese Datei liegt mit Zustimmung des Owners im Branch von PR #84.
 
 ## Naechster Schritt
 
-- Sobald PR #84 gemergt ist, baut der Builder Teil A aus
+- PR #84 ist gemergt. Teil A ist laut `COORDINATION.md` ebenfalls gemergt (PR #88,
+  `a8bd991`). Der naechste Bau folgt dem Ticket, nicht dieser Sitzungsnotiz. Historischer
+  naechster Schritt dieser Sitzung war: baut der Builder Teil A aus
   `tasks/08-claude-lane-live.md` (Schritte 1 bis 4) auf `stage/08a-claude-live-decision`.
   Abnahme-Befehl fuer Teil A:
 

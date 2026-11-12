@@ -20,7 +20,7 @@
 
 ## Reviewer-Anbieter
 
-<!-- SuperGrok (nur Code). Merge nur durch Grok Bot nach einmaligem Ja des Owners. -->
+<!-- Rollen laut AGENTS.md. Merge nur durch Grok Bot nach einmaligem Ja des Owners. Claude, Fable, Gemini und Cursor mergen nicht. -->
 
 ## Bewusst offen
 

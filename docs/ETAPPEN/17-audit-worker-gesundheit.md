@@ -4,7 +4,7 @@ Status: Umsetzung als gestapelter Draft-PR #32; finale Pruefnachweise in `docs/S
 Branch: `stage/17-audit-health`, Basis `stage/16-operations`; kein Agent-Merge
 Abhaengig von: Etappen 9 (`lane_status`), 11 (UI), 12, 13 (Lanes), 16 (Betrieb)
 Entscheidungen: keine neuen
-Reviewer: SuperGrok (nur Code). Plan v1.1 nannte Codex (ungerade Etappe); seit dem Nachtrag zu ADR 0008 vom 2026-11-11 gilt das nicht mehr.
+Reviewer: aktueller Rollenstand in `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12). Plan v1.1 nannte Codex (ungerade Etappe). Der Nachtrag vom 2026-11-11 nannte SuperGrok. Beides ist nicht mehr der aktuelle Rollenstand.
 Abnahme laut Plan v1.1: der Ablauf eines CLI-Logins wird innert eines Laufs sichtbar.
 
 ## Verbindlicher Umsetzungsstand
@@ -83,7 +83,7 @@ Platte, Verweis ueber `log_ref`).
 ## 7 Definition of Done
 
 `make lint`, `make test` gruen; Smoke-Test durch den Owner (Login einer Lane absichtlich ablaufen
-lassen oder simulieren, Warnband sichtbar); PR-Template mit Reviewer **SuperGrok** und "Bewusst offen".
+lassen oder simulieren, Warnband sichtbar); PR-Template mit Reviewer laut `AGENTS.md` und "Bewusst offen".
 
 ## 8 Blocker-Regel
 

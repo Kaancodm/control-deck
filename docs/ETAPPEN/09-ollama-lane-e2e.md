@@ -11,7 +11,7 @@ Status: startklar, sobald VB-1, VB-3, VB-10 erfuellt und Etappen 6, 7, 8 gemergt
 Branch-Vorschlag: `stage/09-lane-ollama-e2e`
 Abhaengig von: VB-1, VB-3, VB-7, VB-10, Etappe 6 (Payload), Etappe 7 (`plan`, `lane`, `router.yaml`), Etappe 8 (`AttemptContext`, `settings`, Runner-Schleife)
 Entscheidungen: E4, E7 (Empfehlungen gelten als Default)
-Reviewer: SuperGrok (nur Code). Plan v1.1 nannte Codex (ungerade Etappe); seit dem Nachtrag zu ADR 0008 vom 2026-11-11 gilt das nicht mehr.
+Reviewer: aktueller Rollenstand in `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12). Plan v1.1 nannte Codex (ungerade Etappe). Der Nachtrag vom 2026-11-11 nannte SuperGrok. Beides ist nicht mehr der aktuelle Rollenstand.
 Abnahme laut Plan v1.1: Referenz-Testset gruen auf Ollama. Ab dieser Etappe gilt: kein Merge an
 Router, Schranke oder Lanes ohne gruenes Set auf Ollama.
 
@@ -128,7 +128,7 @@ Streaming-Anzeige in der UI (11).
 - `make lint`, `make test` gruen (Unit, Integration, Stub-E2E); `make reference` gruen.
 - `make test-server` auf dem Server durch den Owner ausgefuehrt; Ausgabe (pass/fail je Fall, Dauer) im PR eingefuegt, ohne Modellausgaben.
 - `docs/LANES.md` beschreibt Konfiguration, Fehlerzuordnung, Selbstpruefung, Logformat.
-- PR-Template: Etappe `stage/09-lane-ollama-e2e`, Reviewer **SuperGrok**, "Bewusst offen" uebernommen.
+- PR-Template: Etappe `stage/09-lane-ollama-e2e`, Reviewer laut `AGENTS.md`, "Bewusst offen" uebernommen.
 - `alembic upgrade head`, `downgrade -1`, `check` sauber.
 
 ## 8 Blocker-Regel

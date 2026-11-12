@@ -613,7 +613,7 @@ Commits:
 6. `test(ui): cover root redirect, shell, overview and CSP invariants`
 7. `docs: describe overview, navigation and theme tokens`
 
-PR-Text nach Template [B] `.github/pull_request_template.md`: Etappe «keine, UI-Angleichung»; Reviewer-Anbieter ein anderer als der Bau-Agent (ADR 0008); unter «Bewusst offen» die Punkte aus Abschnitt 10. Kein Merge durch Agenten.
+PR-Text nach Template [B] `.github/pull_request_template.md`: Etappe «keine, UI-Angleichung»; Rollen laut `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12); unter «Bewusst offen» die Punkte aus Abschnitt 10. Nur Grok Bot mergt, und nur nach dem Ja des Owners. Claude, Fable, Gemini und Cursor mergen nicht.
 
 **PR 2: `feat(ui): align remaining pages with the command-center components`**
 

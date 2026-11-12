@@ -53,3 +53,11 @@ Offen: GO fuer PR #93, Egress-Proxy, Ollama-Modelle. Risiko: keines.
 PR #93, Commit `a9b0569`. Keine Produktänderung. Leaderboard-Zeile Cursor auf gruen.
 Check: `gh pr checks 93`. quality pass (8m3s), CodeFactor pass, GitGuardian pass.
 Offen: GO fuer den Entwurf, Egress-Proxy, Ollama-Modelle. Risiko: keines aus diesem CI-Lauf.
+
+## 2026-11-13 00:20 — Cursor — Phase GO-Liste nach Merge #93
+
+PR #93 ist gemergt: `a123d40`, mergedAt 2026-11-12T23:16:19Z, mergedBy Kaancodm. Quelle: `gh pr view 93`.
+`CLAUDE.md` fragt den Merge nicht mehr. Dieser Entwurf steht selbst nicht auf der Liste, damit die Frage nicht wieder auftaucht.
+Check: `make lint && make test`, Exit 2. 2805 passed, 1 failed (`test_process.py`, pidfd EINVAL), 1082 skipped, 86.26s.
+Zweiter Lauf derselben 4 Tests: 4 passed, 1.62s. Kein Bezug zu den Doc-Dateien.
+Offen: Egress-Proxy, Ollama-Modelle. Risiko: der Prozess-Test ist einmal geflakt.

@@ -43,6 +43,8 @@ is working on what. It does not override this file. The checkpoint above still a
   Gemini Pro has no merge rights and is not security head.
 - **Codex** is not used.
 - **Grok Bot** coordinates. Grok Bot is the only merger.
+- **Kaan** is the collector (Sammler). Kaan represents the owner towards all AIs and is steered by Grok Bot (Atik).
+- **Engineering Lead** coordinates the pull-request loop (open PRs, CI, review follow-up). Engineering Lead does not write code and has no merge rights.
 - **Hermes** is the local agent on the deck server. It uses local Ollama only and holds no keys.
 
 ## Quality

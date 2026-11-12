@@ -35,5 +35,7 @@ Codex and Gemini Pro are not used.
 4. SuperGrok reviews the code only.
 5. The owner says yes once. Then Grok Bot merges.
 
+Exception: Claude (including Fable) builds only complex tasks, and only when the job brief explicitly says so.
+
 Follow Architecture Decision Records in `docs/DECISIONS/` when making structural choices.
 The review rotation in ADR 0008 is superseded by the amendment dated 2026-11-11.

@@ -22,8 +22,9 @@ Diese Datei ist die eine gemeinsame Standliste für die gesamte Arbeit auf GitHu
 | Ticket 08 Teil A | Cursor Cloud Agent | `stage/08a-claude-live-decision` | #88 | erledigt (gemergt, a8bd991) | 11.11.2026 |
 | Badge + Codex raus in Docs | Cursor Cloud Agent | `cursor/workflow-docs-codefactor-b0cb` | #87 | erledigt (gemergt) | 11.11.2026 |
 | Koordinationsliste | Cursor Cloud Agent | `docs/coordination` | #89 | erledigt (gemergt, f459255) | 11.11.2026 |
-| Systemprompt-Entwurf | offen | `docs/systemprompt` | #56 | Überarbeitung 12.11. | 11.11.2026 |
-| Ollama-HTTP aufräumen | Cursor Cloud Agent | `stage/cleanup-ollama-http` | #90 | Entwurf | 11.11.2026 |
+| Systemprompt-Entwurf | Grok Bot | `docs/systemprompt` | #56 | pausiert bis 17.11.2026 | 12.11.2026 |
+| Ollama-HTTP aufräumen | Cursor Cloud Agent | `stage/cleanup-ollama-http` | #90 | erledigt (gemergt, 190a507) | 12.11.2026 |
+| Quota-Regeln, Schlussbericht, Builder-Ausnahme | Claude (Fable plant, Opus baut) | `docs/quota-report-rules` | #91 | erledigt mit Merge von #91 | 12.11.2026 |
 
 ## deck-server
 

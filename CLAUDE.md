@@ -125,6 +125,25 @@ These add to the human gates above; `AGENTS.md` still wins on conflict.
   or public URL; never internal hosts, URLs, or identifiers, see `AGENTS.md`), date, method,
   and status (`proven` / `unproven`). Never phrase unproven content as fact.
 
+## Quota discipline and end-of-job report (owner, 2026-11-12)
+
+These add to the rules above; `AGENTS.md` still wins on conflict.
+
+### Quota discipline
+
+- Plan short: a plan is at most one page and seven steps. No long explorations and no
+  rewrites of the whole repository.
+- Read only the files the job needs. Do not re-read what you already know.
+- Deliver in small, finished pieces. Each piece must be usable on its own if the quota runs
+  out.
+- If a job looks bigger than about 30% of the remaining quota, stop before you start, say
+  so, and propose a smaller cut.
+
+### End-of-job report
+
+Mandatory at the end of every job: what you did, what you checked (command and result), what
+is still open, and any risk. A failure without a clear report counts as the agent's failure.
+
 ## How we work with Claude (research-based)
 
 Owner research, 2026-10-29 (method: vendor docs read, re-verified; status: proven unless marked).

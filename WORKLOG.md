@@ -27,3 +27,10 @@ Commit `38e6cf6` ersetzte `AGENTS.md` durch `@AGENTS.md`. Die Rollenzeilen fuer 
 Wiederhergestellt aus `6e1de94`, plus die Hermes-Rolle aus `prompts/hermes.md`: lokaler Agent, nur lokales Ollama, keine Keys.
 Check: `make lint && make test`, Exit 0. 2806 passed, 1082 skipped, 1 Starlette-Warnung, 90.68s.
 Offen: GO fuer PR #92. Risiko: Kaan und Engineering Lead bleiben ohne eigene Rolle.
+
+## 2026-11-12 23:45 — Cursor — Phase Rollen Kaan und Engineering Lead
+
+Commit `6a6be1b` auf PR #92. Kaan ist Sammler, gegenueber allen AIs, gesteuert von Grok Bot (Atik). Engineering Lead koordiniert den PR-Loop, schreibt keinen Code, merget nicht.
+Leaderboard-Zeile Engineering Lead angepasst. Keine weitere Datei.
+Check: `make lint && make test`, Exit 0. 2806 passed, 1082 skipped, 1 Starlette-Warnung, 85.91s.
+Offen: GO fuer PR #92. Risiko: keines aus diesem Diff.

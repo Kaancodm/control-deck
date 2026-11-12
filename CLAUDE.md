@@ -2,18 +2,13 @@
 
 Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
 
-1. PR #92 auf main, Branch `cursor/align-agent-rules-10a1`
-   em: Ja, dieser Entwurf soll auf main.
-   Option 2: Nicht auf main.
-   Unterschied: em legt die Regeln auf main, Option 2 laesst main bei PR #90.
-
-2. Egress-Proxy (E2) starten
+1. Egress-Proxy (E2) starten
    em: Aus lassen.
    Option 2: Start freigeben.
    Unterschied: Option 2 startet den Proxy, em laesst ihn aus.
    Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
 
-3. Ollama-Modelle aufraeumen
+2. Ollama-Modelle aufraeumen
    em: Nichts loeschen.
    Option 2: Aufraeumen freigeben.
    Unterschied: Option 2 darf Modelle entfernen, em laesst den Bestand.

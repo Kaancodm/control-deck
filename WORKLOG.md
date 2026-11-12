@@ -34,3 +34,10 @@ Commit `6a6be1b` auf PR #92. Kaan ist Sammler, gegenueber allen AIs, gesteuert v
 Leaderboard-Zeile Engineering Lead angepasst. Keine weitere Datei.
 Check: `make lint && make test`, Exit 0. 2806 passed, 1082 skipped, 1 Starlette-Warnung, 85.91s.
 Offen: GO fuer PR #92. Risiko: keines aus diesem Diff.
+
+## 2026-11-12 23:55 — Cursor — Phase GO-Liste nach Merge
+
+PR #92 ist gemergt: `a105245`, mergedAt 2026-11-12T22:51:01Z, mergedBy Kaancodm. Quelle: `gh pr view 92`.
+`CLAUDE.md` nennt den Merge nicht mehr als offenes GO. `COORDINATION.md` und `LEADERBOARD.md` auf erledigt.
+Check: `make lint && make test`, Exit 0. 2806 passed, 1082 skipped, 1 Starlette-Warnung, 85.93s.
+Offen: Egress-Proxy, Ollama-Modelle. Risiko: keines.

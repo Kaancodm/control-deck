@@ -10,6 +10,7 @@ lint:
 	uv run ruff check --no-cache .
 	uv run ruff format --check .
 	uv run mypy app/
+	uv run python scripts/check_rules.py
 
 test:
 	uv run pytest

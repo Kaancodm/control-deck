@@ -8,6 +8,9 @@ These rules apply to all automated contributors. If anything conflicts, AGENTS.m
 - Lead bots read `AGENTS.md`, `CLAUDE.md`, and `COORDINATION.md` before every run.
 - Every agent and every lead bot updates `Wartet auf dein GO` at the top of `CLAUDE.md` at the end of each job. The owner reads that list in `CLAUDE.md`. If nothing needs a GO, write `Nichts offen.`
 - Each item there is numbered, in German (de-CH, no Eszett), at most five lines, with `em` (the recommendation), `Option 2`, and the biggest difference in one sentence. The owner replies `N. em` or `N. 2`.
+- Lead bots update `LEADERBOARD.md` at each checkpoint. One row each for Grok Bot, Kaan, Engineering Lead, Claude/Fable, Gemini, and Cursor: time in Europe/Zurich, result, status `gruen`, `gelb`, or `rot`, and a link.
+- No phase is done without a `WORKLOG.md` entry. The log is append-only. Each entry has the Europe/Zurich time, who, the job or phase, what changed, the check command and result, and what is open or at risk. At most about five lines.
+- Before any job, every AI checks `LEADERBOARD.md`, `WORKLOG.md`, and open PRs, proposes one short numbered block for model, effort, context handling, and a collision (each with `em`, `Option 2`, and the biggest difference), and waits for Grok Bot (Atik). No work starts before that OK.
 
 ## Security and privacy
 

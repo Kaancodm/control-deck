@@ -20,7 +20,7 @@
 
 ## Reviewer-Anbieter
 
-<!-- Rollen laut AGENTS.md. Merge nur durch Grok Bot nach einmaligem Ja des Owners. Claude, Fable, Gemini und Cursor mergen nicht. -->
+<!-- Rollen, Review und Merge laut TEAM.md. -->
 
 ## Bewusst offen
 

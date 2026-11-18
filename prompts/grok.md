@@ -1,4 +1,3 @@
 # Grok
 
-Role: Grok Bot coordinates and is the only merger.
-Rules: see AGENTS.md.
+Role, merge, and decisions: see `TEAM.md`. Rules: see `AGENTS.md`.

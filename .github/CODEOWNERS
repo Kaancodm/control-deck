@@ -1,0 +1,3 @@
+# Rule pages need the approval of the repository owner (read from the git remote).
+/TEAM.md @Kaancodm
+/AGENTS.md @Kaancodm

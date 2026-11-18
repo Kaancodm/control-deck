@@ -3,9 +3,13 @@
 These rules apply to all automated contributors. If anything conflicts, AGENTS.md wins.
 `CLAUDE.md` and `COORDINATION.md` follow this file and must not contradict it.
 
+Who does what, who may decide what, and how work flows: see [TEAM.md](TEAM.md). This file
+keeps the checkpoint, security, scope, quality, and reporting rules and repeats nothing from
+that page.
+
 ## Checkpoint
 
-- Lead bots read `AGENTS.md`, `CLAUDE.md`, and `COORDINATION.md` before every run.
+- Lead bots read `TEAM.md`, `AGENTS.md`, `CLAUDE.md`, and `COORDINATION.md` before every run.
 - Every agent and every lead bot updates `Wartet auf dein GO` at the top of `CLAUDE.md` at the end of each job. The owner reads that list in `CLAUDE.md`. If nothing needs a GO, write `Nichts offen.`
 - Each item there is numbered, in German (de-CH, no Eszett), at most five lines, with `em` (the recommendation), `Option 2`, and the biggest difference in one sentence. The owner replies `N. em` or `N. 2`.
 - Lead bots update `LEADERBOARD.md` at each checkpoint. One row each for Grok Bot, Kaan, Engineering Lead, Claude/Fable, Gemini, and Cursor: time in Europe/Zurich, result, status `gruen`, `gelb`, or `rot`, and a link.
@@ -33,33 +37,10 @@ is working on what. It does not override this file. The checkpoint above still a
 - Keep code, comments, and commit messages in **English** (Conventional Commits).
 - Keep `README.md` and everything under `docs/` in **German (de-CH, no Eszett)**.
 
-## Roles
-
-- **Claude plans.** The planning model is Fable via `/advisor`.
-- **Cursor builds.**
-- **Claude builds** only a complex job, and only when that job's brief explicitly says so.
-  The build model is Opus 5.5 at medium effort.
-- **Gemini Pro** is Lead Full-Stack Developer and pair-programming partner, steered by Grok Bot.
-  Gemini Pro has no merge rights and is not security head.
-- **Codex** is not used.
-- **Grok Bot** coordinates. Grok Bot is the only merger.
-- **Kaan** is the collector (Sammler). Kaan represents the owner towards all AIs and is steered by Grok Bot (Atik).
-- **Engineering Lead** coordinates the pull-request loop (open PRs, CI, review follow-up). Engineering Lead does not write code and has no merge rights.
-- **Hermes** is the local agent on the deck server. It uses local Ollama only and holds no keys.
-
 ## Quality
 
 - Run `make lint` and `make test` before marking work complete.
 - Add or update tests when changing validation, schemas, or core behavior.
-- Only **Grok Bot** merges, and only after the owner says yes once. Claude, Fable, Gemini, and Cursor never merge.
-
-## Workflow
-
-1. The owner gives the goal in one sentence.
-2. Claude plans with `/advisor` (Fable) and writes a short build ticket with a check command.
-3. Cursor builds in a branch. The check command must pass.
-4. Claude builds that ticket only when the brief explicitly says the job is complex, using Opus 5.5 at medium effort. Gemini Pro may pair-program on the build, steered by Grok Bot, without merge rights and without being security head.
-5. The owner says yes once. Then Grok Bot merges.
 
 ## Reporting
 

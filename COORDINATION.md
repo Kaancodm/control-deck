@@ -1,10 +1,10 @@
 # Koordination
 
-Stand: 12.11.2026.
+Stand: 18.11.2026.
 
-If anything conflicts, AGENTS.md wins. Diese Datei ist nur die Standliste für GitHub und den deck-server. Regeln: siehe `AGENTS.md`.
+If anything conflicts, AGENTS.md wins. Diese Datei ist nur die Standliste für GitHub. Rollen, Merge und Entscheide: siehe `TEAM.md`. Regeln: siehe `AGENTS.md`.
 
-Provenance der Rollen und Gates: Quelle Owner-Auftrag vom 12.11.2026, Methode Auftrag, Status proven als festgehaltener Ablauf in `AGENTS.md`. Provenance der PR-Zeilen: Quelle GitHub API am 12.11.2026, Methode `gh pr view` (Felder `state`, `isDraft`, `mergedAt`, `closedAt`, `mergeCommit`), Status proven für diese Felder. Die Pause von PR #56 ist die Owner-Vorgabe vom 12.11.2026; GitHub zeigt den PR weiter als offenen Entwurf. Angaben zum deck-server bleiben der Owner-Auftrag vom 11.11.2026, Methode Angabe des Owners, Status im Repository unproven.
+Provenance der Gates: Quelle Owner-Auftrag vom 12.11.2026, Methode Auftrag, Status proven als festgehaltener Ablauf in `AGENTS.md`. Provenance der PR-Zeilen bis #93: Quelle GitHub API am 12.11.2026, Methode `gh pr view` (Felder `state`, `isDraft`, `mergedAt`, `closedAt`, `mergeCommit`), Status proven für diese Felder. Die Pause von PR #56 ist die Owner-Vorgabe vom 12.11.2026; GitHub zeigt den PR weiter als offenen Entwurf (Quelle GitHub API am 18.11.2026, Status proven für `state` und `draft`).
 
 ## Regeln
 
@@ -26,17 +26,6 @@ Regeln: siehe `AGENTS.md`.
 | Koordinationsliste | Cursor Cloud Agent | `docs/coordination` | #89 | erledigt (gemergt, f459255, mergedAt 2026-11-11T21:29:25Z) | 12.11.2026 |
 | Systemprompt-Entwurf | Grok Bot | `docs/systemprompt` | #56 | pausiert (Owner Grok Bot). GitHub: offen, Entwurf, mergedAt leer | 12.11.2026 |
 | Ollama-HTTP aufräumen | Cursor Cloud Agent | `stage/cleanup-ollama-http` | #90 | erledigt (gemergt, 190a507, mergedAt 2026-11-11T22:13:38Z) | 12.11.2026 |
-| Regeln angleichen | Cursor Cloud Agent | `cursor/align-agent-rules-10a1` | #92 | erledigt (gemergt, a105245, mergedAt 2026-11-12T22:51:01Z, mergedBy Kaancodm) | 12.11.2026 |
-| GO-Liste nach Merge #92 | Cursor Cloud Agent | `cursor/clear-merged-go-10a1` | #93 | erledigt (gemergt, a123d40, mergedAt 2026-11-12T23:16:19Z, mergedBy Kaancodm) | 13.11.2026 |
-
-## deck-server
-
-| Dienst | Wer | Stand | Nächster Schritt |
-| --- | --- | --- | --- |
-| OmniRoute | Grok Bot | läuft | Owner fügt restliche Gratis-Keys hinzu |
-| Open WebUI | Grok Bot | läuft, Signup aus | Owner legt Admin-Konto an |
-| Ollama (Version fix, kein Update) | Grok Bot | läuft | Modell-Aufräumen wartet auf Owner-Ja |
-| n8n | Grok Bot | läuft | Owner legt Owner-Konto an |
-| Hermes Agent | Grok Bot | läuft | Kontextlänge erhöhen nach RAM-Check |
-| Egress-Proxy (E2) | Grok Bot | nicht gestartet | braucht eigenes GO |
-| Ollama auf PC Bruder | Grok Bot | geplant | wenn Owner am PC |
+| Regeln angleichen | Cursor Cloud Agent | `cursor/align-agent-rules-10a1` | #92 | erledigt (gemergt, a105245, mergedAt 2026-11-12T22:51:01Z) | 12.11.2026 |
+| GO-Liste nach Merge #92 | Cursor Cloud Agent | `cursor/clear-merged-go-10a1` | #93 | erledigt (gemergt, a123d40, mergedAt 2026-11-12T23:16:19Z) | 13.11.2026 |
+| `TEAM.md` als eine Regelseite | Claude Code | `claude/wonderful-cori-d21yd2` | folgt | in Arbeit, Entwurf | 18.11.2026 |

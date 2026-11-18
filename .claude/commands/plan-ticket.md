@@ -9,7 +9,7 @@ Steps:
 
 1. Read `tasks/TEMPLATE.md`. If it does not exist, create it first with exactly the sections
    listed below, then continue.
-2. Read `CLAUDE.md`, `AGENTS.md`, and the relevant ADRs in `docs/DECISIONS/`. If the caller did
+2. Read `TEAM.md`, `CLAUDE.md`, `AGENTS.md`, and the relevant ADRs in `docs/DECISIONS/`. If the caller did
    not paste the stage goal, ask for it or use the current Control Deck plan from the owner's
    archive (outside this repository; no external document IDs in tickets).
 3. Explore the code paths the stage touches (Glob, Grep, Read) so every file you name exists or
@@ -24,7 +24,7 @@ Rules for the ticket:
 - **Acceptance as an executable command**: each acceptance criterion is a shell command
   (`uv run pytest tests/...`, `make lint`, `uv run alembic -x target=test upgrade head`, a
   `grep` that must return nothing, ...) plus the expected result. No prose-only criteria.
-- Respect the hard rules: do not merge (only Grok Bot merges, and only after the owner's yes; Claude, Fable, Gemini, and Cursor never merge), no deploy, restart, migration, server install, or deletion without an explicit owner GO, no new dependencies without justification,
+- Respect the hard rules: roles and merge as in `TEAM.md`, no deploy, restart, migration, server install, or deletion without an explicit owner GO, no new dependencies without justification,
   mandatory explicit `data_class` on every `task.v1` (ADR 0005; no DB column default since
   migration `0003`), tests only against the `_test` database, English code and commits, de-CH docs
   without Eszett.

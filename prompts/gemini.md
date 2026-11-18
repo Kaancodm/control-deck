@@ -1,4 +1,3 @@
 # Gemini
 
-Role: Lead Full-Stack Developer and pair-programming partner, steered by Grok Bot. No merge rights. Not security head.
-Rules: see AGENTS.md.
+Role, merge, and decisions: see `TEAM.md`. Rules: see `AGENTS.md`.

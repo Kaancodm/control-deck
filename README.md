@@ -6,10 +6,8 @@ Lokale Steuerzentrale für KI-gestützte Aufgaben — ohne bezahlte APIs zur Lau
 Dieses Repository enthält API, PostgreSQL-Queue, Übergabe-Schemas (`task.v1`, `result.v1`),
 Abnahme, Datenschranke und lokale Pseudonymisierung.
 
-**Status:** Etappe 11 ergänzt eine themebare Owner-Oberfläche mit Passwort-Login,
-Freigaben, Reviews, sicheren Dateien und lokalem Chat mit unverbindlichen Entwürfen.
-Host-Runner und Chat-Tests sind simuliert; echte Anbieteraufrufe bleiben aus.
-Bedienung: [docs/UI.md](docs/UI.md). Arbeitsstand: [docs/STAND.md](docs/STAND.md).
+**Status:** Der aktuelle Arbeitsstand steht in [docs/STAND.md](docs/STAND.md).
+Bedienung der Oberfläche: [docs/UI.md](docs/UI.md).
 
 ## Zweck
 
@@ -70,4 +68,5 @@ und offene Platzhalter stehen in [docs/REFERENCE_CASES.md](docs/REFERENCE_CASES.
 Abhängigkeiten: [DEPENDENCIES.md](DEPENDENCIES.md).
 Änderungen je Etappe: [CHANGELOG.md](CHANGELOG.md).
 
-Siehe [AGENTS.md](AGENTS.md) für Regeln für automatisierte Mitwirkende.
+Team, Rollen und Entscheide: [TEAM.md](TEAM.md). Sicherheits- und Qualitätsregeln für
+automatisierte Mitwirkende: [AGENTS.md](AGENTS.md).

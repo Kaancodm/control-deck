@@ -61,3 +61,10 @@ PR #93 ist gemergt: `a123d40`, mergedAt 2026-11-12T23:16:19Z, mergedBy Kaancodm.
 Check: `make lint && make test`, Exit 2. 2805 passed, 1 failed (`test_process.py`, pidfd EINVAL), 1082 skipped, 86.26s.
 Zweiter Lauf derselben 4 Tests: 4 passed, 1.62s. Kein Bezug zu den Doc-Dateien.
 Offen: Egress-Proxy, Ollama-Modelle. Risiko: der Prozess-Test ist einmal geflakt.
+
+## 2026-11-18 19:21 — Claude Code — Phase TEAM.md als eine Regelseite
+
+Entwurf #95, Commit `736499c`. Neu: `TEAM.md` (Status ENTWURF), `.github/CODEOWNERS`. Rollen-, Merge- und Ablaufteil aus `AGENTS.md` entfernt; Verweise in den Regeldateien; Dienstliste aus `COORDINATION.md` entfernt.
+Start auf direkten Owner-Auftrag vom 18.11.2026, ohne Start-Check bei Atik. Kollisions-Blick: einziger offener PR war #56, andere Datei.
+Check: `make lint` und `make test`, je Exit 0. 2844 passed, 1082 skipped, 1 warning, 106.22s.
+Offen: GO fuer den Entwurf, 16 Fragen in `TEAM.md` Abschnitt 12, Egress-Proxy, Ollama-Modelle. Risiko: bis zum GO steht der bisherige Rollenstand nur auf `main`.

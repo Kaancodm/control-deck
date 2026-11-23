@@ -82,6 +82,9 @@ jobs:
       - name: Mypy
         run: uv run mypy app/
 
+      - name: Weitblick unit tests
+        run: python3 -m unittest discover -s weitblick/tests -v
+
       - name: Pytest
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright

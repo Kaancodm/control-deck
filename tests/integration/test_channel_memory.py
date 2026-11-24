@@ -24,6 +24,7 @@ from app.db.session import get_engine
 from app.db.ui_auth import UiSession
 from app.memory.approval import (
     approver_reference,
+    clear_fact_bounds,
     correct_fact,
     correct_message,
     correct_thread_link,
@@ -2214,6 +2215,314 @@ def test_fact_correction_supersedes_and_revokes(db_session: Session) -> None:
             shown_sha256_hex="0" * 64,
             superseded_by=new.id,
         )
+
+
+def _fact_refs(session: Session) -> set[str]:
+    context = load_memory_context(
+        session, thread_id=None, target="ollama", data_class="local_only", query="mint"
+    )
+    return {item.reference for item in context.items if item.kind == "fact"}
+
+
+def test_clear_fact_bounds_empties_valid_to_and_superseded_by(db_session: Session) -> None:
+    token = _owner_session(db_session)
+    _thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="clear-bounds",
+        thread_class="local_only",
+        rows=[("local_only", "Synthetic note: mint spreads.")],
+    )
+    closed_at = datetime(2026, 11, 1, tzinfo=UTC)
+
+    def approved_fact(
+        sentence: str, object_: str, *, valid_to: datetime | None = None
+    ) -> MemoryFact:
+        fact = propose_fact(
+            db_session,
+            source_message_id=ids[0],
+            original_sentence=sentence,
+            subject="mint",
+            predicate="spreads",
+            object_=object_,
+            valid_to=valid_to,
+        )
+        return decide_fact(
+            db_session,
+            fact.id,
+            decision="approved",
+            session_token=token,
+            shown_sha256_hex=shown_sha256(
+                fact_shown_bytes(fact, decision="approved", mark_proven=True)
+            ),
+            mark_proven=True,
+        )
+
+    closed = approved_fact("Mint spreads until November.", "until November", valid_to=closed_at)
+    assert closed.valid_to == closed_at and closed.evidence_status == "bewiesen"
+    assert str(closed.id) not in _fact_refs(db_session)
+    previous_id = closed.approval_id
+    assert previous_id is not None
+    previous = db_session.get(MemoryApproval, previous_id)
+    assert previous is not None
+    previous_shown = previous.shown_sha256
+    shown = fact_shown_bytes(
+        closed,
+        decision="approved",
+        mark_proven=True,
+        corrects=previous_id,
+        clear_valid_to=True,
+    )
+    assert b"valid_to=none\n" in shown
+    cleared = clear_fact_bounds(
+        db_session,
+        closed.id,
+        session_token=token,
+        shown_sha256_hex=shown_sha256(shown),
+        clear_valid_to=True,
+    )
+    assert cleared.valid_to is None and cleared.superseded_by is None
+    assert cleared.status == "approved" and cleared.evidence_status == "bewiesen"
+    assert (
+        cleared.valid_from is None and cleared.original_sentence == "Mint spreads until November."
+    )
+    assert cleared.approval_id != previous_id
+    db_session.refresh(previous)
+    assert previous.shown_sha256 == previous_shown and previous.decision == "approved"
+    assert previous.corrects_approval_id is None
+    approval = db_session.get(MemoryApproval, cleared.approval_id)
+    assert approval is not None and approval.corrects_approval_id == previous_id
+    assert approval.decision == "approved" and approval.shown_sha256 == shown_sha256(shown)
+    assert str(closed.id) in _fact_refs(db_session)
+    detail = _events(db_session, "memory.fact_corrected")[-1].detail
+    assert detail["cleared_valid_to"] is True and detail["cleared_superseded_by"] is False
+    assert detail["corrects_approval_id"] == str(previous_id)
+    assert detail["decision"] == "approved"
+    db_session.refresh(cleared)
+    again = fact_shown_bytes(
+        cleared,
+        decision="approved",
+        mark_proven=True,
+        corrects=cleared.approval_id,
+        clear_valid_to=True,
+    )
+    approvals_before = db_session.scalar(select(func.count()).select_from(MemoryApproval))
+    with pytest.raises(ConversationError, match="no_change"):
+        clear_fact_bounds(
+            db_session,
+            closed.id,
+            session_token=token,
+            shown_sha256_hex=shown_sha256(again),
+            clear_valid_to=True,
+        )
+    assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == approvals_before
+
+    current = approved_fact("Mint spreads fast.", "fast")
+    successor = approved_fact("Mint spreads very fast.", "very fast")
+    link_shown = fact_shown_bytes(
+        current,
+        decision="approved",
+        mark_proven=True,
+        corrects=current.approval_id,
+        superseded_by=successor.id,
+    )
+    superseded = correct_fact(
+        db_session,
+        current.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(link_shown),
+        mark_proven=True,
+        superseded_by=successor.id,
+    )
+    assert superseded.superseded_by == successor.id
+    assert str(current.id) not in _fact_refs(db_session)
+    bound_previous = superseded.approval_id
+    assert bound_previous is not None
+    bound_row = db_session.get(MemoryApproval, bound_previous)
+    assert bound_row is not None
+    bound_shown = bound_row.shown_sha256
+    clear_shown = fact_shown_bytes(
+        superseded,
+        decision="approved",
+        mark_proven=True,
+        corrects=bound_previous,
+        clear_superseded_by=True,
+    )
+    assert b"superseded_by=none\n" in clear_shown
+    restored = clear_fact_bounds(
+        db_session,
+        current.id,
+        session_token=token,
+        shown_sha256_hex=shown_sha256(clear_shown),
+        clear_superseded_by=True,
+    )
+    assert restored.superseded_by is None and restored.status == "approved"
+    assert restored.evidence_status == "bewiesen" and restored.valid_to is None
+    db_session.refresh(bound_row)
+    assert bound_row.shown_sha256 == bound_shown and bound_row.corrects_approval_id is not None
+    clear_row = db_session.get(MemoryApproval, restored.approval_id)
+    assert clear_row is not None and clear_row.corrects_approval_id == bound_previous
+    assert {str(current.id), str(successor.id)} <= _fact_refs(db_session)
+    restored_detail = _events(db_session, "memory.fact_corrected")[-1].detail
+    assert restored_detail["cleared_superseded_by"] is True
+    assert restored_detail["cleared_valid_to"] is False
+
+    # One correction may clear both columns. A rejected fact stays rejected.
+    both = approved_fact("Mint spreads for a while.", "for a while", valid_to=closed_at)
+    both_link = fact_shown_bytes(
+        both,
+        decision="approved",
+        mark_proven=True,
+        corrects=both.approval_id,
+        superseded_by=successor.id,
+    )
+    both = correct_fact(
+        db_session,
+        both.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(both_link),
+        mark_proven=True,
+        superseded_by=successor.id,
+    )
+    both_clear = fact_shown_bytes(
+        both,
+        decision="approved",
+        mark_proven=True,
+        corrects=both.approval_id,
+        clear_valid_to=True,
+        clear_superseded_by=True,
+    )
+    assert b"valid_to=none\n" in both_clear and b"superseded_by=none\n" in both_clear
+    both = clear_fact_bounds(
+        db_session,
+        both.id,
+        session_token=token,
+        shown_sha256_hex=shown_sha256(both_clear),
+        clear_valid_to=True,
+        clear_superseded_by=True,
+    )
+    assert both.valid_to is None and both.superseded_by is None
+    assert both.status == "approved" and both.evidence_status == "bewiesen"
+    both_detail = _events(db_session, "memory.fact_corrected")[-1].detail
+    assert both_detail["cleared_valid_to"] is True and both_detail["cleared_superseded_by"] is True
+
+    denied = propose_fact(
+        db_session,
+        source_message_id=ids[0],
+        original_sentence="Mint spreads nowhere.",
+        subject="mint",
+        predicate="spreads",
+        object_="nowhere",
+        valid_to=closed_at,
+    )
+    denied = decide_fact(
+        db_session,
+        denied.id,
+        decision="rejected",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(denied, decision="rejected")),
+    )
+    deny_shown = fact_shown_bytes(
+        denied, decision="rejected", corrects=denied.approval_id, clear_valid_to=True
+    )
+    denied = clear_fact_bounds(
+        db_session,
+        denied.id,
+        session_token=token,
+        shown_sha256_hex=shown_sha256(deny_shown),
+        clear_valid_to=True,
+    )
+    assert denied.valid_to is None and denied.status == "rejected"
+    assert denied.evidence_status == "abgelehnt"
+    assert str(denied.id) not in _fact_refs(db_session)
+
+
+def test_clear_fact_bounds_rejects_without_approval(db_session: Session) -> None:
+    token = _owner_session(db_session)
+    _thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="clear-reject",
+        thread_class="local_only",
+        rows=[("local_only", "Synthetic note: basil needs sun.")],
+    )
+    closed_at = datetime(2026, 11, 1, tzinfo=UTC)
+    fact = propose_fact(
+        db_session,
+        source_message_id=ids[0],
+        original_sentence="Basil needs sun.",
+        subject="basil",
+        predicate="needs",
+        object_="sun",
+        valid_to=closed_at,
+    )
+    decided = decide_fact(
+        db_session,
+        fact.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
+    )
+    approval_id = decided.approval_id
+    assert approval_id is not None
+    shown = fact_shown_bytes(
+        decided,
+        decision="approved",
+        corrects=approval_id,
+        clear_valid_to=True,
+    )
+    digest = shown_sha256(shown)
+    kept = shown_sha256(fact_shown_bytes(decided, decision="approved", corrects=approval_id))
+
+    def unchanged() -> None:
+        db_session.refresh(decided)
+        assert decided.valid_to == closed_at and decided.approval_id == approval_id
+        corrections = db_session.scalar(
+            select(func.count())
+            .select_from(MemoryApproval)
+            .where(MemoryApproval.corrects_approval_id.is_not(None))
+        )
+        assert corrections == 0
+        assert _events(db_session, "memory.fact_corrected") == []
+
+    for bad_token in ("", "a" * 43):
+        with pytest.raises(ConversationError, match="owner_session_required"):
+            clear_fact_bounds(
+                db_session,
+                decided.id,
+                session_token=bad_token,
+                shown_sha256_hex=digest,
+                clear_valid_to=True,
+            )
+        unchanged()
+    for bad_hash in ("", "0" * 64, kept):
+        with pytest.raises(ConversationError, match="shown_bytes_mismatch"):
+            clear_fact_bounds(
+                db_session,
+                decided.id,
+                session_token=token,
+                shown_sha256_hex=bad_hash,
+                clear_valid_to=True,
+            )
+        unchanged()
+    with pytest.raises(ConversationError, match="invalid_fact"):
+        clear_fact_bounds(
+            db_session,
+            decided.id,
+            session_token=token,
+            shown_sha256_hex=digest,
+        )
+    unchanged()
+    cleared = clear_fact_bounds(
+        db_session,
+        decided.id,
+        session_token=token,
+        shown_sha256_hex=digest,
+        clear_valid_to=True,
+    )
+    assert cleared.valid_to is None and cleared.approval_id != approval_id
 
 
 def test_topic_and_link_corrections(db_session: Session) -> None:

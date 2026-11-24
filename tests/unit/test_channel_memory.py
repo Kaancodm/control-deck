@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import copy
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 
 from app.memory.approval import (
     approver_reference,
+    fact_shown_bytes,
     message_shown_bytes,
     shown_sha256,
     thread_shown_bytes,
@@ -25,7 +27,7 @@ from app.memory.context import (
 )
 from app.memory.envelope import ChannelTurnV1, json_schema_valid, parse_turn
 from app.memory.ingest import contains_secret
-from app.memory.models import AssistantMessage
+from app.memory.models import AssistantMessage, MemoryFact
 from app.memory.policy import (
     CHANNEL_CLASS_CEILING,
     CLOUD_CHANNELS,
@@ -225,7 +227,10 @@ def test_every_decision_function_requires_session_and_shown_hash() -> None:
         node
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
-        and (node.name.startswith(("decide_", "correct_")) or node.name == "create_owner_thread")
+        and (
+            node.name.startswith(("decide_", "correct_", "clear_"))
+            or node.name == "create_owner_thread"
+        )
     ]
     assert {node.name for node in deciders} == {
         "decide_message",
@@ -237,6 +242,7 @@ def test_every_decision_function_requires_session_and_shown_hash() -> None:
         "correct_fact",
         "correct_thread_topic",
         "correct_thread_link",
+        "clear_fact_bounds",
     }
     for node in deciders:
         names = {arg.arg for arg in node.args.kwonlyargs}
@@ -336,6 +342,48 @@ def test_shown_bytes_carry_the_hold_and_the_correction_marker() -> None:
     assert corrected.endswith(b"\n\nHello")
     plain = message_shown_bytes(held, decision="rejected")
     assert shown_sha256(corrected) != shown_sha256(plain)
+
+
+def test_fact_shown_bytes_can_show_a_cleared_bound() -> None:
+    """A clear is visible in memory-shown.v1. ``None`` still means keep."""
+    successor = uuid.uuid4()
+    previous = uuid.uuid4()
+    fact = MemoryFact(
+        original_sentence="Mint spreads.",
+        subject="mint",
+        predicate="spreads",
+        object="fast",
+        data_class="local_only",
+        source_channel="deck_ui",
+        source_account="owner",
+        privacy_hold=None,
+        valid_to=datetime(2026, 11, 1, tzinfo=UTC),
+        superseded_by=successor,
+    )
+    kept = fact_shown_bytes(fact, decision="approved", mark_proven=True, corrects=previous)
+    assert b"valid_to=2026-11-01T00:00:00+00:00\n" in kept
+    assert f"superseded_by={successor}\n".encode() in kept
+    cleared_until = fact_shown_bytes(
+        fact, decision="approved", mark_proven=True, corrects=previous, clear_valid_to=True
+    )
+    assert b"valid_to=none\n" in cleared_until
+    assert f"superseded_by={successor}\n".encode() in cleared_until
+    cleared_successor = fact_shown_bytes(
+        fact, decision="approved", mark_proven=True, corrects=previous, clear_superseded_by=True
+    )
+    assert b"superseded_by=none\n" in cleared_successor
+    assert b"valid_to=2026-11-01T00:00:00+00:00\n" in cleared_successor
+    assert shown_sha256(kept) != shown_sha256(cleared_until)
+    with pytest.raises(ConversationError, match="invalid_fact"):
+        fact_shown_bytes(fact, decision="approved", clear_valid_to=True)
+    with pytest.raises(ConversationError, match="invalid_fact"):
+        fact_shown_bytes(
+            fact,
+            decision="approved",
+            corrects=previous,
+            valid_to=datetime(2026, 12, 1, tzinfo=UTC),
+            clear_valid_to=True,
+        )
 
 
 def test_memory_privacy_hold_codes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

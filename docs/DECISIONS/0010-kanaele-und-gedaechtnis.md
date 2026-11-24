@@ -298,8 +298,11 @@ Ohne Ticket, als Betriebsschritt beim Prod-Rollout: `TRUNCATE`-Recht der
 Anwendungsrolle entziehen.
 
 Bekannte Grenzen des Korrekturwegs: `correct_fact` kann `valid_to` und
-`superseded_by` setzen, aber nicht leeren (bewusst nicht geplant; bei Bedarf eigenes
-Ticket). Ein Nachfolger muss beim Korrigieren selbst aktuell sein; Faktum und
+`superseded_by` setzen, aber nicht leeren. `None` laesst den Wert stehen.
+Leeren geht nur ueber `clear_fact_bounds` (Issue #80): eine neue Freigabezeile,
+UI-Session und sha256 der gezeigten Bytes (`memory-shown.v1`). Status, Nachweis
+und `valid_from` bleiben; die bisherige Freigabezeile wird nicht geaendert.
+Ein Nachfolger muss beim Korrigieren selbst aktuell sein; Faktum und
 Nachfolger werden zusammen in Id-Reihenfolge gesperrt. Das schliesst Kreise aus,
 Ketten (A -> B, spaeter B -> C) bleiben moeglich. Wird ein Nachfolger widerrufen, bleibt das alte
 Faktum ausgeblendet, bis der Owner ein neues Faktum freigibt. `thread_id` einer

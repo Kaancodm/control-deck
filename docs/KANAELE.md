@@ -301,7 +301,12 @@ oder `0`. `privacy_hold` ist der Code oder `none`.
 Eine Korrektur haengt nach `mark_proven` die Kopfzeilen `correction=1` und
 `corrects_approval_id=<bisherige Freigabe>` an. Beim Faktum folgen
 `valid_to` (ISO-Zeit in UTC oder `none`) und `superseded_by` (Id oder `none`),
-jeweils der Wert nach der Korrektur.
+jeweils der Wert nach der Korrektur. `clear_fact_bounds` nutzt dieselben Bytes:
+`clear_valid_to` zeigt `valid_to=none`, `clear_superseded_by` zeigt
+`superseded_by=none`. Der Hash nimmt den gespeicherten Entscheid
+(`approved` oder `rejected`) und `mark_proven=1` nur bei `bewiesen`.
+`fact_shown_bytes` ohne `corrects` lehnt ein Clear-Flag mit `invalid_fact` ab.
+Ein neuer Wert und das passende Clear-Flag zugleich ebenfalls.
 
 `decision` ist `approved` oder `rejected`, sonst `invalid_decision`. Ein zweiter
 erster Entscheid auf dasselbe `(kind, target_id)` ist `already_decided`; spaeter
@@ -315,7 +320,8 @@ aendert nur eine Korrektur den Entscheid.
 | `decide_thread_link` | `proposed` nach `active` oder `rejected`. Annahme nur auf ein Thema mit `status = active` (`thread_not_active`). `local_only` auf einem Cloud-Kanal: `local_only_cloud_link`. Optionales `target_thread_id` muss bei Ablehnung das Thema der Verknuepfung sein (`invalid_decision`). Die gezeigten Bytes gehoeren zum gewaehlten Thema. Bei Annahme haengt der Code ungemappte Nachrichten dieses Aussen-Threads an, deren Klasse das Thema aufnimmt, und zaehlt sie als `attached` |
 | `create_owner_thread` | legt sofort `active` an (`title_origin = owner`) und eine Freigabe `approved`. Der Hash deckt den getrimmten Titel |
 | `correct_message` | entschiedene Nachricht nach `approved` (mit oder ohne `mark_proven`) oder `rejected`. Text, Klasse und `privacy_hold` bleiben |
-| `correct_fact` | entschiedenes Faktum widerrufen (`rejected`), wieder annehmen (Quelle nicht `rejected`, sonst `source_rejected`), optional `valid_to` setzen (mit Zeitzone, nicht vor `valid_from`) oder `superseded_by` auf ein anderes freigegebenes, selbst nicht ersetztes Faktum (sonst `invalid_fact`). `None` laesst den Wert stehen; Leeren ist nicht moeglich; `valid_from` bleibt |
+| `correct_fact` | entschiedenes Faktum widerrufen (`rejected`), wieder annehmen (Quelle nicht `rejected`, sonst `source_rejected`), optional `valid_to` setzen (mit Zeitzone, nicht vor `valid_from`) oder `superseded_by` auf ein anderes freigegebenes, selbst nicht ersetztes Faktum (sonst `invalid_fact`). `None` laesst den Wert stehen und leert ihn nicht; `valid_from` bleibt |
+| `clear_fact_bounds` | entschiedenes Faktum: `valid_to` und/oder `superseded_by` leeren. Flags `clear_valid_to` und `clear_superseded_by`; mindestens eines wahr, sonst `invalid_fact`. Beide duerfen zusammen. Status, Nachweis und `valid_from` bleiben (`mark_proven` im Hash nur bei `bewiesen`). Ein schon leeres Feld ohne weitere Aenderung ist `no_change`. Die bisherige Freigabezeile bleibt; es kommt eine neue mit `corrects_approval_id` |
 | `correct_thread_topic` | Thema `active` <-> `rejected`. Ein abgelehntes Thema liefert keinen Verlauf und mappt keine neuen Turns |
 | `correct_thread_link` | Verknuepfung loesen (`active` -> `rejected`) oder wieder aktivieren. Aktivieren nur mit aktivem Thema, passender Klasse (`local_only_cloud_link`) und ohne andere offene Verknuepfung desselben Aussen-Threads (`link_conflict`); haengt dann ungemappte Nachrichten an. `thread_id` der Verknuepfung bleibt |
 
@@ -370,7 +376,9 @@ Geschrieben werden:
 - `memory.link_approved`, `memory.link_rejected`
 - `memory.message_corrected`, `memory.fact_corrected`, `memory.topic_corrected`,
   `memory.link_corrected` (mit `decision`, `approval_id`, `corrects_approval_id`,
-  `shown_sha256`, kein Text)
+  `shown_sha256`, kein Text). `clear_fact_bounds` schreibt ebenfalls
+  `memory.fact_corrected` und setzt `cleared_valid_to` sowie
+  `cleared_superseded_by` (Boolean, was der Aufruf geleert hat)
 
 ### Audit-Schreiber
 
@@ -382,7 +390,7 @@ ergibt `invalid_audit_detail`. Beides schreibt keine Zeile. Erlaubte Schluessel:
 `reason`, `channel`, `account`, `role`, `method`, `data_class`, `kind`,
 `decision`, `evidence_status`, `message_id`, `existing_message_id`,
 `reply_for_message_id`, `thread_id`, `link_id`, `fact_id`, `approval_id`,
-`corrects_approval_id`, `privacy_hold`, `text_sha256`, `existing_text_sha256`, `shown_sha256`, `class_forced`, `thread_unmapped`,
+`corrects_approval_id`, `cleared_valid_to`, `cleared_superseded_by`, `privacy_hold`, `text_sha256`, `existing_text_sha256`, `shown_sha256`, `class_forced`, `thread_unmapped`,
 `in_reply_to_unresolved`, `inserted`, `duplicates`, `secret_rejected`,
 `attached`. Werte: `null`, Boolean, Ganzzahl von 0 bis 2^31, oder ein Token
 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$`. Nachrichtentext ist keiner dieser Werte.

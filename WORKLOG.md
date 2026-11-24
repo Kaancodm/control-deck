@@ -90,3 +90,9 @@ Kein Merge, PR bleibt Draft.
 
 README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
 sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.
+
+## 2026-11-24 23:31 — Cursor — Issue #80 Korrektur leeren
+
+Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` leert `valid_to` und `superseded_by` nur ueber eine neue Freigabezeile. Keine Vorarbeit auf main, in Branches oder PRs.
+Check: `make lint` Exit 0 (ruff, 480 formatiert, mypy 167, check_rules). `pytest` gegen `controldeck_test`: 3748 passed, 143 skipped, 1 Starlette-Warnung, 263.35s.
+Offen: Draft-PR, drei Reviews, kein Merge. Risiko: #78 hasht den gespeicherten Entscheid; Leeren und Entscheidwechsel bleiben zwei Korrekturen.

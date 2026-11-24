@@ -2,22 +2,16 @@
 
 Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
 
-1. Egress-Proxy (E2) starten
-   em: Aus lassen.
-   Option 2: Start freigeben.
-   Unterschied: Option 2 startet den Proxy, em laesst ihn aus.
-   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+Nichts offen.
 
-2. Ollama-Modelle aufraeumen
-   em: Nichts loeschen.
-   Option 2: Aufraeumen freigeben.
-   Unterschied: Option 2 darf Modelle entfernen, em laesst den Bestand.
-   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+Entschieden am 24.11.2026 mit `alle em`: Egress-Proxy bleibt aus. Ollama-Bestand bleibt.
+Weitblick-Schritte 1 bis 4 bleiben die lesende Pruefung und wurden hier nicht ausgefuehrt.
+Schritt 5 und S-K80 bleiben ohne Ja.
+#95 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:09:12Z). Der Branch `claude/wonderful-cori-d21yd2` bleibt auf `269b0fa`.
 
-3. Weitblick Stufe 2 (#98 und #99) ist gemergt
-   PR #98 (Stufe 2) ist seit 24.11.2026 13:44 CET auf main (`979b89b`, mergedBy Kaancodm).
-   PR #99 (Haertung) ist seit 24.11.2026 20:32 CET auf main (`75318c9`, mergedBy Kaancodm).
-   Quelle: `gh pr view 98` und `gh pr view 99`. Kein offener Entscheid mehr zu diesem Punkt.
+Weitblick Stufe 2 ist gemergt: PR #98 seit 24.11.2026 13:44 CET auf main (`979b89b`),
+PR #99 seit 24.11.2026 20:32 CET auf main (`75318c9`). Quelle: `gh pr view 98` und
+`gh pr view 99`. Kein offener Entscheid.
 
 # CLAUDE.md
 

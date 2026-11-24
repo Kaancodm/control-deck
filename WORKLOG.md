@@ -105,3 +105,10 @@ Offen: Etappe 18 Abnahme und Tag v1.0, Weitblick-Serverpruefung, Egress-Proxy, O
 CHANGELOG: `retain_extraction_mode=chunks` als Bank- oder Server-Einstellung; Zurueckgeben nur bei `reserviert` ohne `sendet`, sonst `unklar` und offen.
 Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 83.55s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
 Offen: Abnahme und Tag v1.0, Weitblick-Serverpruefung, Abgleich mit Draft #100. Kein Merge.
+
+## 2026-11-24 23:27 — Builder — GO-Liste in #101 auf «alle em»
+
+`CLAUDE.md`: Liste lautet «Nichts offen». Entscheid 24.11.2026 `alle em`: Egress-Proxy bleibt aus, Ollama-Bestand bleibt. Merge-Vermerk zu #98/#99 bleibt als Info, nicht als GO-Punkt. Wortlaut an #100 angelehnt, #100 unveraendert.
+`COORDINATION.md`: Ollama- und Egress-Zeilen sowie Weitblick-Abschnitt nachgezogen. `docs/STAND.md` ebenso. README fuehrte die Punkte nicht als offen.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 83.33s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Abnahme und Tag v1.0, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja. Kein Merge.

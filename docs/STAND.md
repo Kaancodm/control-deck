@@ -20,8 +20,12 @@ Quelle: `git log` und `gh pr view` am 24.11.2026, Zeiten Europe/Zurich.
   24.11.2026 12:59 CET auf `main` (PR #97, `6123488`). Weitblick Stufe 2 ist
   seit 24.11.2026 13:44 CET auf `main` (PR #98, `979b89b`), die Haertung seit
   24.11.2026 20:32 CET (PR #99, `75318c9`).
-- Gesamt-Abnahme, Inbetriebnahme, Tag `v1.0` und die Weitblick-Serverpruefung
-  bleiben offen. Zu Etappe 18 liegt der Lasttest #48 auf `main`.
+- Entschieden am 24.11.2026 mit `alle em`: Egress-Proxy bleibt aus, Ollama-Bestand
+  bleibt. In der GO-Liste steht «Nichts offen». Weitblick-Schritte 1 bis 4 sind
+  die lesende Pruefung und wurden hier nicht ausgefuehrt; Schritt 5 und S-K80
+  bleiben ohne Ja.
+- Gesamt-Abnahme, Inbetriebnahme und Tag `v1.0` bleiben offen. Zu Etappe 18 liegt
+  der Lasttest #48 auf `main`.
 
 Die Nachtraege und Etappenabschnitte darunter bleiben als historische Notizen
 stehen; wo sie dem Stand oben widersprechen, gilt dieser Abschnitt.

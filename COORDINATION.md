@@ -4,7 +4,7 @@ Stand: 24.11.2026.
 
 If anything conflicts, AGENTS.md wins. Diese Datei ist nur die Standliste für GitHub und den deck-server. Regeln: siehe `AGENTS.md`.
 
-Provenance der Rollen und Gates: Quelle Owner-Auftrag vom 12.11.2026, Methode Auftrag, Status proven als festgehaltener Ablauf in `AGENTS.md`. Provenance der PR-Zeilen: Quelle GitHub API am 24.11.2026, Methode `gh pr view` (Felder `state`, `isDraft`, `mergedAt`, `closedAt`, `mergeCommit`, `mergedBy`), Status proven für diese Felder. PR #56 ist seither gemergt (siehe Tabelle). Angaben zum deck-server bleiben der Owner-Auftrag vom 11.11.2026, Methode Angabe des Owners, Status im Repository unproven.
+Provenance der Rollen und Gates: Quelle Owner-Auftrag vom 12.11.2026, Methode Auftrag, Status proven als festgehaltener Ablauf in `AGENTS.md`. Provenance der PR-Zeilen: Quelle GitHub API am 24.11.2026, Methode `gh pr view` (Felder `state`, `isDraft`, `mergedAt`, `closedAt`, `mergeCommit`, `mergedBy`), Status proven für diese Felder. PR #56 ist seither gemergt (siehe Tabelle). Angaben zum deck-server bleiben der Owner-Auftrag vom 11.11.2026, Methode Angabe des Owners, Status im Repository unproven, ausser den Entscheiden vom 24.11.2026 (`alle em`) in der Dienstliste und im Abschnitt Weitblick.
 
 ## Regeln
 
@@ -40,8 +40,12 @@ Regeln: siehe `AGENTS.md`.
 | --- | --- | --- | --- |
 | OmniRoute | Grok Bot | läuft | Owner fügt restliche Gratis-Keys hinzu |
 | Open WebUI | Grok Bot | läuft, Signup aus | Owner legt Admin-Konto an |
-| Ollama (Version fix, kein Update) | Grok Bot | läuft | Modell-Aufräumen wartet auf Owner-Ja |
+| Ollama (Version fix, kein Update) | Grok Bot | läuft, Bestand bleibt | Owner 24.11.2026, em: nichts loeschen |
 | n8n | Grok Bot | läuft | Owner legt Owner-Konto an |
 | Hermes Agent | Grok Bot | läuft | Kontextlänge erhöhen nach RAM-Check |
-| Egress-Proxy (E2) | Grok Bot | nicht gestartet | braucht eigenes GO |
+| Egress-Proxy (E2) | Grok Bot | aus | Owner 24.11.2026, em: bleibt aus. Dieser Lauf hat ihn nicht gestartet. |
 | Ollama auf PC Bruder | Grok Bot | geplant | wenn Owner am PC |
+
+## Weitblick
+
+Owner 24.11.2026, em. Schritte 1 bis 4 in `weitblick/SERVERPRUEFUNG.md` sind die naechste lesende Pruefung. Dieser Lauf hat sie nicht ausgefuehrt. Schritt 5 (Test-Banks schreiben) und Schritt 6 (S-K80) bleiben ohne Ja. Quelle: Antwort `alle em` auf die Bewertung vom selben Tag. Methode: festgehaltener Entscheid. Status proven als Entscheid, unproven als Serverergebnis.

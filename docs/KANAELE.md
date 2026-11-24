@@ -408,14 +408,19 @@ Lesend, sendet nichts. Signatur: `thread_id` (darf leer sein), `target`,
 | Ziel | Klassen |
 | --- | --- |
 | `ollama` | `local_only`, `cloud_redacted`, `cloud_ok` |
-| `claude`, `claude_code`, `grok` | nur `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_redacted`, `cloud_ok` |
 | `codex` | keine |
 
-Im Stand M1 liefert der Lader `cloud_redacted` noch nicht an die drei
-Cloud-Ziele: die Redaktion in `app/redaction/` haengt an einem Auftrag und seinen
-`redaction_maps`, Gespraechsgedaechtnis hat keinen Auftrag. Das ist eine
-voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, verfolgt in Issue
-[#76](https://github.com/Kaancodm/control-deck/issues/76) (auftragsfreie Redaktion).
+Fuer `claude`, `claude_code` und `grok` ersetzt der Lader in Zeilen der Klasse
+`cloud_redacted` unterstuetzte Treffer (Mail, Telefon, IBAN, AHV, interne
+Adresse, Blockliste) durch Platzhalter. Die Zuordnung gilt nur fuer diesen
+Aufruf, bleibt im Prozess und steht nicht in `MemoryContext`. Geheimnisse und
+nicht unterstuetzte Treffer fallen weg. Ein Rest-Scan nach der Ersetzung
+verwirft die Zeile bei einem weiteren Treffer. Ohne Blockliste bleibt die
+Cloud-Ausgabe fail-closed. Zeilen mit `privacy_hold` gehen nicht an Cloud-Ziele,
+auch nicht redigiert. Die Abweichung von Entscheid 7.3 und Plan 3.5 (Issue
+[#76](https://github.com/Kaancodm/control-deck/issues/76)) ist geschlossen.
+Es gibt keinen Versand.
 
 `context_classes` schneidet `allowed_classes(data_class)` mit dieser Decke.
 `local_only` am Cloud-Ziel wirft `data_class_block`, bevor gelesen wird.
@@ -425,7 +430,8 @@ voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, verfolgt in Issue
 | `ollama` | `local_only` | alle drei |
 | `ollama` | `cloud_redacted` | `cloud_redacted`, `cloud_ok` |
 | `ollama` | `cloud_ok` | `cloud_ok` |
-| `claude`, `claude_code`, `grok` | `cloud_redacted` oder `cloud_ok` | nur `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_redacted` | `cloud_redacted`, `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_ok` | nur `cloud_ok` |
 | `claude`, `claude_code`, `grok` | `local_only` | Fehler `data_class_block` |
 | `codex` | jede gueltige Klasse | leeres Tupel, kein Datenbankzugriff |
 
@@ -469,7 +475,9 @@ Zuerst das Profil, dann der Verlauf, dann die Fakten. Ein Verlaufseintrag, der
 nicht passt, beendet den Verlauf; aeltere Eintraege fallen mit. Geprueft wird
 ein Geheimnis im Text, dann nur fuer Cloud-Ziele und jede Klasse ausser
 `local_only` das Sperr-Praedikat erneut (`non_local_texts_blocked`, Blockliste;
-fehlende oder unlesbare Konfiguration sperrt, auch auf `deck_ui`), dann das Budget. Fakten werden danach einzeln weitergeprueft: ein zu
+fehlende oder unlesbare Konfiguration sperrt, auch auf `deck_ui`), dann bei
+`cloud_redacted` an einem Cloud-Ziel die auftragsfreie Ersetzung (schlaegt sie
+fehl, faellt die Zeile), dann das Budget. Fakten werden danach einzeln weitergeprueft: ein zu
 grosser, ein gesperrter oder ein Geheimnis-Fakt faellt, ein spaeterer kleinerer
 kann bleiben. Verworfene Eintraege zaehlen in `dropped` und kommen nicht in
 `items`. Der Verlauf im Ergebnis steht chronologisch. `tokens` ist die Summe
@@ -537,11 +545,6 @@ Antwort nicht frei. Die Freigabe-Oberflaeche bleibt M2.
   M4/N3).
 - **M5, Slack Socket Mode.** Kein Socket und kein Slack-Adapter. Der Vertrag
   dafuer und der Rueckweg stehen nur in ADR 0010.
-- **`cloud_redacted` an Cloud-Ziele (Issue #76).** Der Lader liefert an `claude`,
-  `claude_code` und `grok` im Stand M1 nur `cloud_ok`. Das ist eine
-  voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, weil die Redaktion an
-  einem Auftrag haengt. Issue #76 baut eine auftragsfreie Redaktion; bis dahin
-  bleibt der Code bei `cloud_ok`.
 
 ## Nachtrag Review-Runde 3
 

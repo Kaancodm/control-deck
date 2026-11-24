@@ -144,9 +144,12 @@ def test_target_classes_and_codex_gets_nothing() -> None:
     assert target_classes("codex") == ()
     assert set(target_classes("ollama")) == {"local_only", "cloud_redacted", "cloud_ok"}
     for target in ("claude", "claude_code", "grok"):
-        # cloud_redacted is excluded: redaction is task-bound and not applicable here.
-        assert target_classes(target) == ("cloud_ok",)
-        assert context_classes(target=target, data_class="cloud_redacted") == ("cloud_ok",)
+        assert target_classes(target) == ("cloud_redacted", "cloud_ok")
+        assert context_classes(target=target, data_class="cloud_redacted") == (
+            "cloud_redacted",
+            "cloud_ok",
+        )
+        assert context_classes(target=target, data_class="cloud_ok") == ("cloud_ok",)
         with pytest.raises(ConversationError, match="data_class_block"):
             context_classes(target=target, data_class="local_only")
     assert context_classes(target="ollama", data_class="cloud_ok") == ("cloud_ok",)

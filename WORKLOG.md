@@ -121,6 +121,18 @@ PR #103, Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` prueft di
 Check: `make lint` Exit 0 (ruff, 480 formatiert, mypy 167, check_rules). `pytest` gegen `controldeck_test`: 3752 passed, 143 skipped, 1 Starlette-Warnung, 248.77s.
 Offen: drei Reviews und das Merge-GO. Kein Merge. Risiko: #78 muss die Quellpruefung beim Leeren eines freigegebenen Faktums mitrechnen.
 
+## 2026-11-24 23:58 — Cursor — Auftragsfreie Redaktion #76
+
+Branch `cursor/order-free-redaction-60ba` ab `main` `52c690c`. Cloud-Ziele erhalten `cloud_redacted` nur mit Platzhalter je Aufruf. `privacy_hold`, Geheimnisse und fehlende Blockliste bleiben draussen. Dialogpfad unveraendert auf `ollama`.
+Check: `make lint` Exit 0. `make test` mit Testdatenbank `controldeck_test`: 3893 passed, 5 skipped, 1 Starlette-Warnung, 292.63s.
+Offen: Entwurf gegen main, kein Merge. Map wird nicht gespeichert. Risiko: Doku in `docs/KANAELE.md` und ADR 0010, Aenderungen dort klein.
+
+## 2026-11-25 00:02 — Cursor — Entwurf #104
+
+Draft-PR https://github.com/Kaancodm/control-deck/pull/104 gegen main. Branch `cursor/order-free-redaction-60ba`, Commit `847691c`. Kein Merge.
+Check: gitleaks 8.30.1 auf `origin/main..847691c`, keine Funde.
+Offen: CI. Empfehlung: Map je Aufruf lassen, Dialog auf `ollama` lassen.
+
 ## 2026-11-25 00:07 — Cursor — Issue #80 main eingeholt
 
 Merge-Commit von `origin/main` `52c690c` (#102) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Beide Staende in Koordination, Leaderboard und Worklog. Cursor bleibt gelb.

@@ -2,10 +2,32 @@
 
 ## Unveröffentlicht
 
-Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
-Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
+Kein Versionstag im Repository (kein `v1.0`). Die folgenden Eintraege liegen auf `main`,
+soweit ein PR genannt und gemergt ist. Gesamt-Abnahme, Inbetriebnahme und Owner-GO fuer
+Runtime-Rollouts bleiben offen.
 
-### Wissens-DB: echtes Embedding und Runtime-Profil (Draft)
+### Weitblick Stufe 2 und Haertung (#98, #99)
+
+- Stufe 2 (#98, Merge 24.11.2026 13:44 CET, `979b89b`): Hindsight-Spiegel nur fuer Bank
+  `weitblick` (Modus chunks), gemeinsamer Pipeline-Pfad fuer CLI und Nachtlauf, S-K80-
+  und Vertragspruefer, `SERVERPRUEFUNG.md`. JSONL bleibt massgebend.
+- Haertung (#99, Merge 24.11.2026 20:32 CET, `75318c9`): einheitliche Exit-Codes
+  (S-K80 `offen` = 4, Exit 3 nur Auth 401/403), Rollback verdeckt Auth nicht,
+  Reservierung nach Abbruch beim naechsten Start zurueck, Token-Formatpruefung ohne
+  Ausgabe des Tokens.
+
+### Weitblick Stufe 1 (#96)
+
+- Offline-Skript in `weitblick/`: drei Markdown-Listen lesen, belegte Fragen als JSONL
+  und kurze Markdown-Ansicht in einem getrennten Ausgabeordner. Kein Modell, kein
+  Netzwerk im Skript, keine Zusatzpakete. Genau zehn Felder, drei Arten.
+
+### Ollama-HTTP: gemeinsamer begrenzter JSON-Body-Reader (#97)
+
+- Gemeinsame Hilfsfunktion zum Lesen und Parsen begrenzter JSON-Antworten in
+  `OllamaHTTPClient`. Verhalten und getrennte Groessengrenzen unveraendert.
+
+### Wissens-DB: echtes Embedding und Runtime-Profil (#83)
 
 - Embedding-Spec als einzige Quelle: Schema-Breite 1024, Fake `deck-fake-embedding-v2` mit
   1024 Dimensionen bleibt Standard; `deck-fake-embedding-v1` (8) bleibt historisch in `kb_0001`.
@@ -23,7 +45,7 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
   KB-Migrationsschritt in `docs/OPERATIONS.md`, `/api/embed`-Quellenvertrag in `docs/LANES.md`,
   ADR 0011. Keine neue Abhängigkeit. Nicht ausgerollt; Aktivierung nur mit Owner-GO.
 
-### UI-Angleichung an das Command-Center-Mockup (PR 1, Draft)
+### UI-Angleichung an das Command-Center-Mockup (#73)
 
 - Neue Shell: Seitenleiste ab 861 Pixeln, darunter fixe Leiste mit fünf Zielen und «Menü»
   für den Rest; Anmeldeseite ohne Navigation. Token-Namen bleiben, Werte folgen der
@@ -66,7 +88,7 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - Tests für Redirects, CSP-Pin, kein Inline-Code, Viewport, Kontrast, keine erfundenen
   Zahlen, keine Konfigurationswerte im HTML, Übersicht gegen PostgreSQL, Chromium-Shell
   bei 320/390/1024 Pixeln und optionale WebKit-Vorschau.
-### Einheits-Chat M0/M1 (Draft)
+### Einheits-Chat M0/M1 (#75)
 
 - Vertrag `channel_turn.v1` und Migration `20261110_0064`: Kanäle, Nachrichten in
   Quarantäne, Owner-Freigabe und taskfreie Audit-Zeilen. `events.task_id` und
@@ -115,7 +137,7 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
   Import-Parser (M4), Slack Socket Mode (M5). Beschreibung in
   [KANAELE.md](docs/KANAELE.md) und [ADR 0010](docs/DECISIONS/0010-kanaele-und-gedaechtnis.md).
 
-### Ollama Live-Adapter – Entscheid (#39, Draft)
+### Ollama Live-Adapter – Entscheid (#39)
 
 - ADR 0009 ersetzt für die lokale Live-Lane den CLI-Transport durch begrenztes
   Loopback-HTTP: nur `http`, die Literale `127.0.0.1` oder `::1` und ein expliziter
@@ -126,7 +148,7 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - Folgestack #40 ff., nicht Teil dieses Eintrags: Migration 0018 mit Provenienz- und
   Live-Zählern, Runner-Flags, Text-Streaming, Canary und Referenzmodus.
 
-### Ollama Live-Adapter – Provenienz (#40, Draft)
+### Ollama Live-Adapter – Provenienz (#40)
 
 - Migration 0018 trennt Executor-Provenienz und Live-Erfolgszähler von Simulation
   und nicht attestierten Remote-Ergebnissen. Die v1-Schemas bleiben unverändert.
@@ -142,7 +164,7 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
 - Folgestack #41 ff., nicht Teil dieses Eintrags: Runner-Flags, Loopback-HTTP-Transport,
   Live-Executor, Daemon-Überwachung, Canary und Referenzmodus.
 
-### Ollama Live-Adapter – Executor (#44, Draft)
+### Ollama Live-Adapter – Executor (#44)
 
 - Das Kontextbudget folgt `num_ctx` aus `/api/show`, mit Fallback `4096` bei
   unbrauchbaren Angaben. Die Token-Schätzung verwendet aufgerundete UTF-8-Bytes

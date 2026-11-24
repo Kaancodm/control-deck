@@ -90,3 +90,11 @@ Kein Merge, PR bleibt Draft.
 
 README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
 sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.
+
+## 2026-11-24 22:59 — Builder — Steuerdateien auf Stand von main
+
+PR #98 gemergt 24.11.2026 13:44 CET (`979b89b`, mergedAt 2026-11-24T12:44:16Z, mergedBy Kaancodm). Quelle: `gh pr view 98`.
+PR #99 gemergt 24.11.2026 20:32 CET (`75318c9`, mergedAt 2026-11-24T19:32:53Z, mergedBy Kaancodm). Quelle: `gh pr view 99`.
+CLAUDE.md, COORDINATION.md, LEADERBOARD.md, WORKLOG.md, README.md, CHANGELOG.md und `docs/ETAPPEN/README.md` nachgefuehrt. Kein Produktcode, kein Merge.
+Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 85.72s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Etappe 18 Abnahme und Tag v1.0, Weitblick-Serverpruefung, Egress-Proxy, Ollama-Modelle.

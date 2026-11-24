@@ -14,11 +14,10 @@ Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
    Unterschied: Option 2 darf Modelle entfernen, em laesst den Bestand.
    Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
 
-3. Weitblick Stufe 2 zur Serverpruefung freigeben
-   em: Branch veroeffentlichen, Draft-PR, Atik prueft laut `weitblick/SERVERPRUEFUNG.md`.
-   Option 2: Branch lokal lassen, bis F4 (Fundstellen-Pfade in der Bank) entschieden ist.
-   Unterschied: em startet S-K80 und Vertragspruefung jetzt, Option 2 wartet auf F4.
-   Quelle: Auftrag Kaan 24.11.2026, lokaler Branch `feat/weitblick-stufe2`, nicht gepusht.
+3. Weitblick Stufe 2 (#98 und #99) ist gemergt
+   PR #98 (Stufe 2) ist seit 24.11.2026 13:44 CET auf main (`979b89b`, mergedBy Kaancodm).
+   PR #99 (Haertung) ist seit 24.11.2026 20:32 CET auf main (`75318c9`, mergedBy Kaancodm).
+   Quelle: `gh pr view 98` und `gh pr view 99`. Kein offener Entscheid mehr zu diesem Punkt.
 
 # CLAUDE.md
 

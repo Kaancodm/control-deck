@@ -154,5 +154,5 @@ Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: kein
 ## 2026-11-25 00:39 — Cursor — Issue #78 Basis nachgezogen
 
 Merge-Commit von `origin/cursor/80-korrektur-leeren-0407` `f39b0d0` in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. `clear_fact_bounds` unveraendert. `source_rejected` bleibt ein UI-Code und schreibt nichts. `persist` gibt die Deck-Antwort nicht frei.
-Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3780 passed, 140 skipped, 1 Starlette-Warnung, 264.06s.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3780 passed, 140 skipped, 1 Starlette-Warnung, 264.06s. gitleaks 8.30.0 auf `origin/cursor/80-korrektur-leeren-0407..HEAD` mit `-m`: 4 Commits, keine Funde.
 Offen: Entwurf, quality nach dem Push, drei Reviews. Kein Merge. Risiko: Freigabe nur ueber `/ui/memory`.

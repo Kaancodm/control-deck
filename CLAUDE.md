@@ -2,17 +2,11 @@
 
 Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
 
-1. Egress-Proxy (E2) starten
-   em: Aus lassen.
-   Option 2: Start freigeben.
-   Unterschied: Option 2 startet den Proxy, em laesst ihn aus.
-   Quelle: Owner 11.11.2026, Angabe, unproven (bis 18.11.2026 in `COORDINATION.md`).
+Nichts offen.
 
-2. Ollama-Modelle aufraeumen
-   em: Nichts loeschen.
-   Option 2: Aufraeumen freigeben.
-   Unterschied: Option 2 darf Modelle entfernen, em laesst den Bestand.
-   Quelle: Owner 11.11.2026, Angabe, unproven (bis 18.11.2026 in `COORDINATION.md`).
+Entschieden am 24.11.2026 mit `alle em`: Egress-Proxy bleibt aus. Ollama-Bestand bleibt.
+Weitblick-Schritte 1 bis 4 bleiben die lesende Pruefung und wurden hier nicht ausgefuehrt.
+Schritt 5 und S-K80 bleiben ohne Ja. Steuerdateien und Entwurf #95: siehe `COORDINATION.md`.
 
 # CLAUDE.md
 

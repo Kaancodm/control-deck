@@ -68,3 +68,38 @@ Entwurf #95, Commit `736499c`. Neu: `TEAM.md` (Status ENTWURF), `.github/CODEOWN
 Start auf direkten Owner-Auftrag vom 18.11.2026, ohne Start-Check bei Atik. Kollisions-Blick: einziger offener PR war #56, andere Datei.
 Check: `make lint` und `make test`, je Exit 0. 2844 passed, 1082 skipped, 1 warning, 106.22s.
 Offen: GO fuer den Entwurf, 16 Fragen in `TEAM.md` Abschnitt 12, Egress-Proxy, Ollama-Modelle. Risiko: bis zum GO steht der bisherige Rollenstand nur auf `main`.
+
+## 2026-11-24 10:58 — Claude Opus 5.5 — Weitblick Stufe 2 (lokal)
+
+Branch `feat/weitblick-stufe2`, nicht committet (keine Git-Identitaet), nicht gepusht. Nur `weitblick/`, GO-Punkt 3 in `CLAUDE.md`.
+Neu: Hindsight-Spiegel (Bank weitblick, Modus chunks), Nachtlauf, S-K80- und Vertragspruefer, `SERVERPRUEFUNG.md`.
+Check: `python3 -m unittest discover -s weitblick/tests -v`: Ran 60 tests, OK, 0 failed, 0 skipped. `scripts/check_rules.py` Exit 0.
+Offen: F2, F5, S-K80 und T5 nur auf dem Server; T8-Restore braucht GO; Ruff lokal nicht verfuegbar.
+
+## 2026-11-24 12:00 — Builder — Weitblick Stufe 2 Review-Fix (PR #98)
+
+Branch `feat/weitblick-stufe2`. Retain-Feld `mode` entfernt, F2 gegen
+Hindsight v1.2.1 dokumentiert, T4 und Vertrag angepasst, SERVERPRUEFUNG und
+S-K80 um Chunk-Pfad ergaenzt. PR auf Draft gestellt. Kein Merge.
+Offen: F2/F5/S-K80 auf dem Server; Schritt 5 der Serverpruefung braucht Kaans Ja.
+
+## 2026-11-24 12:50 — Builder — Weitblick Stufe 2 Nachzug (PR #98, Draft)
+
+Chunk-Pruefpunkt als offen ausgewiesen. Aufgegebene Eintraege nach 3 Versuchen
+mit Zaehlung, Exit ungleich 0 und Meldung. Kein Merge, PR bleibt Draft.
+
+## 2026-11-24 13:17 — Builder — Weitblick Stufe 2 Nachzug (PR #98, Draft)
+
+401/403 als Konfigurationsfehler (Exit 3), kein Versuch, Budget-Rollback.
+Kein Merge, PR bleibt Draft.
+
+## 2026-11-24 13:23 — Builder — Weitblick Stufe 2 Haertung (PR #98, Draft)
+
+README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
+sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.
+
+## 2026-11-24 22:50 — Grok Bot — Phase Entwurf #95 auf main
+
+`origin/main` (`75318c9`) per Merge in `claude/wonderful-cori-d21yd2`. Kein Umschreiben der Historie. Konflikt nur in `WORKLOG.md`, beide Eintraege behalten. Entwurf bleibt Entwurf. 16 Fragen in `TEAM.md` Abschnitt 12 bleiben offen.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. pytest: 2843 passed, 1082 skipped, 1 failed (`uv` nicht im PATH). Wiederholung dieses Tests mit PATH: 1 passed, 1.33s.
+Offen: die 16 Fragen. Risiko: die Steuerdateien auf `main` werden parallel nachgezogen.

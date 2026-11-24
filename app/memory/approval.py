@@ -650,41 +650,75 @@ def correct_fact(
         shown_sha256_hex,
     )
     if checked == "approved":
-        source = session.scalar(
-            select(AssistantMessage)
-            .where(AssistantMessage.id == fact.source_message_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if source is None or source.state == "rejected":
-            raise ConversationError("source_rejected")
+        _require_live_fact_source(session, fact)
+    return _store_fact_correction(
+        session,
+        fact,
+        previous=previous,
+        decision=checked,
+        shown=shown,
+        approver_ref=approver_ref,
+        status=status,
+        evidence=evidence,
+        valid_to=new_valid_to,
+        superseded_by=new_successor,
+    )
+
+
+def _require_live_fact_source(session: Session, fact: MemoryFact) -> None:
+    """An approved fact correction needs a source message that is not rejected."""
+    source = session.scalar(
+        select(AssistantMessage)
+        .where(AssistantMessage.id == fact.source_message_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if source is None or source.state == "rejected":
+        raise ConversationError("source_rejected")
+
+
+def _store_fact_correction(
+    session: Session,
+    fact: MemoryFact,
+    *,
+    previous: uuid.UUID,
+    decision: Decision,
+    shown: str,
+    approver_ref: str,
+    status: str,
+    evidence: str,
+    valid_to: datetime | None,
+    superseded_by: uuid.UUID | None,
+    clear_flags: tuple[bool, bool] | None = None,
+) -> MemoryFact:
+    """Append one fact correction and point the fact at it. Does not commit."""
     approval = _approval(
         session,
         kind="fact",
         target_id=fact.id,
-        decision=checked,
+        decision=decision,
         shown=shown,
         approver_ref=approver_ref,
         corrects=previous,
     )
     fact.approval_id = approval.id
     fact.status, fact.evidence_status = status, evidence
-    fact.valid_to = new_valid_to
-    fact.superseded_by = new_successor
+    fact.valid_to = valid_to
+    fact.superseded_by = superseded_by
     session.flush()
-    _audit(
-        "fact_corrected",
-        {
-            "fact_id": str(fact.id),
-            "approval_id": str(approval.id),
-            "corrects_approval_id": str(previous),
-            "decision": checked,
-            "shown_sha256": shown,
-            "evidence_status": fact.evidence_status,
-            "privacy_hold": fact.privacy_hold,
-        },
-        session,
-    )
+    detail: dict[str, object] = {
+        "fact_id": str(fact.id),
+        "approval_id": str(approval.id),
+        "corrects_approval_id": str(previous),
+        "decision": decision,
+        "shown_sha256": shown,
+        "evidence_status": fact.evidence_status,
+        "privacy_hold": fact.privacy_hold,
+    }
+    if clear_flags is not None:
+        detail["cleared_valid_to"] = clear_flags[0]
+        detail["cleared_superseded_by"] = clear_flags[1]
+    _audit("fact_corrected", detail, session)
     return fact
 
 
@@ -726,6 +760,15 @@ def clear_fact_bounds(
     or unknown owner session is ``owner_session_required``. A missing or
     different hash is ``shown_bytes_mismatch``. Neither writes a row.
 
+    While the stored decision stays ``approved``, the source message is locked
+    the same way as :func:`correct_fact`. A missing or rejected source is
+    ``source_rejected`` and writes nothing. A fact that stays ``rejected``
+    does not re-check the source.
+
+    Does not commit. The caller rolls back the transaction when this call
+    raises, and after a successful call if the caller abandons it. A rollback
+    removes the flushed approval row and restores the fact columns.
+
     Audit event ``memory.fact_corrected`` carries ``cleared_valid_to`` and
     ``cleared_superseded_by`` as booleans, plus the correction ids. No fact text.
     """
@@ -757,35 +800,21 @@ def clear_fact_bounds(
         ),
         shown_sha256_hex,
     )
-    approval = _approval(
+    if decision == "approved":
+        _require_live_fact_source(session, fact)
+    return _store_fact_correction(
         session,
-        kind="fact",
-        target_id=fact.id,
+        fact,
+        previous=previous,
         decision=decision,
         shown=shown,
         approver_ref=approver_ref,
-        corrects=previous,
+        status=fact.status,
+        evidence=fact.evidence_status,
+        valid_to=new_valid_to,
+        superseded_by=new_successor,
+        clear_flags=(clear_valid_to, clear_superseded_by),
     )
-    fact.approval_id = approval.id
-    fact.valid_to = new_valid_to
-    fact.superseded_by = new_successor
-    session.flush()
-    _audit(
-        "fact_corrected",
-        {
-            "fact_id": str(fact.id),
-            "approval_id": str(approval.id),
-            "corrects_approval_id": str(previous),
-            "decision": decision,
-            "shown_sha256": shown,
-            "evidence_status": fact.evidence_status,
-            "privacy_hold": fact.privacy_hold,
-            "cleared_valid_to": clear_valid_to,
-            "cleared_superseded_by": clear_superseded_by,
-        },
-        session,
-    )
-    return fact
 
 
 def _clean_title(title: str) -> str:

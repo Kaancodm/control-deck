@@ -1,0 +1,297 @@
+"""Deck memory inbox: approval, a separate clear, and the conversation audit reader."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+from html.parser import HTMLParser
+
+import pytest
+from argon2 import PasswordHasher
+from fastapi.testclient import TestClient
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.api.app import create_app
+from app.api.deps import get_db
+from app.assistant.records import AssistantTurn
+from app.memory.approval import (
+    correct_fact,
+    decide_fact,
+    decide_message,
+    fact_shown_bytes,
+    message_shown_bytes,
+    propose_fact,
+    shown_sha256,
+)
+from app.memory.ingest import ingest_turn
+from app.memory.models import AssistantMessage, MemoryApproval, MemoryFact
+from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
+
+PASSWORD = "synthetic-ui-owner-password"
+SENTENCE = "Synthetic quarantine sentence about the blue kettle."
+
+
+class Inputs(HTMLParser):
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.inputs: dict[str, str] = {}
+        self.feed(html)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if tag == "input" and values.get("name"):
+            self.inputs[str(values["name"])] = values.get("value") or ""
+
+
+class Forms(HTMLParser):
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.forms: list[dict[str, object]] = []
+        self._form: dict[str, object] | None = None
+        self._button: list[str] | None = None
+        self.feed(html)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if tag == "form":
+            self._form = {"action": values.get("action") or "", "inputs": {}, "button": ""}
+        elif self._form is not None and tag == "input" and values.get("name"):
+            inputs = self._form["inputs"]
+            assert isinstance(inputs, dict)
+            inputs[str(values["name"])] = values.get("value") or ""
+        elif self._form is not None and tag == "button":
+            self._button = []
+
+    def handle_data(self, data: str) -> None:
+        if self._button is not None:
+            self._button.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "button" and self._form is not None and self._button is not None:
+            self._form["button"] = "".join(self._button).strip()
+            self._button = None
+        elif tag == "form" and self._form is not None:
+            self.forms.append(self._form)
+            self._form = None
+
+
+@pytest.fixture
+def ui_client(db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path, password_hash: str):
+    monkeypatch.setenv("DECK_OWNER_PASSWORD_HASH", password_hash)
+    monkeypatch.setenv("DECK_UI_COOKIE_SECURE", "false")
+    monkeypatch.setenv("DECK_INBOX_DIR", str(tmp_path / "inbox"))
+    app = create_app()
+
+    def database():
+        try:
+            yield db_session
+            db_session.commit()
+        except Exception:
+            db_session.rollback()
+            raise
+
+    app.dependency_overrides[get_db] = database
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def password_hash() -> str:
+    return PasswordHasher().hash(PASSWORD)
+
+
+def login(client: TestClient) -> str:
+    page = client.get("/ui/login")
+    assert page.status_code == 200
+    csrf = Inputs(page.text).inputs["csrf"]
+    response = client.post(
+        "/ui/login", data={"csrf": csrf, "password": PASSWORD}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    return client.cookies[CSRF_COOKIE]
+
+
+def _turn(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "schema_version": "channel_turn.v1",
+        "channel": "deck_ui",
+        "account": "owner",
+        "external_thread_id": "ui-memory-1",
+        "external_message_id": f"m-{uuid.uuid4().hex}",
+        "role": "owner",
+        "text": SENTENCE,
+        "occurred_at": "2026-11-10T08:00:00Z",
+        "data_class": "local_only",
+        "ingest_method": "deck_ui",
+        "source_ref": {"ref": "deck_ui:ui-memory-1"},
+    }
+    base.update(overrides)
+    return base
+
+
+def _click(forms: Forms, *, button: str, target: str) -> dict[str, str]:
+    for form in forms.forms:
+        inputs = form["inputs"]
+        assert isinstance(inputs, dict)
+        if form["button"] == button and inputs.get("target") == target:
+            return {str(key): str(value) for key, value in inputs.items()}
+    raise AssertionError(button)
+
+
+def test_quarantine_shows_full_text_chips_and_the_approval_hash(
+    ui_client: TestClient, db_session: Session
+) -> None:
+    login(ui_client)
+    outcome = ingest_turn(db_session, _turn())
+    db_session.flush()
+    message = db_session.get(AssistantMessage, outcome.message_id)
+    assert message is not None
+    expected = shown_sha256(message_shown_bytes(message, decision="approved", mark_proven=False))
+    page = ui_client.get("/ui/memory")
+    assert page.status_code == 200
+    assert SENTENCE in page.text
+    assert "Kanal" in page.text and "deck_ui" in page.text
+    assert "Konto" in page.text and "owner" in page.text
+    assert "Methode" in page.text and "Herkunft" in page.text and "Nachweis" in page.text
+    assert expected in page.text
+    assert '<option value="cloud_ok">' in page.text
+    posted = _click(Forms(page.text), button="Freigeben", target=str(message.id))
+    approved = ui_client.post("/ui/memory/act", data=posted, follow_redirects=False)
+    assert approved.status_code == 303
+    db_session.expire_all()
+    stored = db_session.get(AssistantMessage, message.id)
+    assert stored is not None and stored.state == "approved"
+    again = ui_client.get("/ui/memory")
+    assert SENTENCE not in again.text.split('id="quarantaene"', 1)[-1].split('id="fakten"', 1)[0]
+
+
+def test_wrong_shown_hash_writes_no_approval(ui_client: TestClient, db_session: Session) -> None:
+    login(ui_client)
+    outcome = ingest_turn(db_session, _turn())
+    db_session.flush()
+    page = ui_client.get("/ui/memory")
+    posted = _click(Forms(page.text), button="Freigeben", target=str(outcome.message_id))
+    posted["shown_sha256"] = "ab" * 32
+    before = db_session.scalar(select(func.count()).select_from(MemoryApproval))
+    rejected = ui_client.post("/ui/memory/act", data=posted)
+    assert rejected.status_code == 422
+    assert "shown_bytes_mismatch" in rejected.text
+    db_session.expire_all()
+    stored = db_session.get(AssistantMessage, outcome.message_id)
+    assert stored is not None and stored.state == "quarantined"
+    assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == before
+
+
+def test_clear_and_decision_change_are_two_corrections(
+    ui_client: TestClient, db_session: Session
+) -> None:
+    login(ui_client)
+    token = ui_client.cookies[SESSION_COOKIE]
+    outcome = ingest_turn(db_session, _turn())
+    assert outcome.message_id is not None
+    message = db_session.get(AssistantMessage, outcome.message_id)
+    assert message is not None
+    decide_message(
+        db_session,
+        message.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(message_shown_bytes(message, decision="approved")),
+    )
+    fact = propose_fact(
+        db_session,
+        source_message_id=message.id,
+        original_sentence="The kettle is blue.",
+        subject="kettle",
+        predicate="is",
+        object_="blue",
+    )
+    decide_fact(
+        db_session,
+        fact.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
+    )
+    moment = datetime(2026, 1, 2, tzinfo=UTC)
+    correct_fact(
+        db_session,
+        fact.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(
+            fact_shown_bytes(
+                fact,
+                decision="approved",
+                corrects=fact.approval_id,
+                valid_to=moment,
+            )
+        ),
+        valid_to=moment,
+    )
+    db_session.flush()
+    before = db_session.scalar(select(func.count()).select_from(MemoryApproval))
+    page = ui_client.get("/ui/memory")
+    cleared = ui_client.post(
+        "/ui/memory/act",
+        data=_click(Forms(page.text), button="valid_to leeren", target=str(fact.id)),
+        follow_redirects=False,
+    )
+    assert cleared.status_code == 303
+    db_session.expire_all()
+    stored = db_session.get(MemoryFact, fact.id)
+    assert stored is not None
+    assert stored.valid_to is None and stored.status == "approved"
+    after_clear = db_session.scalar(select(func.count()).select_from(MemoryApproval))
+    assert after_clear == before + 1
+    page = ui_client.get("/ui/memory")
+    changed = ui_client.post(
+        "/ui/memory/act",
+        data=_click(Forms(page.text), button="Auf abgelehnt korrigieren", target=str(fact.id)),
+        follow_redirects=False,
+    )
+    assert changed.status_code == 303
+    db_session.expire_all()
+    stored = db_session.get(MemoryFact, fact.id)
+    assert stored is not None and stored.status == "rejected" and stored.valid_to is None
+    assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == after_clear + 1
+
+
+def test_persist_approves_owner_line_and_deck_reply(
+    ui_client: TestClient, db_session: Session
+) -> None:
+    login(ui_client)
+    page = ui_client.get("/ui/assistant")
+    csrf = Inputs(page.text).inputs["csrf"]
+    saved = ui_client.post(
+        "/ui/assistant/talk",
+        data={
+            "csrf": csrf,
+            "message": "Wie geht es dir heute Morgen",
+            "data_class": "local_only",
+            "persist": "yes",
+        },
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+    assert "Gespeichert, vom Owner gewählt" in saved.text
+    assert db_session.scalar(select(func.count()).select_from(AssistantTurn)) == 1
+    rows = list(db_session.scalars(select(AssistantMessage)))
+    assert {row.role for row in rows} == {"owner", "assistant"}
+    assert {row.state for row in rows} == {"approved"}
+
+
+def test_conversation_audit_is_separate_from_all(
+    ui_client: TestClient, db_session: Session
+) -> None:
+    login(ui_client)
+    ingest_turn(db_session, _turn())
+    db_session.flush()
+    conversation = ui_client.get("/ui/audit?source=conversation")
+    assert conversation.status_code == 200
+    assert "assistant.turn_accepted" in conversation.text
+    assert SENTENCE not in conversation.text
+    everything = ui_client.get("/ui/audit")
+    assert "assistant.turn_accepted" not in everything.text
+    assert "Gespräch" in everything.text

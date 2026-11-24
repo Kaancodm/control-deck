@@ -47,6 +47,10 @@ from app.assistant.status import CHANNEL_GAPS, heartbeat_is_current, project_ord
 from app.db.models import Event, Task
 from app.db.session import get_background_session_factory
 from app.db.state_machine import TaskState
+from app.memory.deck_persist import persist_owner_exchange
+from app.memory.policy import ConversationError
+from app.ui.auth import SESSION_COOKIE
+from app.ui.memory_labels import hold_text
 from app.ui.overview import assistant_facts, feature_flags
 from app.ui.routes import ParsedForm, csrf, owner
 from app.ui.views import page, preview_context, preview_redirect
@@ -143,6 +147,7 @@ def talk(request: Request, session: DbSession, data: ParsedForm) -> Response:
                 profile_notes=notes,
                 history=history,
                 persist=persist,
+                session_token=request.cookies.get(SESSION_COOKIE) if persist else None,
             )
             return JSONResponse(
                 {"turn_id": turn_id, "stream_url": f"/ui/assistant/talk/{turn_id}/stream"},
@@ -155,10 +160,28 @@ def talk(request: Request, session: DbSession, data: ParsedForm) -> Response:
             history=history,
         )
         if persist:
-            store_turn(session, reply, owner_text=message.strip())
+            cleaned = message.strip()
+            store_turn(session, reply, owner_text=cleaned)
+            hold = persist_owner_exchange(
+                session,
+                session_token=request.cookies.get(SESSION_COOKIE) or "",
+                owner_text=cleaned,
+                reply_text=reply.answer,
+                data_class=data_class,
+            )
+            label = hold_text(hold)
+            if label:
+                return preview_redirect(
+                    request,
+                    "/ui/assistant",
+                    notice=f"Gespeichert und freigegeben. {label} bleibt auf der Zeile.",
+                )
             return RedirectResponse("/ui/assistant", status_code=303)
     except AssistantError as exc:
         return _fail(request, session, exc)
+    except ConversationError as exc:
+        session.rollback()
+        return _page(request, session, status=422, error=exc.code)
     return preview_redirect(request, "/ui/assistant", reply=reply)
 
 

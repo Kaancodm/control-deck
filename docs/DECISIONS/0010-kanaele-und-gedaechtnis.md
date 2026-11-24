@@ -308,15 +308,17 @@ Ketten (A -> B, spaeter B -> C) bleiben moeglich. Wird ein Nachfolger widerrufen
 Faktum ausgeblendet, bis der Owner ein neues Faktum freigibt. `thread_id` einer
 angehaengten Nachricht bleibt nach dem Loesen einer Verknuepfung bestehen.
 
-- Der Live-Dialog ist in diesem Stand **nicht** umverdrahtet (`app/assistant/http.py`
-  bleibt unveraendert). `load_memory_context` ist vorhanden und getestet und traegt
+- Der Live-Dialog liest weiter die letzten Saetze aus `assistant_turns`.
+  `load_memory_context` ist vorhanden und getestet und traegt
   `evidence_status`, damit ein Aufrufer `unbewiesen` beschriften kann. **M1b**
   (Issue #77, nach dem Merge des UI-PR, vor G2) haengt den Dialog an den
   Themen-Thread. Bis dahin gilt «Dialog nutzt Thread» nicht als erledigt. **M2**
-  (Issue #78) liefert die Oberflaeche: Quarantaene-Inbox, Freigabe- und
+  (Issue #78) ist die Oberflaeche `/ui/memory`: Quarantaene-Inbox, Freigabe- und
   Korrektur-Klicks, Anzeige von `privacy_hold`, Labels fuer die Grundcodes und
-  einen Leser fuer taskfreie `assistant.*`- und `memory.*`-Zeilen. Deck-Antworten
-  bleiben bis zu diesem M2-Entscheid in Quarantaene.
+  ein Leser fuer taskfreie `assistant.*`- und `memory.*`-Zeilen (Audit-Quelle
+  `conversation`). Das Kaestchen `persist` speichert den Satz und gibt
+  Owner-Zeile und Deck-Antwort frei. Der Dialog haengt dadurch noch nicht am
+  Themen-Thread. Leeren und Entscheidwechsel bleiben zwei Korrekturen.
 - `cloud_redacted` geht im Stand M1 noch nicht an Cloud-Ziele. Das ist eine
   voruebergehende Abweichung von 7.3 und Plan 3.5, verfolgt in Issue #76
   (auftragsfreie Redaktion). Der Code bleibt bis dahin bei `cloud_ok`.

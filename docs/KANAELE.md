@@ -498,27 +498,26 @@ ausserhalb `local_only` setzt `privacy_hold` wie `ingest_turn` auf `deck_ui`; di
 Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
 `blocklist_unavailable`). `privacy_held` im Bericht und im Audit zaehlt markierte neue Zeilen.
 
+## M2, Oberflaeche
+
+`/ui/memory` zeigt die Quarantaene mit Volltext, Herkunfts-Chips und der
+Markierung `privacy_hold`. Freigabe und Korrektur laufen ueber `approval.py`
+mit UI-Session und sha256 der gezeigten Bytes. Leeren von `valid_to` oder
+`superseded_by` ist `clear_fact_bounds`, ein Entscheidwechsel bleibt
+`correct_fact`: zwei Klicks, zwei Hashes. Das Kaestchen `persist` speichert
+den Satz und gibt Owner-Zeile und Deck-Antwort frei, ohne zweiten Klick.
+Der Plan-Code `unknown_source` erscheint als `unknown_account`,
+`account_inactive` oder `invalid_envelope`. Die Quelle `conversation` im
+Audit liest taskfreie `assistant.*`- und `memory.*`-Zeilen. `all` blendet
+sie weiter aus. Der Verlauf sortiert nach `seq`, nicht nach `occurred_at`.
+
 ## Nicht in diesem Stand
 
 - **M1b, offen (Issue #77).** «Dialog nutzt Thread» ist nicht erledigt. Der Live-Dialog
   liest weiter die letzten Saetze aus `assistant_turns`. M1b haengt den Dialog
-  an den Themen-Thread, nach dem Merge des UI-PR und vor G2.
-  `app/assistant/http.py` bleibt in M1 unveraendert und ruft weder
-  `ingest_turn` noch `load_memory_context`.
-- **M2, Oberflaeche (Issue #78).** Keine Quarantaene-Inbox, keine Freigabe- und
-  keine Korrektur-Klicks. M2 zeigt `privacy_hold` (`privacy_block`,
-  `blocklist_unavailable`) bei der Freigabe an.
-  Deck-Antworten bleiben `quarantined`, bis M2 entscheidet, ob `persist` sie
-  mit abdeckt oder ein zweiter Klick gilt. Der Plan-Code `unknown_source`
-  erscheint in der UI als `unknown_account`, `account_inactive` oder
-  `invalid_envelope`. Weitere M1-Codes fuer dieselben Labels:
-  `thread_class_block`, `duplicate_body_mismatch`,
-  `secret_rejected`, `data_class_block`, `invalid_method`,
-  `reply_path_required`, `reply_channel`, `reply_target_rejected`,
-  `invalid_reply`, `source_rejected`, `not_decided`, `no_change`,
-  `already_corrected`, `link_conflict`. Die Audit-Auswahl blendet taskfreie
-  Zeilen aus; M2 braucht einen Leser fuer `assistant.*` und `memory.*`.
-  Der Verlauf sortiert nach `seq`, nicht nach `occurred_at`.
+  an den Themen-Thread, nach dem Merge des UI-PR und vor G2. `persist` schreibt
+  den Satz zusaetzlich ins Gedaechtnis und gibt ihn frei. `load_memory_context`
+  speist den Dialog noch nicht.
 - **M3, Adapter n8n und Kanal `grok`.** Kein Eingang, kein HMAC, kein Versand.
 - **M4, Import-Parser.** `import_file` ist ein Wert im Umschlag. Es gibt keinen
   Parser, der eine Exportdatei in `channel_turn.v1` schreibt. Konten legt der

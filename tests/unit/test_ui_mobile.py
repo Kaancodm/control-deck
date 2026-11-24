@@ -115,6 +115,7 @@ def test_shell_navigation_matrix_one_logout_and_a_menu() -> None:
         "/ui/overview?open=meldungen#meldungen",
         "/ui/overview#offen",
         "/ui/chat",
+        "/ui/memory",
         "/ui/audit",
     ]
     assert regions.links["tabbar"] == [
@@ -129,6 +130,7 @@ def test_shell_navigation_matrix_one_logout_and_a_menu() -> None:
         "/ui/tasks/new",
         "/ui/knowledge",
         "/ui/chat",
+        "/ui/memory",
         "/ui/audit",
     ]
     assert not set(regions.links["menu-nav"]) & set(regions.links["tabbar"])
@@ -165,6 +167,7 @@ def test_shell_navigation_matrix_one_logout_and_a_menu() -> None:
         ("/ui/assistant", "assistant"),
         ("/ui/assistant/orders/x", "assistant"),
         ("/ui/chat", "chat"),
+        ("/ui/memory", "memory"),
         ("/ui/audit", "audit"),
         ("/ui/audit.csv", ""),
         ("/ui/login", ""),

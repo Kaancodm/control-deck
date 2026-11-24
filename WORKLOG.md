@@ -96,3 +96,9 @@ sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.
 Branch `cursor/m1b-dialog-thread-f58e`. Dialog schreibt `ingest_turn` und `record_deck_reply`. Prompt aus `load_memory_context` (Ziel `ollama`). Quarantaene bleibt draussen, `num_ctx` 4096.
 Check: `make lint` Exit 0. `make test` mit Testdatenbank `controldeck_test`: 3754 passed, 143 skipped, 1 Starlette-Warnung, 266.00s.
 Offen: Entwurf, kein Merge. `persist` gibt die Antwort nicht frei (Frage zu #78 F5). Risiko: Konflikt mit #78 an der Dialog-UI, mit #76 an Lader und Doku.
+
+## 2026-11-24 23:36 — Cursor — M1b Entwurf #102
+
+Draft-PR https://github.com/Kaancodm/control-deck/pull/102 gegen main. Branch `cursor/m1b-dialog-thread-f58e`, Commit `0b8dbf3`. Kein Merge.
+Check: gitleaks 8.30.1 auf `75318c9..0b8dbf3`, keine Funde. CI beim Oeffnen noch laufend.
+Offen: fuenf Fragen im PR, darunter #78 F5. Risiko: #78 Dialog-UI, #76 Lader und Doku, #80 `approval.py` (hier unberuehrt).

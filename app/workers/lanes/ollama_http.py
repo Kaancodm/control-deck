@@ -87,6 +87,14 @@ def _json(data: bytes) -> dict[str, object]:
         raise OllamaHTTPError("internal") from None
 
 
+def _read_json_body(response: http.client.HTTPResponse, limit: int) -> dict[str, object]:
+    """Read one whole JSON object body; one byte past ``limit`` already fails."""
+    data = response.read(limit + 1)
+    if len(data) > limit:
+        raise OllamaHTTPError("internal")
+    return _json(data)
+
+
 def _count(value: object) -> int | None:
     if value is None:
         return None
@@ -424,10 +432,7 @@ class OllamaHTTPClient:
         def consume(
             response: http.client.HTTPResponse, progress: Callable[[], None]
         ) -> dict[str, object]:
-            data = response.read(self.max_metadata_bytes + 1)
-            if len(data) > self.max_metadata_bytes:
-                raise OllamaHTTPError("internal")
-            return _json(data)
+            return _read_json_body(response, self.max_metadata_bytes)
 
         return self._request(
             "GET" if body is None else "POST",
@@ -486,10 +491,7 @@ class OllamaHTTPClient:
         def consume(
             response: http.client.HTTPResponse, progress: Callable[[], None]
         ) -> dict[str, object]:
-            data = response.read(EMBED_MAX_RESPONSE_BYTES + 1)
-            if len(data) > EMBED_MAX_RESPONSE_BYTES:
-                raise OllamaHTTPError("internal")
-            return _json(data)
+            return _read_json_body(response, EMBED_MAX_RESPONSE_BYTES)
 
         return self._request(
             "POST",

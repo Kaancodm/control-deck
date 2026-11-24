@@ -11,11 +11,15 @@ Keine Werte ausgeben: URL, Token, Hostnamen und Adressen erscheinen weder im
 Terminal-Protokoll noch im Bericht. Fehlermeldungen von `curl` werden deshalb
 verworfen; berichtet werden nur Exit-Codes, Statuscodes und Zaehler.
 
+Owner-Entscheid 24.11.2026, em: Schritte 1 bis 4 sind die freigegebene lesende
+Pruefung. Dieser Lauf fuehrt sie nicht aus. Schritt 5 und Schritt 6 bleiben
+ohne Ja. Der Code steht auf `main` (`979b89b`, #98, und `75318c9`, #99).
+
 ## Voraussetzungen
 
-- Der Stand von `feat/weitblick-stufe2` liegt auf dem Server in einem eigenen
-  Arbeitsordner. Er muss vorher von einer berechtigten Person veroeffentlicht
-  worden sein; dieser Lauf hat nichts gepusht.
+- Auf dem Server liegt `main` ab `979b89b` (#98), einschliesslich `75318c9`
+  (#99), in einem eigenen Arbeitsordner. Der alte Hinweis auf einen
+  unveroeffentlichten Branch `feat/weitblick-stufe2` gilt nicht mehr.
 - Python 3.12 oder neuer. Keine Pakete noetig.
 - In der Shell sind `WEITBLICK_HINDSIGHT_URL` und `WEITBLICK_HINDSIGHT_TOKEN`
   aus der vorhandenen privaten Quelle gesetzt, ohne sie anzuzeigen.

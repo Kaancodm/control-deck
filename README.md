@@ -6,10 +6,10 @@ Lokale Steuerzentrale für KI-gestützte Aufgaben — ohne bezahlte APIs zur Lau
 Dieses Repository enthält API, PostgreSQL-Queue, Übergabe-Schemas (`task.v1`, `result.v1`),
 Abnahme, Datenschranke und lokale Pseudonymisierung.
 
-**Status:** Etappe 11 ergänzt eine themebare Owner-Oberfläche mit Passwort-Login,
-Freigaben, Reviews, sicheren Dateien und lokalem Chat mit unverbindlichen Entwürfen.
-Host-Runner und Chat-Tests sind simuliert; echte Anbieteraufrufe bleiben aus.
+**Status:** Der Code der Etappen 1 bis 17 und Weitblick Stufe 1 und 2 liegen auf `main`.
+Live-Lanes, das Runtime-Embedding und die Abnahme 1.0 bleiben aus.
 Bedienung: [docs/UI.md](docs/UI.md). Arbeitsstand: [docs/STAND.md](docs/STAND.md).
+Etappenliste: [docs/ETAPPEN/README.md](docs/ETAPPEN/README.md).
 
 ## Zweck
 

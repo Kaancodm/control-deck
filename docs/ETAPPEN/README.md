@@ -1,6 +1,9 @@
 # Etappen-Spezifikationen (Control Deck)
 
-Stand: 03.11.2026. Vorab-Spezifikationen fuer Builder-Agents (Cursor), damit die aufwaendigen
+Stand der Liste: 03.11.2026. Statusspalte nachgezogen am 24.11.2026 gegen `main` `75318c9`
+(Methode: Migrationen `0007` bis `20261110_0064` und `app/db/state_machine.py` auf diesem
+Commit; historische PR-Nummern der Etappen 4 bis 17 nicht neu gegen GitHub geprueft).
+Vorab-Spezifikationen fuer Builder-Agents (Cursor), damit die aufwaendigen
 Etappen ohne Rueckfragen gebaut werden koennen. Quelle der Etappenliste ist **Plan v1.1**
 (Drive-Dokument "VON: Claude | Control Deck Plan v1.1 Architektur und 18 Etappen | 2026-11-03").
 Die Architektur v0 ist veraltet und wird nicht verwendet.
@@ -24,21 +27,21 @@ der aktuelle Rollenstand. Der aktuelle Ablauf steht oben und in `AGENTS.md`.
 | 1 | Grundgeruest, Schema v1, Validator | gemergt (PR #1, #3) | Codex | – |
 | 2 | Referenz-Testset-Runner | gemergt (PR #2) | Claude | – |
 | 3 | DB-Schema, Migrationen, Zustandsautomat, Events | gemergt (PR #4) | Codex | – |
-| 4 | API: create, get, list, cancel, approve, dry-run, health | **PR #5 offen** | Claude | – |
-| 5 | Datenschranke: Scanner, Blockliste, Anhang-Extraktion | offen | Codex | Vertrag unten |
-| 6 | Pseudonymisierung und Rueckabbildung | offen | Claude | [06](06-pseudonymisierung.md) |
-| 7 | Router, Regeln, Tagesbudget, Dry-run | offen | Codex | Vertrag unten |
-| 8 | Runner-Rahmen: Lease, Heartbeat, Sweep, Not-Aus, runs/-Ablage | offen | Claude | Vertrag unten |
-| 9 | Lane Ollama und erster E2E | offen | Codex | [09](09-ollama-lane-e2e.md) |
-| 10 | Fehlerpfad: Retry, Backoff, Fallback, Dead-Letter, Abbruch | umgesetzt, externes Review offen | extern, Owner bestimmt | [10-fehlerpfade.md](10-fehlerpfade.md) |
-| 11 | Themebare Oberflaeche und lokaler Chat | umgesetzt, externes Review offen | extern, Owner bestimmt | [11](11-ui.md) |
-| 12 | Reinraum-Image und Lane Claude | offen | Claude | [12](12-reinraum-lane-claude.md) |
-| 13 | Lane Codex | offen | Codex | [13](13-lane-codex.md) |
-| 14 | Wissens-DB-Anbindung | offen | Claude | [14](14-wissens-db-anbindung.md) |
-| 15 | Login, Tailnet-Bindung, Haertung | offen | Codex | [15](15-login-tailnet-haertung.md) |
-| 16 | Betrieb: systemd, Backup, Aufbewahrung, Restore-Probe | offen | Claude | [16](16-betrieb.md) |
-| 17 | Audit-Ansicht, Worker-Gesundheit, Login-Ablauf-Warnung | offen | Codex | [17](17-audit-worker-gesundheit.md) |
-| 18 | Abnahme-Lauf 1.0, SECURITY-Checkliste, Tag v1.0 | offen | Claude | [18](18-abnahme-1-0.md) |
+| 4 | API: create, get, list, cancel, approve, dry-run, health | Code auf main. Live aus. | Claude | – |
+| 5 | Datenschranke: Scanner, Blockliste, Anhang-Extraktion | Code auf main. Live aus. | Codex | Vertrag unten |
+| 6 | Pseudonymisierung und Rueckabbildung | Code auf main. Live aus. | Claude | [06](06-pseudonymisierung.md) |
+| 7 | Router, Regeln, Tagesbudget, Dry-run | Code auf main. Live aus. | Codex | Vertrag unten |
+| 8 | Runner-Rahmen: Lease, Heartbeat, Sweep, Not-Aus, runs/-Ablage | Code auf main. Live aus. | Claude | Vertrag unten |
+| 9 | Lane Ollama und erster E2E | Code auf main. Live aus. | Codex | [09](09-ollama-lane-e2e.md) |
+| 10 | Fehlerpfad: Retry, Backoff, Fallback, Dead-Letter, Abbruch | Code auf main. Live aus. | extern, Owner bestimmt | [10-fehlerpfade.md](10-fehlerpfade.md) |
+| 11 | Themebare Oberflaeche und lokaler Chat | Code auf main. Live aus. | extern, Owner bestimmt | [11](11-ui.md) |
+| 12 | Reinraum-Image und Lane Claude | Code auf main. Live-Executor fehlt (ADR 0012). | Claude | [12](12-reinraum-lane-claude.md) |
+| 13 | Lane Codex | Code auf main. Live aus. | Codex | [13](13-lane-codex.md) |
+| 14 | Wissens-DB-Anbindung | Code auf main. Runtime-Embedding aus. | Claude | [14](14-wissens-db-anbindung.md) |
+| 15 | Login, Tailnet-Bindung, Haertung | Code auf main. Live aus. | Codex | [15](15-login-tailnet-haertung.md) |
+| 16 | Betrieb: systemd, Backup, Aufbewahrung, Restore-Probe | Code auf main. Live aus. | Claude | [16](16-betrieb.md) |
+| 17 | Audit-Ansicht, Worker-Gesundheit, Login-Ablauf-Warnung | Code auf main. Live aus. | Codex | [17](17-audit-worker-gesundheit.md) |
+| 18 | Abnahme-Lauf 1.0, SECURITY-Checkliste, Tag v1.0 | offen. Entwurf `docs/ABNAHME_CHECKLISTE_ENTWURF.md`. Kein Tag. | Claude | [18](18-abnahme-1-0.md) |
 | 19, 20 | optional: Lane Cursor, n8n-Webhook, Lane Grok | nicht geplant | – | – |
 
 Die Specs 06, 09 und 11 sind detailliert. Die Specs 12 bis 18 sind kompakter und aus Plan v1.1
@@ -51,7 +54,7 @@ ihr implementierter Fehlervertrag ersetzt abweichende historische Entwurfsangabe
 
 | Begriff | Festlegung |
 |---------|------------|
-| Zustaende | `awaiting_approval`, `queued`, `blocked`, `leased`, `running`, `review`, `done`, `failed`, `cancelled`, `expired` (Plan v1.1 plus `awaiting_approval`; Owner-Entscheid). Code auf `main` kennt noch `succeeded` statt `done` und weder `review` noch `expired` (VB-3). |
+| Zustaende | `awaiting_approval`, `queued`, `blocked`, `leased`, `running`, `review`, `done`, `failed`, `cancelled`, `expired` (Plan v1.1 plus `awaiting_approval`; Owner-Entscheid). Code auf `main` kennt `review`, `done` und `expired`. `succeeded` bleibt fuer historische Zeilen (`app/db/state_machine.py`, geprueft 24.11.2026). |
 | Datenklassen | `local_only` (nur Lane ollama), `cloud_redacted` (Cloud nach Pseudonymisierung), `cloud_ok` (Cloud roh). Pflichtfeld ohne Default (ADR 0005). |
 | Lanes | `ollama`, `claude`, `codex` (`Worker`-Enum in `app/core/schemas.py`). |
 | Tabellen | `tasks`, `results` (Plan nennt sie `runs`), `events`, `leases`; neu `redaction_maps` (Etappe 6), `settings` (Etappe 8), `lane_status` (Etappe 9), `kb_documents`, `kb_chunks` (Etappe 14). |
@@ -166,7 +169,7 @@ Empfehlung zuerst. Ohne Entscheid baut der Builder die Empfehlung.
 | Thema | Code oder Doku | Plan v1.1 | Umgang |
 |-------|----------------|-----------|--------|
 | Ergebnis-Tabelle | `results` | `runs` | Codename `results` behalten, Plan-Begriff in Doku erwaehnen |
-| Zustandsnamen | `succeeded`; kein `review`, `expired` | `review`, `done`, `expired` | VB-3 Nachzug |
+| Zustandsnamen | `review`, `done`, `expired`; `succeeded` nur historisch | `review`, `done`, `expired` | VB-3 im Code erledigt (24.11.2026) |
 | `data_class`-Default | `docs/DATENBANK.md` nennt DB-Default `local_only` | Pflicht ohne Default (ADR 0005) | PR #5 Migration `0003` pruefen (VB-4) |
 | CI-Umfang | CI faehrt Postgres und Integrationstests | nur Lint, Unit, Schema | CI so lassen; E2E mit Ollama nur `make test-server` |
 | `ARCHITECTURE.md` | Zustandstabelle mit `review`, `done`, `expired` | identisch | nach VB-3 stimmt Doku mit Code |

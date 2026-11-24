@@ -2,23 +2,11 @@
 
 Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
 
-1. Egress-Proxy (E2) starten
-   em: Aus lassen.
-   Option 2: Start freigeben.
-   Unterschied: Option 2 startet den Proxy, em laesst ihn aus.
-   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+Nichts offen.
 
-2. Ollama-Modelle aufraeumen
-   em: Nichts loeschen.
-   Option 2: Aufraeumen freigeben.
-   Unterschied: Option 2 darf Modelle entfernen, em laesst den Bestand.
-   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
-
-3. Weitblick Stufe 2 zur Serverpruefung freigeben
-   em: Branch veroeffentlichen, Draft-PR, Atik prueft laut `weitblick/SERVERPRUEFUNG.md`.
-   Option 2: Branch lokal lassen, bis F4 (Fundstellen-Pfade in der Bank) entschieden ist.
-   Unterschied: em startet S-K80 und Vertragspruefung jetzt, Option 2 wartet auf F4.
-   Quelle: Auftrag Kaan 24.11.2026, lokaler Branch `feat/weitblick-stufe2`, nicht gepusht.
+Entschieden am 24.11.2026 mit `alle em`: Egress-Proxy bleibt aus. Ollama-Bestand bleibt.
+Weitblick-Schritte 1 bis 4 bleiben die lesende Pruefung und wurden hier nicht ausgefuehrt.
+Schritt 5 und S-K80 bleiben ohne Ja. Steuerdateien und Entwurf #95: siehe `COORDINATION.md`.
 
 # CLAUDE.md
 

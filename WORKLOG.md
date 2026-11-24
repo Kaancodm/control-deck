@@ -138,3 +138,9 @@ Offen: CI. Empfehlung: Map je Aufruf lassen, Dialog auf `ollama` lassen.
 Merge-Commit von `origin/main` `52c690c` (#102) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Beide Staende in Koordination, Leaderboard und Worklog. Cursor bleibt gelb.
 Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3761 passed, 143 skipped, 1 Starlette-Warnung, 249.49s.
 Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.
+
+## 2026-11-25 00:21 — Cursor — Issue #80 main #104 eingeholt
+
+Merge-Commit von `origin/main` `e771dc4` (#104) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Stand von #102 und #104 aus main, Stand von #103 bleibt. Cursor bleibt gelb.
+Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3762 passed, 143 skipped, 1 Starlette-Warnung, 251.43s.
+Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.

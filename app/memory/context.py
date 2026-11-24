@@ -2,13 +2,14 @@
 
 Order of operations:
 1. target filter: codex gets nothing (no read at all); ollama may get every class;
-   claude, claude_code and grok get only ``cloud_ok``. ``cloud_redacted`` is excluded
-   for cloud targets because ``app/redaction`` is bound to a task and its
-   ``redaction_maps``; conversation memory has no task, so no redaction applies here.
+   claude, claude_code and grok get ``cloud_ok`` and ``cloud_redacted``.
+   ``cloud_redacted`` lines are redacted in this call before they are returned.
+   The placeholder map lives only for that call and is not part of the result.
 2. class filter via ``allowed_classes`` in SQL, BEFORE any ranking or text handling.
 3. only ``approved`` rows; quarantined, proposed and rejected rows never appear.
    For cloud targets, rows with a ``privacy_hold`` (and facts whose source message
-   has one) are excluded in SQL as well, even after approval. ``ollama`` gets them.
+   has one) are excluded in SQL as well, even after approval, and are never
+   redacted into a cloud prompt. ``ollama`` gets them.
 4. budget: profile, then thread history (newest kept, oldest dropped first), then
    facts (exact-thread first, then simple keyword hits). Same token estimate as
    ``compose_dialogue_messages``. No embeddings. ``num_ctx`` is not changed here.
@@ -18,7 +19,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from sqlalchemy import ColumnElement, func, or_, select
@@ -30,7 +31,9 @@ from app.kb.contracts import allowed_classes
 from app.memory.ingest import contains_secret
 from app.memory.models import AssistantMessage, AssistantThread, MemoryFact
 from app.memory.policy import CLOUD_TARGETS, TARGETS, ConversationError
+from app.privacy.config import PrivacyConfigurationError, get_privacy_settings
 from app.privacy.gate import non_local_texts_blocked
+from app.redaction.engine import RedactionBlockedError, RedactionError, redact
 
 # Mirrors the dialogue defaults (num_ctx 4096, num_predict 400, template reserve 64);
 # half of the remaining room is left for the system rules and the current message.
@@ -69,7 +72,7 @@ def target_classes(target: str) -> tuple[str, ...]:
     if target == "ollama":
         return tuple(item.value for item in DataClass)
     if target in CLOUD_TARGETS:
-        return (DataClass.CLOUD_OK.value,)
+        return (DataClass.CLOUD_REDACTED.value, DataClass.CLOUD_OK.value)
     raise ConversationError("unknown_target")
 
 
@@ -105,6 +108,29 @@ def _fact_text(fact: MemoryFact) -> str:
         object_=fact.object,
         sentence=fact.original_sentence,
     )
+
+
+def _redact_cloud_text(text: str, *, namespace: uuid.UUID, mapping: dict[str, str]) -> str | None:
+    """Replace supported findings on one ``cloud_redacted`` line.
+
+    ``namespace`` scopes placeholders for this call. It is not a task id.
+    ``mapping`` keeps repeats stable inside the call and is never returned.
+    ``None`` means the line stays off the cloud target: a secret, an unsupported
+    finding, a residual hit, or a missing blocklist.
+    """
+    try:
+        settings = get_privacy_settings()
+    except PrivacyConfigurationError:
+        return None
+    if not settings.blocklist_configured:
+        return None
+    try:
+        outcome = redact(text, task_id=namespace, existing=mapping, blocklist=settings.blocklist)
+    except (RedactionBlockedError, RedactionError):
+        return None
+    mapping.clear()
+    mapping.update(outcome.mapping)
+    return outcome.text
 
 
 def load_memory_context(
@@ -210,34 +236,54 @@ def load_memory_context(
 
     used = 0
     dropped = 0
+    # Per-call placeholder scope. Not a task, not stored, not returned.
+    namespace = uuid.uuid4()
+    local_map: dict[str, str] = {}
 
-    def fits(item: MemoryItem) -> bool:
+    def prepare(item: MemoryItem) -> MemoryItem | None:
+        if contains_secret(item.text):
+            return None
+        if target != "ollama" and non_local_texts_blocked(item.data_class, (item.text,)):
+            return None
+        if not cloud or item.data_class != DataClass.CLOUD_REDACTED.value:
+            return item
+        redacted = _redact_cloud_text(item.text, namespace=namespace, mapping=local_map)
+        if redacted is None:
+            return None
+        if redacted == item.text:
+            return item
+        return replace(item, text=redacted)
+
+    def fits(item: MemoryItem) -> MemoryItem | None:
         nonlocal used, dropped
-        if contains_secret(item.text) or (
-            target != "ollama" and non_local_texts_blocked(item.data_class, (item.text,))
-        ):
+        prepared = prepare(item)
+        if prepared is None:
             dropped += 1
-            return False
-        cost = estimate_dialogue_tokens(item.text)
+            return None
+        cost = estimate_dialogue_tokens(prepared.text)
         if used + cost > budget_tokens:
             dropped += 1
-            return False
+            return None
         used += cost
-        return True
+        return prepared
 
-    if profile is not None and fits(profile):
-        candidates.append(profile)
+    if profile is not None:
+        prepared_profile = fits(profile)
+        if prepared_profile is not None:
+            candidates.append(prepared_profile)
     kept_history: list[MemoryItem] = []
     for index, item in enumerate(history):
-        if not fits(item):
+        prepared_item = fits(item)
+        if prepared_item is None:
             # Everything older than the first item that no longer fits is dropped too.
             dropped += len(history) - index - 1
             break
-        kept_history.append(item)
+        kept_history.append(prepared_item)
     candidates.extend(reversed(kept_history))  # chronological order
     for item in facts:
-        if fits(item):
-            candidates.append(item)
+        prepared_fact = fits(item)
+        if prepared_fact is not None:
+            candidates.append(prepared_fact)
     return MemoryContext(
         target=target, classes=classes, items=tuple(candidates), dropped=dropped, tokens=used
     )

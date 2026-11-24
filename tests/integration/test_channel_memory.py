@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 import threading
 import uuid
@@ -867,6 +868,112 @@ def test_budget_drops_oldest_history_first(db_session: Session) -> None:
     )
     assert [item.text for item in context.items] == lines[2:]
     assert context.dropped == 2
+
+
+def test_cloud_redacted_context_is_redacted_for_cloud_targets(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Issue #76: supported hits leave as placeholders; secrets and holds do not."""
+    phone = "+41 " + "99 000 00 00"
+    term = "plotcode"
+    _blocklist(tmp_path, monkeypatch, term)
+    token = _owner_session(db_session)
+    held = "See /home/" + "synthetic/file.txt about heldplot and " + phone
+    thread, ids = _thread_with_messages(
+        db_session,
+        token,
+        external="redact-cloud",
+        thread_class="cloud_redacted",
+        rows=[
+            ("cloud_redacted", f"Reach the plot at {phone} today."),
+            ("cloud_redacted", held),
+            ("cloud_redacted", f"Same plot line {phone} later."),
+            ("cloud_redacted", f"The bed uses {term} only."),
+            ("cloud_ok", "Hose stays coiled."),
+        ],
+    )
+    for message_id in ids:
+        _approve_message(db_session, token, message_id)
+    held_row = db_session.get(AssistantMessage, ids[1])
+    assert held_row is not None and held_row.privacy_hold == "privacy_block"
+    fact_id = uuid.uuid4()
+    approval_id = uuid.uuid4()
+    db_session.add(
+        MemoryApproval(
+            id=approval_id,
+            kind="fact",
+            target_id=fact_id,
+            decision="approved",
+            shown_sha256="ab" * 32,
+            approver_ref="cd" * 32,
+        )
+    )
+    db_session.flush()
+    source = db_session.get(AssistantMessage, ids[0])
+    assert source is not None
+    db_session.add(
+        MemoryFact(
+            id=fact_id,
+            original_sentence=f"The spare token is {SECRET}.",
+            subject="plot",
+            predicate="holds",
+            object="token",
+            source_message_id=source.id,
+            data_class="cloud_redacted",
+            status="approved",
+            source_date=source.source_date,
+            source_channel=source.source_channel,
+            source_account=source.source_account,
+            source_ref=source.source_ref,
+            method=source.method,
+            evidence_status="unbewiesen",
+            approval_id=approval_id,
+        )
+    )
+    db_session.flush()
+
+    phone_token = re.compile(r"\[\[CD_[0-9a-f]{32}_PHONE_[1-9][0-9]*\]\]")
+    term_token = re.compile(r"\[\[CD_[0-9a-f]{32}_TERM_[1-9][0-9]*\]\]")
+    for target in ("claude", "claude_code", "grok"):
+        cloud = load_memory_context(
+            db_session,
+            thread_id=thread.id,
+            target=target,
+            data_class="cloud_redacted",
+        )
+        texts = [item.text for item in cloud.items]
+        joined = "\n".join(texts)
+        phones = phone_token.findall(joined)
+        terms = term_token.findall(joined)
+        assert cloud.classes == ("cloud_redacted", "cloud_ok")
+        assert phones and phones[0] == phones[-1] and len(phones) == 2
+        assert len(terms) == 1 and phones[0].split("_")[1] == terms[0].split("_")[1]
+        assert phone not in joined and term not in joined
+        assert "heldplot" not in joined and "synthetic/file.txt" not in joined
+        assert SECRET not in joined and "channeltrap" not in joined
+        assert texts[-1] == "Hose stays coiled."
+        assert cloud.dropped == 1
+        assert "mapping" not in cloud.__dataclass_fields__
+
+    local = load_memory_context(
+        db_session,
+        thread_id=thread.id,
+        target="ollama",
+        data_class="cloud_redacted",
+    )
+    local_text = "\n".join(item.text for item in local.items)
+    assert phone in local_text and term in local_text and "heldplot" in local_text
+    assert SECRET not in local_text
+
+    monkeypatch.delenv("DECK_BLOCKLIST_PATH", raising=False)
+    blocked = load_memory_context(
+        db_session,
+        thread_id=thread.id,
+        target="claude",
+        data_class="cloud_redacted",
+    )
+    assert blocked.items == ()
+    assert blocked.dropped >= 1
 
 
 def _finish(threads: list[threading.Thread]) -> None:

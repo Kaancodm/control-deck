@@ -28,7 +28,8 @@ Regeln: siehe `AGENTS.md`.
 | Ollama-HTTP aufräumen | Cursor Cloud Agent | `stage/cleanup-ollama-http` | #90 | erledigt (gemergt, 190a507, mergedAt 2026-11-11T22:13:38Z) | 12.11.2026 |
 | Regeln angleichen | Cursor Cloud Agent | `cursor/align-agent-rules-10a1` | #92 | erledigt (gemergt, a105245, mergedAt 2026-11-12T22:51:01Z, mergedBy Kaancodm) | 12.11.2026 |
 | GO-Liste nach Merge #92 | Cursor Cloud Agent | `cursor/clear-merged-go-10a1` | #93 | erledigt (gemergt, a123d40, mergedAt 2026-11-12T23:16:19Z, mergedBy Kaancodm) | 13.11.2026 |
-| M1b Dialog-Thread #77 | Cursor Cloud Agent | `cursor/m1b-dialog-thread-f58e` | #102 | Entwurf, kein Merge | 24.11.2026 |
+| M1b Dialog-Thread #77 | Cursor Cloud Agent | `cursor/m1b-dialog-thread-f58e` | #102 | erledigt (gemergt, 52c690c) | 24.11.2026 |
+| Auftragsfreie Redaktion #76 | Cursor Cloud Agent | `cursor/order-free-redaction-60ba` | #104 | Entwurf gegen main, kein Merge | 25.11.2026 |
 
 ## deck-server
 

@@ -75,3 +75,8 @@ Branch `feat/weitblick-stufe2`. Retain-Feld `mode` entfernt, F2 gegen
 Hindsight v1.2.1 dokumentiert, T4 und Vertrag angepasst, SERVERPRUEFUNG und
 S-K80 um Chunk-Pfad ergaenzt. PR auf Draft gestellt. Kein Merge.
 Offen: F2/F5/S-K80 auf dem Server; Schritt 5 der Serverpruefung braucht Kaans Ja.
+
+## 2026-11-24 12:50 — Builder — Weitblick Stufe 2 Nachzug (PR #98, Draft)
+
+Chunk-Pruefpunkt als offen ausgewiesen. Aufgegebene Eintraege nach 3 Versuchen
+mit Zaehlung, Exit ungleich 0 und Meldung. Kein Merge, PR bleibt Draft.

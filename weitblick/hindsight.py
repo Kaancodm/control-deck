@@ -42,7 +42,7 @@ RETAIN_TOP_FIELDS = ("items", "async")
 RETAIN_TOP_OPTIONAL_FIELDS = ("document_tags", "operation_id")
 RETAIN_ALLOWED_TOP_FIELDS = frozenset(RETAIN_TOP_FIELDS + RETAIN_TOP_OPTIONAL_FIELDS)
 RETAIN_ITEM_FIELDS = ("content", "document_id", "metadata", "context")
-# First send plus this many further attempts for fehlgeschlagen/unklar.
+# Hoechstens so viele Sendeversuche je Eintrag, inklusive des ersten.
 MAX_ATTEMPTS = 3
 
 ENV_ENABLED = "WEITBLICK_HINDSIGHT_ENABLED"
@@ -57,6 +57,7 @@ OFF_VALUES = {"", "0", "false", "nein", "no", "off"}
 CONFIRMED = "bestaetigt"
 FAILED = "fehlgeschlagen"
 UNCLEAR = "unklar"
+ABANDONED = "aufgegeben"
 
 # Fields released for the bank. `fundstelle[].datei` holds a private absolute
 # path and is never sent (F4 open: until Atik decides, paths stay local).
@@ -344,8 +345,8 @@ class HindsightWriter:
     Retry rule: entries recorded as `fehlgeschlagen` or `unklar` are sent again
     on the next run with the same document ID, up to MAX_ATTEMPTS times in
     total. Confirmed entries are never resent. The reserved budget slot stays
-    occupied after the limit. The JSONL file is neither read for writing nor
-    changed here.
+    occupied after the limit and counted as aufgegeben. The JSONL file is
+    neither read for writing nor changed here.
     """
 
     def __init__(self, output, client):
@@ -354,7 +355,7 @@ class HindsightWriter:
             raise ValueError("Output symlinks are forbidden")
         self.client = client
         self.bank = PRODUCTION_BANK
-        self.last_result = {CONFIRMED: 0, FAILED: 0, UNCLEAR: 0, "bereits": 0}
+        self.last_result = {CONFIRMED: 0, FAILED: 0, UNCLEAR: 0, "bereits": 0, ABANDONED: 0}
 
     def _load_status(self, directory):
         text = read_text(directory, STATUS_NAME)
@@ -402,7 +403,7 @@ class HindsightWriter:
     def write(self, entries):
         for entry in entries:
             validate(entry)
-        result = {CONFIRMED: 0, FAILED: 0, UNCLEAR: 0, "bereits": 0}
+        result = {CONFIRMED: 0, FAILED: 0, UNCLEAR: 0, "bereits": 0, ABANDONED: 0}
         self.last_result = result
         with locked_output(self.output) as directory:
             status = self._load_status(directory)
@@ -437,4 +438,11 @@ class HindsightWriter:
                 }
                 self._save_status(directory, status)
                 result[outcome] += 1
+            result[ABANDONED] = sum(
+                1
+                for key, value in status.items()
+                if key in by_id
+                and value["status"] != CONFIRMED
+                and int(value.get("versuche", 1)) >= MAX_ATTEMPTS
+            )
         return result[CONFIRMED]

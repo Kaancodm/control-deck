@@ -104,7 +104,7 @@ def run_sk80(client, bank_a, bank_b, tag=None):
     x_id, x_text, x_marker = synthetic(tag, "X")
     y_id, y_text, _ = synthetic(tag, "Y")
     steps = []
-    report = {"sk80": OPEN, "t5": OPEN, "schritte": steps}
+    report = {"sk80": OPEN, "t5": OPEN, "chunk": OPEN, "schritte": steps}
 
     def stop(note):
         steps.append(note)
@@ -137,14 +137,14 @@ def run_sk80(client, bank_a, bank_b, tag=None):
     verdicts = []
 
     # Unscoped path GET /v1/default/chunks/{chunk_id} (http.py:7561).
-    # The id encodes the bank; a forged id with bank A must not return X.
+    # A forged id is simply unknown in v1.2.1 and yields 404; that does not
+    # prove bank separation. The checkpoint stays offen unless X leaks.
     real_chunk = build_chunk_id(bank_b, x_id, 0)
     forged_chunk = build_chunk_id(bank_a, x_id, 0)
     response, error = _call("Lesen Chunk X aus B", client.get_chunk, real_chunk)
     chunk_known = False
     if error:
         steps.append(error + "; Chunk-Pfad bleibt offen")
-        verdicts.append(OPEN)
     elif 200 <= response.status < 300:
         body = response.body.decode("utf-8", "replace")
         if x_marker in body or x_text in body:
@@ -155,23 +155,27 @@ def run_sk80(client, bank_a, bank_b, tag=None):
                 f"Lesen Chunk X aus B: HTTP {response.status}, "
                 "Form unbekannt; Chunk-Pfad bleibt offen"
             )
-            verdicts.append(OPEN)
     else:
         steps.append(
             f"Lesen Chunk X aus B: HTTP {response.status}, "
             "nicht nachgewiesen; Chunk-Pfad bleibt offen"
         )
-        verdicts.append(OPEN)
 
     if chunk_known:
         response, error = _call("Lesen Chunk X unter Bank A", client.get_chunk, forged_chunk)
         if error:
-            verdicts.append(OPEN)
-            steps.append(error)
+            steps.append(error + "; Chunk-Pfad bleibt offen")
         else:
             verdict, note = _refusal("Lesen Chunk X unter Bank A", response, markers)
-            verdicts.append(verdict)
-            steps.append(note)
+            if verdict == FAILED:
+                report["chunk"] = FAILED
+                verdicts.append(FAILED)
+                steps.append(note)
+            else:
+                steps.append(
+                    f"Lesen Chunk X unter Bank A: HTTP {response.status}, "
+                    "unbekannte Chunk-ID belegt keine Trennung; Chunk-Pfad bleibt offen"
+                )
 
     for step, function in (
         ("Lesen X aus A", client.get_document),

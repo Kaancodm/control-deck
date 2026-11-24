@@ -4,8 +4,10 @@ from datetime import date
 
 from .core import generate, read_sources
 from .hindsight import (
+    ABANDONED,
     CONFIRMED,
     FAILED,
+    MAX_ATTEMPTS,
     PRODUCTION_BANK,
     UNCLEAR,
     HindsightClient,
@@ -39,7 +41,7 @@ class MirroredWriter:
         added = self.primary.write(entries)
         try:
             self.secondary.write(self.primary.read_stored())
-        except Exception:
+        except (OSError, ValueError, TypeError, KeyError):
             # JSONL is already fsynced. Do not leak exception details.
             self.mirror_result = None
             return added
@@ -81,12 +83,15 @@ def run(paths, output, environ, *, no_hindsight=False, today=None, transport=Non
     out(
         f"Hindsight (Bank {PRODUCTION_BANK}): {result[CONFIRMED]} bestaetigt, "
         f"{result[FAILED]} fehlgeschlagen, {result[UNCLEAR]} unklar, "
-        f"{result['bereits']} bereits bestaetigt."
+        f"{result['bereits']} bereits bestaetigt, "
+        f"{result[ABANDONED]} aufgegeben."
     )
-    if result[FAILED] or result[UNCLEAR]:
-        out(
-            "Weitblick: Hindsight-Spiegelung unvollstaendig. JSONL ist gesichert; "
-            "offene Eintraege werden im naechsten Lauf erneut gesendet."
-        )
+    if result[FAILED] or result[UNCLEAR] or result[ABANDONED]:
+        parts = ["Weitblick: Hindsight-Spiegelung unvollstaendig. JSONL ist gesichert."]
+        if result[FAILED] or result[UNCLEAR]:
+            parts.append("Offene Eintraege werden im naechsten Lauf erneut gesendet.")
+        if result[ABANDONED]:
+            parts.append(f"{result[ABANDONED]} Eintraege nach {MAX_ATTEMPTS} Versuchen aufgegeben.")
+        out(" ".join(parts))
         return EXIT_ERROR
     return EXIT_OK

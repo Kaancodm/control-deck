@@ -28,6 +28,7 @@ from weitblick import nachtlauf, sk80, vertrag
 from weitblick.__main__ import main as cli_main
 from weitblick.core import generate, read_sources
 from weitblick.hindsight import (
+    ABANDONED,
     CONFIRMED,
     FAILED,
     MAX_ATTEMPTS,
@@ -327,7 +328,10 @@ class WriterAndFlowTests(Stage2Base):
         self.assertIn("3 neue Fragen gespeichert.", text)
         code, text = self.run_pipeline()
         self.assertIn("0 neue Fragen gespeichert.", text)
-        self.assertIn("0 bestaetigt, 0 fehlgeschlagen, 0 unklar, 3 bereits bestaetigt", text)
+        self.assertIn(
+            "0 bestaetigt, 0 fehlgeschlagen, 0 unklar, 3 bereits bestaetigt, 0 aufgegeben",
+            text,
+        )
         self.assertEqual(code, 0)
 
     def test_t3_daily_limit_twenty_candidates(self):
@@ -383,8 +387,28 @@ class WriterAndFlowTests(Stage2Base):
             self.assertEqual(writer.write([entry]), 0)
         self.assertEqual(len(self.fake.retains()), MAX_ATTEMPTS)
         self.assertEqual(self.status()[entry["id"]]["versuche"], MAX_ATTEMPTS)
+        self.assertEqual(writer.last_result[ABANDONED], 1)
         self.assertEqual(writer.write([entry]), 0)
         self.assertEqual(len(self.fake.retains()), MAX_ATTEMPTS)
+        self.assertEqual(writer.last_result[ABANDONED], 1)
+        self.assertEqual(writer.last_result[UNCLEAR], 0)
+
+    def test_t3_abandoned_entries_fail_the_run(self):
+        from weitblick.pipeline import EXIT_ERROR
+
+        self.fake.down = urllib.error.URLError("refused")
+        for _ in range(MAX_ATTEMPTS):
+            code, text = self.run_pipeline()
+            self.assertEqual(code, EXIT_ERROR, text)
+        retains = len(self.fake.retains())
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_ERROR, text)
+        self.assertEqual(len(self.fake.retains()), retains)
+        self.assertIn("aufgegeben", text)
+        self.assertIn(f"nach {MAX_ATTEMPTS} Versuchen aufgegeben", text)
+        self.assertIn("JSONL ist gesichert", text)
+        self.assertNotIn("URLError", text)
+        self.assert_no_sensitive_output(text)
 
     def test_t4_only_retain_without_mode_field(self):
         self.run_pipeline()
@@ -538,7 +562,7 @@ class WriterAndFlowTests(Stage2Base):
 
         class Exploding(real_hw):
             def write(self, entries):
-                raise RuntimeError("unexpected secondary failure")
+                raise ValueError("unexpected secondary failure")
 
         with patch.object(pipeline_mod, "HindsightWriter", Exploding):
             code, text = self.run_pipeline()
@@ -692,9 +716,13 @@ class SK80Tests(Stage2Base):
         self.assertTrue(gets_a[0].endswith("/banks/" + SK80_BANK_A + "/documents/sk80-x-t0001"))
         chunk_urls = [c["url"] for c in self.fake.calls if "/chunks/" in c["url"]]
         self.assertEqual(len(chunk_urls), 2)
+        self.assertEqual(report["chunk"], sk80.OPEN)
         steps = report["schritte"]
         self.assertTrue(any("Lesen Chunk X aus B: HTTP 200" in s for s in steps))
-        self.assertTrue(any("Lesen Chunk X unter Bank A: HTTP 404" in s for s in steps))
+        self.assertTrue(
+            any("Lesen Chunk X unter Bank A" in s and "bleibt offen" in s for s in steps)
+        )
+        self.assertFalse(any("Chunk-Pfad belegt" in s or "Trennung belegt" in s for s in steps))
 
     def test_sk80_cross_bank_read_fails(self):
         self.fake.leak_get = True
@@ -705,6 +733,7 @@ class SK80Tests(Stage2Base):
         self.fake.leak_chunk = True
         report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0009")
         self.assertEqual(report["sk80"], sk80.FAILED)
+        self.assertEqual(report["chunk"], sk80.FAILED)
         leaked = any(
             "Lesen Chunk X unter Bank A" in s and "Erfolg" in s for s in report["schritte"]
         )

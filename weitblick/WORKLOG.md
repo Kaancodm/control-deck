@@ -32,3 +32,9 @@ Schritt 5 (retain_extraction_mode=chunks auf Test-Banks, braucht Kaans Ja, nicht
 ausgefuehrt) und Chunk-Pfad in S-K80/T5. Kann: Retry-Limit, Meldung bei
 Exception im zweiten Schreiber, Test-Banknamen als Konstante.
 Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 65 tests, OK (0 failed, 0 skipped), 24.11.2026 12:03 CET.
+
+2026-11-24 12:50, Builder: Review-Nachzug PR #98. Chunk-Pruefpunkt in S-K80
+bleibt offen (404 auf unbekannte Chunk-ID belegt keine Trennung). Aufgegebene
+Eintraege nach 3 Versuchen werden gezaehlt, mit Exit ungleich 0 und klarer
+Meldung. Hinweis zu enable_observations in SERVERPRUEFUNG Schritt 5.
+Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 66 tests, OK (0 failed, 0 skipped), 24.11.2026 12:52 CET.

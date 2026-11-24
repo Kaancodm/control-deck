@@ -132,6 +132,15 @@ Keine URL, kein Token, keine anderen Konfigurationswerte.
   nicht `chunks`. Dann S-K80 trotzdem nur nach gesondertem Entscheid ausfuehren,
   weil der Standardmodus `concise` ein LLM aufruft.
 
+Hinweis zu `enable_observations` (nicht Teil des Beispiel-PATCH oben, ebenfalls
+schreibend und nur nach gesondertem Ja): In v1.2.1 ist das Bank-Setting
+standardmaessig eingeschaltet (hindsight_api/config.py:1968, 4309). Nach einem
+Retain startet Hindsight dann, wenn auch `enable_auto_consolidation` gilt
+(Standard ebenfalls wahr, config.py:1969), eine asynchrone Konsolidierung
+(memory_engine.py:7490-7492), die ein LLM nutzen kann. `retain_extraction_mode=chunks`
+stellt das nicht ab. Nur wenn der LLM-Provider `none` ist, werden beide
+Einstellungen zusammen gezwungen (config.py:4616-4622).
+
 ## Schritt 6 · S-K80 (schreibende Ausnahme) und T5
 
 ```sh
@@ -149,11 +158,14 @@ Was passiert, in dieser Reihenfolge:
    `offen`, denn dann beweist ein spaeterer Fehler nichts.
 4. Der Chunk von X wird ueber `GET /v1/default/chunks/{chunk_id}` gelesen
    (Pfad ist nicht bankgebunden, die ID kodiert die Bank). Ohne Nachweis
-   bleibt dieser Pruefpunkt `offen` und belegt keine Trennung.
+   bleibt dieser Pruefpunkt `offen`.
 5. Dieselbe Dokument-ID wird im Kontext von A gelesen. Erwartet: 403 oder 404
    ohne Nutzdaten von X.
 6. Eine gefaelschte Chunk-ID mit Bank A und der Dokument-ID von X wird ueber
-   denselben Chunk-Pfad gelesen. Erwartet: 403 oder 404 ohne Nutzdaten von X.
+   denselben Chunk-Pfad gelesen. In v1.2.1 ist das eine unbekannte ID und
+   die Antwort ist typischerweise 404; das belegt keine Banktrennung und
+   bleibt `offen`. Enthaelt die Antwort Nutzdaten von X, ist S-K80
+   `nicht bestanden`.
 7. Loeschversuch der Dokument-ID im Kontext von A. Erwartet: 403 oder 404.
 8. X wird erneut aus B gelesen, ID und Inhalt werden mit Schritt 3 verglichen.
 9. T5: Suche nach dem Wortlaut von X in Bank A. Erwartet: X nicht gefunden.
@@ -165,8 +177,8 @@ das Werkzeug ab.
 
 | Ergebnis | Bedeutung |
 | --- | --- |
-| `S-K80: bestanden`, Exit 0 | Schritte 3 bis 8 wie erwartet. Banktrennung fuer Lesen und Loeschen nach Dokument-ID und fuer den unscoped Chunk-Pfad belegt. |
-| `S-K80: nicht bestanden`, Exit 1 | Lesen oder Loeschen aus A war erfolgreich, eine leere Erfolgsantwort kam, die Antwort enthielt Nutzdaten von X, oder X fehlt danach in B. Sofort melden, nicht umdeuten. |
+| `S-K80: bestanden`, Exit 0 | Banktrennung fuer Lesen und Loeschen nach Dokument-ID belegt (Schritte 3, 5, 7, 8). Der Chunk-Pfad bleibt `offen`; eine 404 auf eine unbekannte Chunk-ID belegt keine Trennung. |
+| `S-K80: nicht bestanden`, Exit 1 | Lesen oder Loeschen aus A war erfolgreich, eine leere Erfolgsantwort kam, die Antwort (Dokument oder Chunk) enthielt Nutzdaten von X, oder X fehlt danach in B. Sofort melden, nicht umdeuten. |
 | `S-K80: offen`, Exit 3 | Verbindungsfehler, 401, 5xx, andere Statuscodes oder Vorbereitung nicht bestaetigt. Ein Verbindungs- oder allgemeiner Anmeldefehler belegt keine Banktrennung. |
 | `T5: bestanden` | Die Suche in A findet X nicht. |
 | `T5: offen` | Suche nicht auswertbar (Pfad oder Antwortform anders, F2). |

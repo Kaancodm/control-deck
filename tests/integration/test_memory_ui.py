@@ -17,6 +17,7 @@ from app.api.deps import get_db
 from app.assistant.records import AssistantTurn
 from app.memory.approval import (
     correct_fact,
+    correct_message,
     decide_fact,
     decide_message,
     fact_shown_bytes,
@@ -258,9 +259,82 @@ def test_clear_and_decision_change_are_two_corrections(
     assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == after_clear + 1
 
 
-def test_persist_approves_owner_line_and_deck_reply(
+def test_clear_of_an_approved_fact_rejects_a_rejected_source(
     ui_client: TestClient, db_session: Session
 ) -> None:
+    """source_rejected on clear_fact_bounds writes nothing and the page shows the code."""
+    login(ui_client)
+    token = ui_client.cookies[SESSION_COOKIE]
+    outcome = ingest_turn(db_session, _turn())
+    assert outcome.message_id is not None
+    message = db_session.get(AssistantMessage, outcome.message_id)
+    assert message is not None
+    decide_message(
+        db_session,
+        message.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(message_shown_bytes(message, decision="approved")),
+    )
+    fact = propose_fact(
+        db_session,
+        source_message_id=message.id,
+        original_sentence="The kettle is blue.",
+        subject="kettle",
+        predicate="is",
+        object_="blue",
+    )
+    decide_fact(
+        db_session,
+        fact.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(fact_shown_bytes(fact, decision="approved")),
+    )
+    moment = datetime(2026, 1, 2, tzinfo=UTC)
+    correct_fact(
+        db_session,
+        fact.id,
+        decision="approved",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(
+            fact_shown_bytes(fact, decision="approved", corrects=fact.approval_id, valid_to=moment)
+        ),
+        valid_to=moment,
+    )
+    db_session.refresh(message)
+    correct_message(
+        db_session,
+        message.id,
+        decision="rejected",
+        session_token=token,
+        shown_sha256_hex=shown_sha256(
+            message_shown_bytes(
+                message,
+                decision="rejected",
+                corrects=message.approval_id,
+            )
+        ),
+    )
+    db_session.flush()
+    before = db_session.scalar(select(func.count()).select_from(MemoryApproval))
+    page = ui_client.get("/ui/memory")
+    refused = ui_client.post(
+        "/ui/memory/act",
+        data=_click(Forms(page.text), button="valid_to leeren", target=str(fact.id)),
+    )
+    assert refused.status_code == 422
+    assert "source_rejected" in refused.text
+    db_session.expire_all()
+    stored = db_session.get(MemoryFact, fact.id)
+    assert stored is not None and stored.valid_to == moment and stored.status == "approved"
+    assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == before
+
+
+def test_persist_keeps_the_deck_exchange_in_quarantine(
+    ui_client: TestClient, db_session: Session
+) -> None:
+    """M1b stores the exchange. The persist box writes the legacy row and does not approve."""
     login(ui_client)
     page = ui_client.get("/ui/assistant")
     csrf = Inputs(page.text).inputs["csrf"]
@@ -279,7 +353,7 @@ def test_persist_approves_owner_line_and_deck_reply(
     assert db_session.scalar(select(func.count()).select_from(AssistantTurn)) == 1
     rows = list(db_session.scalars(select(AssistantMessage)))
     assert {row.role for row in rows} == {"owner", "assistant"}
-    assert {row.state for row in rows} == {"approved"}
+    assert {row.state for row in rows} == {"quarantined"}
 
 
 def test_conversation_audit_is_separate_from_all(

@@ -408,14 +408,19 @@ Lesend, sendet nichts. Signatur: `thread_id` (darf leer sein), `target`,
 | Ziel | Klassen |
 | --- | --- |
 | `ollama` | `local_only`, `cloud_redacted`, `cloud_ok` |
-| `claude`, `claude_code`, `grok` | nur `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_redacted`, `cloud_ok` |
 | `codex` | keine |
 
-Im Stand M1 liefert der Lader `cloud_redacted` noch nicht an die drei
-Cloud-Ziele: die Redaktion in `app/redaction/` haengt an einem Auftrag und seinen
-`redaction_maps`, Gespraechsgedaechtnis hat keinen Auftrag. Das ist eine
-voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, verfolgt in Issue
-[#76](https://github.com/Kaancodm/control-deck/issues/76) (auftragsfreie Redaktion).
+Fuer `claude`, `claude_code` und `grok` ersetzt der Lader in Zeilen der Klasse
+`cloud_redacted` unterstuetzte Treffer (Mail, Telefon, IBAN, AHV, interne
+Adresse, Blockliste) durch Platzhalter. Die Zuordnung gilt nur fuer diesen
+Aufruf, bleibt im Prozess und steht nicht in `MemoryContext`. Geheimnisse und
+nicht unterstuetzte Treffer fallen weg. Ein Rest-Scan nach der Ersetzung
+verwirft die Zeile bei einem weiteren Treffer. Ohne Blockliste bleibt die
+Cloud-Ausgabe fail-closed. Zeilen mit `privacy_hold` gehen nicht an Cloud-Ziele,
+auch nicht redigiert. Die Abweichung von Entscheid 7.3 und Plan 3.5 (Issue
+[#76](https://github.com/Kaancodm/control-deck/issues/76)) ist geschlossen.
+Es gibt keinen Versand.
 
 `context_classes` schneidet `allowed_classes(data_class)` mit dieser Decke.
 `local_only` am Cloud-Ziel wirft `data_class_block`, bevor gelesen wird.
@@ -425,7 +430,8 @@ voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, verfolgt in Issue
 | `ollama` | `local_only` | alle drei |
 | `ollama` | `cloud_redacted` | `cloud_redacted`, `cloud_ok` |
 | `ollama` | `cloud_ok` | `cloud_ok` |
-| `claude`, `claude_code`, `grok` | `cloud_redacted` oder `cloud_ok` | nur `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_redacted` | `cloud_redacted`, `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_ok` | nur `cloud_ok` |
 | `claude`, `claude_code`, `grok` | `local_only` | Fehler `data_class_block` |
 | `codex` | jede gueltige Klasse | leeres Tupel, kein Datenbankzugriff |
 
@@ -469,7 +475,9 @@ Zuerst das Profil, dann der Verlauf, dann die Fakten. Ein Verlaufseintrag, der
 nicht passt, beendet den Verlauf; aeltere Eintraege fallen mit. Geprueft wird
 ein Geheimnis im Text, dann nur fuer Cloud-Ziele und jede Klasse ausser
 `local_only` das Sperr-Praedikat erneut (`non_local_texts_blocked`, Blockliste;
-fehlende oder unlesbare Konfiguration sperrt, auch auf `deck_ui`), dann das Budget. Fakten werden danach einzeln weitergeprueft: ein zu
+fehlende oder unlesbare Konfiguration sperrt, auch auf `deck_ui`), dann bei
+`cloud_redacted` an einem Cloud-Ziel die auftragsfreie Ersetzung (schlaegt sie
+fehl, faellt die Zeile), dann das Budget. Fakten werden danach einzeln weitergeprueft: ein zu
 grosser, ein gesperrter oder ein Geheimnis-Fakt faellt, ein spaeterer kleinerer
 kann bleiben. Verworfene Eintraege zaehlen in `dropped` und kommen nicht in
 `items`. Der Verlauf im Ergebnis steht chronologisch. `tokens` ist die Summe
@@ -498,26 +506,33 @@ ausserhalb `local_only` setzt `privacy_hold` wie `ingest_turn` auf `deck_ui`; di
 Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
 `blocklist_unavailable`). `privacy_held` im Bericht und im Audit zaehlt markierte neue Zeilen.
 
+## M1b, Dialog am Themen-Thread
+
+Der Live-Dialog schreibt den Eingang mit `ingest_turn` (Kanal `deck_ui`, Konto
+`owner`, Methode `deck_ui`) und die Antwort mit `record_deck_reply`. Beide
+bleiben `quarantined`. Ist `include_history` gesetzt, kommt der Prompt aus
+`load_memory_context(thread, "ollama", data_class)` statt aus den letzten acht
+`assistant_turns`. Nur freigegebene Zeilen; `unbewiesen` steht sichtbar im
+Prompt. Klassenfilter, `codex` und `privacy_hold` bleiben im Lader. Das
+Dialogziel ist `ollama` (Loopback oder Mock), kein Cloud-Ziel. Ohne aktiven
+Link ist der Thread leer. Die Aussen-Kennung kommt aus dem Feld, sonst `deck`.
+`num_ctx` bleibt 4096. `persist` schreibt weiter `assistant_turns` und gibt die
+Antwort nicht frei. Die Freigabe sitzt in `/ui/memory`.
+
 ## M2, Oberflaeche
 
 `/ui/memory` zeigt die Quarantaene mit Volltext, Herkunfts-Chips und der
 Markierung `privacy_hold`. Freigabe und Korrektur laufen ueber `approval.py`
 mit UI-Session und sha256 der gezeigten Bytes. Leeren von `valid_to` oder
 `superseded_by` ist `clear_fact_bounds`, ein Entscheidwechsel bleibt
-`correct_fact`: zwei Klicks, zwei Hashes. Das Kaestchen `persist` speichert
-den Satz und gibt Owner-Zeile und Deck-Antwort frei, ohne zweiten Klick.
-Der Plan-Code `unknown_source` erscheint als `unknown_account`,
+`correct_fact`: zwei Klicks, zwei Hashes. Eine abgelehnte Quelle bleibt
+`source_rejected` und schreibt nichts. `persist` gibt die Deck-Antwort nicht
+frei. Der Plan-Code `unknown_source` erscheint als `unknown_account`,
 `account_inactive` oder `invalid_envelope`. Die Quelle `conversation` im
 Audit liest taskfreie `assistant.*`- und `memory.*`-Zeilen. `all` blendet
 sie weiter aus. Der Verlauf sortiert nach `seq`, nicht nach `occurred_at`.
 
 ## Nicht in diesem Stand
-
-- **M1b, offen (Issue #77).** «Dialog nutzt Thread» ist nicht erledigt. Der Live-Dialog
-  liest weiter die letzten Saetze aus `assistant_turns`. M1b haengt den Dialog
-  an den Themen-Thread, nach dem Merge des UI-PR und vor G2. `persist` schreibt
-  den Satz zusaetzlich ins Gedaechtnis und gibt ihn frei. `load_memory_context`
-  speist den Dialog noch nicht.
 - **M3, Adapter n8n und Kanal `grok`.** Kein Eingang, kein HMAC, kein Versand.
 - **M4, Import-Parser.** `import_file` ist ein Wert im Umschlag. Es gibt keinen
   Parser, der eine Exportdatei in `channel_turn.v1` schreibt. Konten legt der
@@ -528,11 +543,6 @@ sie weiter aus. Der Verlauf sortiert nach `seq`, nicht nach `occurred_at`.
   M4/N3).
 - **M5, Slack Socket Mode.** Kein Socket und kein Slack-Adapter. Der Vertrag
   dafuer und der Rueckweg stehen nur in ADR 0010.
-- **`cloud_redacted` an Cloud-Ziele (Issue #76).** Der Lader liefert an `claude`,
-  `claude_code` und `grok` im Stand M1 nur `cloud_ok`. Das ist eine
-  voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, weil die Redaktion an
-  einem Auftrag haengt. Issue #76 baut eine auftragsfreie Redaktion; bis dahin
-  bleibt der Code bei `cloud_ok`.
 
 ## Nachtrag Review-Runde 3
 

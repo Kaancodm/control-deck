@@ -40,8 +40,11 @@
       <details class="more">
         <summary>Mehr Optionen</summary>
         <label class="check"><input type="checkbox" name="include_profile" value="yes"> Profil in den Loopback-Kontext, sonst nicht</label>
-        <label class="check"><input type="checkbox" name="include_history" value="yes"> Gespeicherte Sätze derselben Datenklasse mitschicken</label>
-        <label class="check"><input type="checkbox" name="persist" value="yes"> Satz und Deck-Antwort speichern und freigeben, sonst nur diese Ansicht</label>
+        <label class="check"><input type="checkbox" name="include_history" value="yes"> Freigegebenen Themen-Thread mitschicken</label>
+        <label for="talk-thread">Themen-Kennung, leer bedeutet deck</label>
+        <input id="talk-thread" name="external_thread_id" maxlength="200" autocomplete="off">
+        <label class="check"><input type="checkbox" name="persist" value="yes"> Alten Satz zusätzlich speichern</label>
+        <p class="hint">Eingang und Antwort gehen in die Quarantäne. Das zusätzliche Speichern gibt nichts frei.</p>
       </details>
       <button>Dialog senden</button>
     </form>

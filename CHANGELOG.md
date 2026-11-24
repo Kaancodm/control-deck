@@ -2,6 +2,24 @@
 
 ## Unveröffentlicht
 
+### Auftragsfreie Redaktion fuer cloud_redacted (Issue #76)
+
+- `load_memory_context` liefert `cloud_redacted` an `claude`, `claude_code` und
+  `grok`, nachdem unterstuetzte Treffer je Aufruf lokal ersetzt wurden.
+  Die Zuordnung bleibt im Aufruf und geht nicht in den Kontext.
+- Geheimnisse, nicht unterstuetzte Treffer und eine fehlende Blockliste
+  lassen die Zeile weg. `privacy_hold` bleibt fuer Cloud-Ziele ausgeschlossen.
+- Die Abweichung von Entscheid 7.3 und Plan 3.5 ist geschlossen. Kein Versand.
+  Der Live-Dialog bleibt auf `ollama`.
+
+### Dialog nutzt den Themen-Thread (Issue #77)
+
+- Der Live-Dialog schreibt den Eingang (`ingest_turn`, Kanal `deck_ui`) und die
+  Antwort (`record_deck_reply`) in die Quarantaene. Beide bleiben unfreigegeben.
+- `include_history` laedt `load_memory_context` statt der letzten acht Saetze.
+  `unbewiesen` ist im Prompt etikettiert. `num_ctx` bleibt 4096.
+- `persist` legt weiter eine Zeile in `assistant_turns` an und gibt nichts frei.
+
 Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
 
@@ -97,8 +115,8 @@ Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben
     einem Befund; andere Kanäle und eine unlesbare Blockliste markieren
     `blocklist_unavailable`. Neue Funktion `memory_privacy_hold`; das Auftrags-Gate
     bleibt unverändert. Der Versand an Cloud-Ziele bleibt ohne Blockliste gesperrt.
-  - `cloud_redacted` geht in M1 noch nicht an Cloud-Ziele: eine vorübergehende
-    Abweichung von 7.3 und Plan 3.5, verfolgt in #76 (auftragsfreie Redaktion).
+  - `cloud_redacted` an Cloud-Ziele war in M1 offen (Abweichung von 7.3 und
+    Plan 3.5). Issue #76 schliesst sie; siehe den Eintrag oben.
   - Korrekturweg: `memory_approvals.corrects_approval_id` und `correct_message`,
     `correct_fact`, `correct_thread_topic`, `correct_thread_link`. Der Inhalts-Trigger
     lässt eine eingefrorene Entscheid-Spalte nur mit einer passenden Korrekturzeile

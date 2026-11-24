@@ -89,7 +89,11 @@ HostRunner(get_session_factory(for_tests=True), runs_root=Path(sys.argv[2])).run
     task = db_session.get(Task, task_id)
     assert task.status == TaskState.REVIEW and task.attempt == 2
     assert not task.cancel_requested
-    assert db_session.scalar(select(func.count()).select_from(Result)) == 1
+    rows = list(db_session.scalars(select(Result).order_by(Result.attempt)))
+    assert [row.attempt for row in rows] == [1, 2]
+    assert rows[0].execution_profile == "unknown"
+    assert rows[0].payload["error"]["code"] == "worker_unavailable"
+    assert rows[1].payload["status"] == "succeeded"
     assert not any("cancel" in kind for kind in db_session.scalars(select(Event.event_type)))
 
 

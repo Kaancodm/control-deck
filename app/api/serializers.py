@@ -39,6 +39,7 @@ def failed_task_summary(task: Task) -> TaskFailureOut:
 
 
 def task_detail(task: Task) -> TaskDetailOut:
+    # Task events always carry ``to_status`` (CHECK ck_events_task_or_conversation).
     events = sorted(task.events, key=lambda event: event.created_at)
     results = sorted(task.results, key=lambda result: result.attempt)
     return TaskDetailOut(
@@ -54,6 +55,7 @@ def task_detail(task: Task) -> TaskDetailOut:
                 created_at=event.created_at,
             )
             for event in events
+            if event.to_status is not None
         ],
         results=[
             ResultOut(

@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from secrets import token_urlsafe
 from threading import Lock
 from time import monotonic
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 from starlette.responses import RedirectResponse, Response
 
+from app.assistant.errors import MODEL_BUSY_CODE, MODEL_BUSY_TEXT
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE, token_digest
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).with_name("templates"))
@@ -158,11 +160,119 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
         "Inbetriebnahme gemäss Betriebshandbuch.",
     ),
     "preview_unavailable": ("Die Vorschau ist abgelaufen.", "Chat-Entwurf erneut übernehmen."),
+    "assistant_input": ("Die Eingabe ist ungültig.", "Text kürzen oder die Felder prüfen."),
+    "assistant_secret": ("Ein Geheimnis wurde erkannt.", "Den Wert entfernen und erneut senden."),
+    "assistant_data_class": (
+        "Die Datenklasse fehlt oder ist unbekannt.",
+        "Eine erlaubte Klasse wählen.",
+    ),
+    "assistant_card": ("Die Karte ist ungültig.", "Vorlage, Platzhalter und Grösse prüfen."),
+    "assistant_oversize": ("Die Eingabe ist zu gross.", "Text kürzen und erneut senden."),
+    "profile_owner_only": (
+        "Das Profil bleibt beim Owner.",
+        "Nur die Profilseite speichert Notizen.",
+    ),
+    "live_model_disabled": ("Das Live-Modell ist aus.", "Der Mock ist kein lebendes Modell."),
+    "live_search_disabled": ("Die Live-Suche ist aus.", "local_only bleibt ohne Netzabruf."),
+    "assistant_model_unconfigured": (
+        "Das Loopback-Modell ist unvollständig.",
+        "URL und Modellname mit Tag setzen.",
+    ),
+    "assistant_model_unavailable": (
+        "Das Loopback-Modell antwortet nicht.",
+        "Der Mock bleibt der Standard.",
+    ),
+    "assistant_model_connect_timeout": (
+        "Die Loopback-Verbindung hat das Zeitlimit erreicht.",
+        "Der Dienst antwortet nicht auf den Verbindungsaufbau.",
+    ),
+    "assistant_model_connect_failed": (
+        "Die Loopback-Verbindung wurde abgewiesen.",
+        "Der Dienst lauscht auf dieser Adresse nicht.",
+    ),
+    "assistant_model_read_timeout": (
+        "Das Loopback-Modell hat das Zeitlimit erreicht.",
+        "Ein kalter Start hat einen Versuch. Es gibt keinen zweiten.",
+    ),
+    MODEL_BUSY_CODE: MODEL_BUSY_TEXT,
+    "assistant_model_http": (
+        "Der Loopback-Dienst lieferte einen HTTP-Status ausser 200.",
+        "Der Status steht in der Probe, der Inhalt nicht.",
+    ),
+    "assistant_model_missing": (
+        "Der Loopback-Dienst kennt dieses Modell nicht.",
+        "Ein installiertes name:tag verwenden. Kein Download.",
+    ),
+    "assistant_model_malformed": (
+        "Die Loopback-Antwort hat den Vertrag nicht erfüllt.",
+        "Der Inhalt wird nicht angezeigt.",
+    ),
+    "assistant_web_unconfigured": (
+        "Die Websuche ist nicht konfiguriert.",
+        "Allowlist und Suchadresse fehlen.",
+    ),
+    "assistant_web_blocked": (
+        "Die Adresse ist nicht freigegeben.",
+        "Nur die Allowlist, ohne private Netze.",
+    ),
+    "assistant_web_rejected": ("Der Abruf wurde abgewiesen.", "Inhalt, Zeit oder Grösse prüfen."),
+    "assistant_cancelled": ("Der Abruf wurde abgebrochen.", "Erneut senden."),
+    "order_missing": ("Dieser Assistenten-Auftrag fehlt.", "Zur Assistentenseite zurück."),
     "temporarily_unavailable": (
         "Der Dienst ist vorübergehend nicht verfügbar.",
         "Kurz warten und neu laden.",
     ),
 }
+# Fixed landing page after login and for /ui. There is deliberately no ``next`` parameter.
+HOME_PATH = "/ui/overview"
+# The messages section is opened server-side by this fixed query; no JavaScript involved.
+MESSAGES_HREF = HOME_PATH + "?open=meldungen#meldungen"
+
+
+@dataclass(frozen=True)
+class NavItem:
+    key: str
+    label: str
+    href: str
+    icon: str
+    group: Literal["workspace", "control"]
+    tab_label: str | None = None
+
+
+# Up to 860 px: entries with a tab label sit in the tab bar, the rest in the menu.
+# Wider: only the sidebar shows them. Each target has one visible link per width.
+NAV_ITEMS: tuple[NavItem, ...] = (
+    NavItem("overview", "Übersicht", HOME_PATH, "grid", "workspace", "Übersicht"),
+    NavItem("tasks", "Aufträge", "/ui/tasks", "lines", "workspace"),
+    NavItem("new", "Neuer Auftrag", "/ui/tasks/new", "plus", "workspace"),
+    NavItem("knowledge", "Wissen", "/ui/knowledge", "layers", "workspace"),
+    NavItem("lanes", "Lanes", "/ui/lanes", "lanes", "control", "Lanes"),
+    NavItem("assistant", "Assistent", "/ui/assistant", "person", "control", "Assistent"),
+    NavItem("messages", "Meldungen", MESSAGES_HREF, "bell", "control", "Meldungen"),
+    NavItem("open", "Offene Punkte", HOME_PATH + "#offen", "list", "control", "Offen"),
+    NavItem("chat", "Lokaler Chat", "/ui/chat", "chat", "control"),
+    NavItem("audit", "Audit", "/ui/audit", "shield", "control"),
+)
+_NAV_PREFIXES = tuple(
+    sorted(
+        [(item.href, item.key) for item in NAV_ITEMS if "#" not in item.href]
+        + [("/ui/failed", "tasks")],
+        key=lambda entry: len(entry[0]),
+        reverse=True,
+    )
+)
+
+
+def nav_key(path: str) -> str:
+    """Return the navigation key for a path; the longest matching prefix wins."""
+    for prefix, key in _NAV_PREFIXES:
+        if path == prefix or path.startswith(prefix + "/"):
+            return key
+    return ""
+
+
+TEMPLATES.env.globals["nav_items"] = NAV_ITEMS
+TEMPLATES.env.globals["home_path"] = HOME_PATH
 TEMPLATES.env.globals["status_labels"] = STATUS_LABELS
 TEMPLATES.env.globals["data_class_labels"] = DATA_CLASS_LABELS
 TEMPLATES.env.globals["error_messages"] = ERROR_MESSAGES
@@ -229,6 +339,7 @@ def page(request: Request, name: str, *, status: int = 200, **context: Any) -> R
             "controls": getattr(request.state, "controls", None),
             "lane_health": getattr(request.state, "lane_health", []),
             "health_unavailable": getattr(request.state, "health_unavailable", False),
+            "nav": nav_key(request.url.path),
             **context,
         },
         status_code=status,

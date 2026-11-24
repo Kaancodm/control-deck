@@ -20,6 +20,8 @@ def test_codex_uses_dedicated_profile_and_closed_network_contract():
     request = CleanroomRequest(Worker.CODEX, SIMULATED_CODEX_IMAGE, uuid4(), "fixture-model")
     command = cleanroom_command(request)
     assert "--network=none" in command
+    assert "--env=HOME=/tmp/home" in command
+    assert not any("sudo" in part for part in command)
     assert "--mount=type=volume,src=deck-codex-profile,dst=/profile" in command
     assert "--env=CODEX_HOME=/profile" in command
     assert "--read-only" in command
@@ -29,6 +31,8 @@ def test_codex_uses_dedicated_profile_and_closed_network_contract():
     assert len(command) + 2 <= 64
     claude = cleanroom_command(replace(request, lane=Worker.CLAUDE, image=SIMULATED_CLAUDE_IMAGE))
     assert "--mount=type=volume,src=deck-claude-profile,dst=/profile" in claude
+    assert "--env=HOME=/tmp/home" in claude
+    assert not any("sudo" in part for part in claude)
     assert not any("codex" in arg.lower() for arg in claude)
 
 

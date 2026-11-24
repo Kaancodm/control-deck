@@ -293,10 +293,33 @@ def test_provenance_follows_login_capacity_with_one_head():
     from alembic.script import ScriptDirectory
 
     migrations = ScriptDirectory.from_config(Config("alembic.ini"))
-    assert migrations.get_heads() == ["20261104_0018"]
+    assert migrations.get_heads() == ["20261110_0064"]
+    memory = migrations.get_revision("20261110_0064")
+    assert memory is not None
+    assert memory.down_revision == "20261108_0063"
     provenance = migrations.get_revision("20261104_0018")
     assert provenance is not None
     assert provenance.down_revision == "20261104_0017"
+    assistant = migrations.get_revision("20261108_0019")
+    assert assistant is not None
+    assert assistant.down_revision == "20261104_0018"
+    origin = migrations.get_revision("20261108_0020")
+    assert origin is not None
+    assert origin.down_revision == "20261108_0019"
+    receipt = migrations.get_revision("20261108_0061")
+    assert receipt is not None
+    assert receipt.down_revision == "20261104_0018"
+    joined = migrations.get_revision("20261108_0062")
+    assert joined is not None
+    assert joined.down_revision == ("20261108_0020", "20261108_0061")
+    wake = migrations.get_revision("20261108_0063")
+    assert wake is not None
+    assert wake.down_revision == "20261108_0062"
+    knowledge = ScriptDirectory.from_config(Config("alembic_kb.ini"))
+    assert knowledge.get_heads() == ["kb_0002"]
+    real_embedding = knowledge.get_revision("kb_0002")
+    assert real_embedding is not None
+    assert real_embedding.down_revision == "kb_0001"
 
 
 @pytest.mark.parametrize("profile", ["simulation", "remote", "unknown"])
@@ -392,6 +415,7 @@ def test_only_live_success_resets_a_mixed_origin_failure_series():
         "inventory_cancelled",
         "inventory_timeout",
         "inventory_internal",
+        "inventory_busy",
         "rootless_required",
         "cli_version_unsupported",
     ],

@@ -43,7 +43,11 @@ Chromium mit dem gelockten Playwright-Paket; die Tests erlauben nur die isoliert
 - PostgreSQL 17 fuer Integrationsnachweise. `pg_dump` und `pg_restore` muessen zum Server
   passen; die Test-Wrapper verwenden die Clients im isolierten Testcontainer.
 - pgvector ist eine PostgreSQL-Erweiterung des `deck_kb.v1`-Testvertrags. Die Wissens-DB
-  ist eine eigene Datenbank mit eigener Alembic-Kette und Fake-Embeddings.
+  ist eine eigene Datenbank mit eigener Alembic-Kette. Standard sind Fake-Embeddings; das
+  Runtime-Profil nutzt ein lokales Ollama-Embedding-Modell (vorgesehen
+  `qwen3-embedding:0.6b`, 1024 Dimensionen) ueber den bestehenden Loopback-HTTP-Client.
+  Das ist keine neue Python-Abhaengigkeit; das Modell ist eine Host-Voraussetzung, die der
+  Owner bereitstellt (kein automatischer Pull). Siehe ADR 0011.
   Backup und Restore verlangen beide Datenbanken. Der Wissens-Dump enthaelt `deck_kb`,
   seine Migrationstabelle und pgvector; die passende Erweiterung muss im Restore-Server
   verfuegbar sein. Die echten Proben verwenden PostgreSQL 17 mit pgvector und passende

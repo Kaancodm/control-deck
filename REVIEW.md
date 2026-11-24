@@ -2,12 +2,15 @@
 
 Checklist for `/code-review` and for the `reviewer` agent (`.claude/agents/reviewer.md`).
 Correctness and safety only; style is covered by `ruff` and `mypy`. A finding names the file
-and line, the violated rule, and the smallest fix. Merge needs an explicit GO from the owner.
+and line, the violated rule, and the smallest fix. Merge needs one yes from the owner; only Grok Bot merges. Claude, Fable, Gemini, and Cursor never merge. If anything conflicts, AGENTS.md wins.
 
 ## 1. Security
 
 - No server, deployment, or network changes in this repository. No commands against
   production hosts, no database roles, no `tailscale`, `systemd`, or `docker` changes in code.
+  Narrow exception (ADR 0012): the cleanroom starter in `app/workers/sandbox.py` may invoke
+  the local Docker client, and only under the fixed contract recorded in that ADR. No other
+  `docker` use is covered. Every other rule in this section stays.
 - Input from tasks (instructions, inputs, file paths) is untrusted: path traversal, shell
   injection, and oversized payloads must be rejected by validation, not by convention.
 - Cloud workers are called only through the official CLIs (`claude -p`, `codex exec`).

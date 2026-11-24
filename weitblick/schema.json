@@ -1,0 +1,110 @@
+{
+  "title": "Weitblick entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "art",
+    "frage",
+    "fundstelle",
+    "datum",
+    "bezug",
+    "status",
+    "nicht_gewaehlte_option",
+    "quelle_liste",
+    "hinweis"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "art": {
+      "enum": [
+        "nicht_gewaehlte_option",
+        "verbindung",
+        "wiederholung"
+      ]
+    },
+    "frage": {
+      "type": "string",
+      "pattern": "^Waere denkbar, dass.*\\?$",
+      "maxLength": 200
+    },
+    "fundstelle": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "datei",
+          "zeile",
+          "nummer"
+        ],
+        "properties": {
+          "datei": {
+            "type": "string",
+            "minLength": 1
+          },
+          "zeile": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "nummer": {
+            "type": "string",
+            "pattern": "^[ESA]-[0-9]+$"
+          }
+        }
+      }
+    },
+    "datum": {
+      "type": "string",
+      "format": "date"
+    },
+    "bezug": {
+      "type": "string"
+    },
+    "status": {
+      "const": "neu"
+    },
+    "nicht_gewaehlte_option": {
+      "type": "string"
+    },
+    "quelle_liste": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "ENTSCHEIDE",
+          "SERVER",
+          "AUFTRAEGE"
+        ]
+      }
+    },
+    "hinweis": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "art": {
+            "enum": [
+              "verbindung",
+              "wiederholung"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fundstelle": {
+            "minItems": 2
+          }
+        }
+      }
+    }
+  ]
+}

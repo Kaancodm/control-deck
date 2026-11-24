@@ -21,6 +21,7 @@ def test_static_assets_are_local_and_protected():
 @pytest.mark.parametrize(
     "method,path,status",
     [
+        ("GET", "/", 303),
         ("GET", "/ui", 303),
         ("GET", "/ui/static/app.css", 200),
         ("HEAD", "/ui/static/vendor/htmx.min.js", 200),

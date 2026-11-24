@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
@@ -107,6 +107,90 @@ def _task_text_parts(task: TaskV1) -> Iterator[tuple[str, str]]:
         yield f"context_refs[{index}].ref", reference.ref
 
 
+def findings_block(
+    data_class: DataClass,
+    findings: Sequence[Finding],
+    *,
+    unsupported_redaction: bool | None = None,
+) -> bool:
+    """Blocked predicate shared with ``GateReport``.
+
+    Secrets block every class. ``cloud_ok`` blocks every finding. ``cloud_redacted``
+    blocks a secret or a rule outside the redactable set. ``local_only`` blocks
+    only secrets.
+    """
+    has_secrets = any(item.kind == FindingKind.SECRET for item in findings)
+    if unsupported_redaction is None:
+        unsupported_redaction = any(
+            item.kind == FindingKind.SECRET or item.rule not in _REDACTABLE_RULES
+            for item in findings
+        )
+    return (
+        has_secrets
+        or (data_class == DataClass.CLOUD_OK and bool(findings))
+        or (data_class == DataClass.CLOUD_REDACTED and unsupported_redaction)
+    )
+
+
+def non_local_texts_blocked(data_class: str, texts: Sequence[str]) -> bool:
+    """Scan with the configured blocklist and apply :func:`findings_block`.
+
+    ``local_only`` returns false without reading the blocklist. A missing or
+    unreadable blocklist, or text the normalizer refuses, fails closed for every
+    other class. Matched text is not returned. Same predicate as
+    :func:`memory_privacy_hold` with ``blocklist_required=True``.
+    """
+    return memory_privacy_hold(data_class, texts, blocklist_required=True) is not None
+
+
+MEMORY_HOLD_FINDING = "privacy_block"
+MEMORY_HOLD_NO_BLOCKLIST = "blocklist_unavailable"
+MEMORY_HOLD_CODES = (MEMORY_HOLD_FINDING, MEMORY_HOLD_NO_BLOCKLIST)
+
+
+def strongest_hold(*codes: str | None) -> str | None:
+    """Combine own and inherited hold codes; ``privacy_block`` wins over the rest."""
+    present = [code for code in codes if code is not None]
+    if MEMORY_HOLD_FINDING in present:
+        return MEMORY_HOLD_FINDING
+    return present[0] if present else None
+
+
+def memory_privacy_hold(
+    data_class: str, texts: Sequence[str], *, blocklist_required: bool
+) -> str | None:
+    """Hold code for conversation memory, or ``None``. Never used by the task gate.
+
+    Same blocked predicate as :func:`findings_block`, but the caller stores the row
+    marked instead of rejecting it (owner decision 2026-11-10). ``local_only``
+    returns ``None`` without reading the blocklist. A configured but unreadable
+    blocklist is ``blocklist_unavailable``. Without a configured blocklist the
+    result is ``blocklist_unavailable`` when ``blocklist_required``; otherwise the
+    built-in patterns alone decide. A finding or a normalizer refusal is
+    ``privacy_block``. Secrets are rejected by the caller before this runs.
+    """
+    if data_class == DataClass.LOCAL_ONLY.value:
+        return None
+    try:
+        checked = DataClass(data_class)
+    except ValueError:
+        return MEMORY_HOLD_FINDING
+    try:
+        settings = get_privacy_settings()
+    except PrivacyConfigurationError:
+        return MEMORY_HOLD_NO_BLOCKLIST
+    if not settings.blocklist_configured and blocklist_required:
+        return MEMORY_HOLD_NO_BLOCKLIST
+    findings: list[Finding] = []
+    try:
+        for value in texts:
+            if value:
+                findings.extend(scan_text(value, source="memory", blocklist=settings.blocklist))
+    except NormalizationError:
+        return MEMORY_HOLD_FINDING
+    return MEMORY_HOLD_FINDING if findings_block(checked, findings) else None
+
+
 def inspect_task(
     task: TaskV1,
     *,
@@ -200,13 +284,10 @@ def inspect_task(
             raise PrivacyInputError(exc.code, source="context_refs") from None
         for index, context in enumerate(contexts):
             scan_part(f"context_refs[{index}].content", context.text)
-    has_secrets = any(item.kind == FindingKind.SECRET for item in findings)
     return GateReport(
         findings=tuple(findings),
-        blocked=(
-            has_secrets
-            or (task.data_class == DataClass.CLOUD_OK and bool(findings))
-            or (task.data_class == DataClass.CLOUD_REDACTED and unsupported_redaction)
+        blocked=findings_block(
+            task.data_class, findings, unsupported_redaction=unsupported_redaction
         ),
         file_hashes=tuple(file_hashes),
     )

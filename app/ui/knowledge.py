@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, Response
 
 from app.api.deps import DbSession
+from app.api.routes.knowledge import knowledge_error_status
 from app.core.schemas import DataClass
 from app.kb.contracts import KnowledgeError
 from app.kb.export import export_task
@@ -44,7 +45,13 @@ async def knowledge_search(request: Request, session: DbSession) -> Response:
             store.engine.dispose()
         return page(request, "knowledge.html", hits=hits, selected_class=classification.value)
     except KnowledgeError as exc:
-        return page(request, "knowledge.html", hits=None, error=exc.code, status=422)
+        return page(
+            request,
+            "knowledge.html",
+            hits=None,
+            error=exc.code,
+            status=knowledge_error_status(exc.code),
+        )
     finally:
         await data.close()
 
@@ -65,7 +72,7 @@ async def export_result(request: Request, task_id: UUID, session: DbSession) -> 
         try:
             export_task(session, task_id, data_class=classification)
         except KnowledgeError as exc:
-            raise UiError(exc.code, 409) from None
+            raise UiError(exc.code, knowledge_error_status(exc.code)) from None
         return RedirectResponse(f"/ui/tasks/{task_id}", status_code=303)
     finally:
         await data.close()

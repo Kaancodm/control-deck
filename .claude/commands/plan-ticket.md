@@ -24,7 +24,7 @@ Rules for the ticket:
 - **Acceptance as an executable command**: each acceptance criterion is a shell command
   (`uv run pytest tests/...`, `make lint`, `uv run alembic -x target=test upgrade head`, a
   `grep` that must return nothing, ...) plus the expected result. No prose-only criteria.
-- Respect the hard rules: no merge, no server changes, no new dependencies without justification,
+- Respect the hard rules: do not merge (only Grok Bot merges, and only after the owner's yes; Claude, Fable, Gemini, and Cursor never merge), no deploy, restart, migration, server install, or deletion without an explicit owner GO, no new dependencies without justification,
   mandatory explicit `data_class` on every `task.v1` (ADR 0005; no DB column default since
   migration `0003`), tests only against the `_test` database, English code and commits, de-CH docs
   without Eszett.

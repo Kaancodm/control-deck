@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from app.operations.errors import OperationError
+from app.operations.errors import OperationError, ProcessExitError
 
 
 def run_command(
@@ -74,8 +74,9 @@ def run_command(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise OperationError("process_timeout")
-            if process.wait(timeout=remaining) != 0:
-                raise OperationError("process_failed")
+            returncode = process.wait(timeout=remaining)
+            if returncode != 0:
+                raise ProcessExitError(returncode)
     except (OSError, subprocess.TimeoutExpired):
         raise OperationError("process_failed") from None
     finally:

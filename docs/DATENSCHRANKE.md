@@ -75,8 +75,12 @@ Geprueft werden `title`, `instructions`, Name/Wert/Pfad/MIME der Inputs,
 gelesenen Dateiinhalte. Input-Name und Wert sowie Label-Schluessel und Wert werden auch zusammen
 als Zuweisung geprueft, damit aufgeteilte Zugangsdaten erkannt werden. Solche Fundstellen tragen
 die strukturelle Quelle `assignment`; ihre Positionen beziehen sich auf `Name=Wert`.
-Die Einbindung der Wissens-DB folgt erst in Etappe 14: Nicht leere
-`context_refs` werden bis dahin mit **422** (`context_unavailable`) abgewiesen statt ignoriert.
+Seit Etappe 14 werden nicht leere `context_refs` aus der Wissens-DB aufgeloest und die
+vollstaendigen Kontexttexte wie alle anderen Felder geprueft (Quelle `context_refs[n].content`).
+Fehlende, unzulaessige oder zur Datenklasse unpassende Kontexte werden mit **422** abgewiesen,
+ebenso ein deaktiviertes KB-Profil (`knowledge_live_profile_unavailable`). Ohne aufgeloeste
+Kontexte meldet die Datenschranke `context_unavailable`, statt die Referenzen zu ignorieren.
+Details: [WISSENS_DB.md](WISSENS_DB.md).
 
 Fundstellen enthalten nur Kategorie, festen Regelnamen, strukturelle Quelle und Start-/Endposition
 in Unicode-Zeichen; die Endposition ist exklusiv. Quellen verwenden Feldindizes, keine gefundenen

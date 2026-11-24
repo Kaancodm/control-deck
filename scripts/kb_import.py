@@ -10,6 +10,7 @@ from uuid import NAMESPACE_URL, uuid5
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.schemas import DataClass  # noqa: E402
+from app.kb.config import load_kb_settings  # noqa: E402
 from app.kb.contracts import KnowledgeError, digest_text  # noqa: E402
 from app.kb.repository import configured_store  # noqa: E402
 from app.privacy.config import PrivacyConfigurationError, get_privacy_settings  # noqa: E402
@@ -28,7 +29,11 @@ def main() -> int:
         identifier = uuid5(
             NAMESPACE_URL, "control-deck:import:" + digest_text(args.title + "\n" + content)
         )
-        store = configured_store()
+        settings = load_kb_settings()
+        if settings.profile != "simulation":
+            # --simulate is a promise: this script never writes into a runtime store.
+            raise KnowledgeError("knowledge_import_simulation_only")
+        store = configured_store(settings)
         try:
             store.put_document(
                 document_id=identifier,

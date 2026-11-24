@@ -9,6 +9,7 @@ from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session
 
+from app.channels.receipt import accept_task_receipt
 from app.core.schemas import ResultV1, TaskV1
 from app.core.validate import validate_result, validate_task
 from app.db.models import Event, Result, Task
@@ -149,7 +150,8 @@ def approve_task(session: Session, task: Task) -> None:
             detail={"reason": "routing", "code": plan.reason},
         )
         return
-    task.approved_at = datetime.now(tz=UTC)
+    accepted_at = datetime.now(tz=UTC)
+    task.approved_at = accepted_at
     transition_task(
         session,
         task=task,
@@ -166,6 +168,7 @@ def approve_task(session: Session, task: Task) -> None:
         },
         actor=TransitionActor.OPERATOR,
     )
+    accept_task_receipt(session, task, now=accepted_at)
 
 
 def record_gate_error(

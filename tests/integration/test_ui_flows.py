@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from uuid import UUID
@@ -24,6 +25,8 @@ from app.services.tasks import OwnerTaskError, act_on_task
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
 from app.ui.chat import SimulatedChat
 from app.ui.forms import task_from_form
+from app.workers.lanes.ollama import OllamaExecutor, OllamaSimulation
+from app.workers.ollama_lane import OllamaLaneRunner
 from app.workers.runner import HostRunner
 from app.workers.runner_main import SimulationExecutor
 from tests.integration.test_data_gate import privacy_paths as privacy_paths
@@ -783,3 +786,83 @@ def test_control_success_uses_303(ui_client):
         "/ui/control", data={"csrf": csrf, "key": "paused", "value": "true"}, follow_redirects=False
     )
     assert response.status_code == 303 and response.headers["location"] == "/ui/lanes"
+
+
+def test_silent_worker_is_visible_then_falls_back_once(
+    ui_client, db_session, tmp_path, monkeypatch, privacy_paths
+):
+    """Intake, a bounded missing answer, one fallback, and the phone-visible outcome."""
+    router = tmp_path / "router.yaml"
+    router.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "lanes": {
+                    "ollama": {"enabled": True, "models": {"default": "fixture-model"}},
+                    "claude": {"enabled": True, "models": {"default": "fixture-model"}},
+                },
+            }
+        )
+    )
+    monkeypatch.setenv("DECK_ROUTER_FILE", str(router))
+    csrf = login(ui_client)
+    location = create(
+        ui_client,
+        csrf,
+        data_class="cloud_ok",
+        cloud_confirm="yes",
+        fallback_chain="ollama,claude",
+        instructions="Produce synthetic text.",
+    )
+    opened = ui_client.get(location)
+    assert opened.status_code == 200
+    assert "Eingang" in opened.text and "Start-Freigabe offen" in opened.text
+    assert "Noch offen" in opened.text
+    approved = ui_client.post(
+        location + "/approve-start",
+        data={"csrf": csrf, "confirm": "yes"},
+        follow_redirects=False,
+    )
+    assert approved.status_code == 303
+    factory = sessionmaker(bind=db_session.get_bind(), autoflush=False)
+
+    class CountingExecutor(OllamaExecutor):
+        def __init__(self) -> None:
+            super().__init__(
+                profile="simulation",
+                simulation=OllamaSimulation(models=("fixture-model",), behavior="delay", delay_s=5),
+                timeout_s=0.5,
+            )
+            self.runs = 0
+
+        def execute(self, context):
+            self.runs += 1
+            return super().execute(context)
+
+    silent = CountingExecutor()
+    started = time.monotonic()
+    outcome = OllamaLaneRunner(factory, runs_root=tmp_path / "runs", executor=silent).run_once()
+    assert time.monotonic() - started < 8
+    assert outcome.status == "queued" and silent.runs == 1
+    db_session.expire_all()
+    waiting = ui_client.get(location)
+    assert "Fehler: Zeitlimit" in waiting.text
+    assert "Worker gestartet" in waiting.text
+    assert "Nächste passende Lane ist vorgemerkt" in waiting.text
+    assert "Simulation, kein Anbieter-Nachweis" in waiting.text
+    resumed = HostRunner(factory, runs_root=tmp_path / "runs").run_once(
+        Worker.CLAUDE, SimulationExecutor(Worker.CLAUDE)
+    )
+    assert resumed.action == "completed" and resumed.status == "review"
+    assert (
+        OllamaLaneRunner(factory, runs_root=tmp_path / "runs", executor=silent).run_once().action
+        == "idle"
+    )
+    assert silent.runs == 1
+    db_session.expire_all()
+    visible = ui_client.get(location)
+    assert "simulation-ok" in visible.text
+    assert "Ergebnis da" in visible.text
+    assert "Späterer Versuch" in visible.text
+    assert "Nächste passende Lane ist vorgemerkt" not in visible.text
+    assert db_session.scalar(select(func.count()).select_from(Result)) == 2

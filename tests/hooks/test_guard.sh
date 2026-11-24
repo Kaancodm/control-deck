@@ -40,6 +40,10 @@ payload_with_command() {
   python3 -c 'import json, sys; print(json.dumps({"tool_name": "Bash", "tool_input": {"command": sys.argv[1]}}))' "$1"
 }
 
+payload_with_shell_command() {
+  python3 -c 'import json, sys; print(json.dumps({"tool_name": "Shell", "tool_input": {"command": sys.argv[1]}}))' "$1"
+}
+
 echo "guard.sh: invalid JSON blocks"
 run_guard 2 'not-json' 'invalid-json'
 
@@ -83,6 +87,13 @@ PY
 )"
 run_guard 0 "$large_payload" 'large-payload'
 
+echo "guard.sh: Shell tool uses the same command rules and still blocks a missing path"
+run_guard 0 "$(payload_with_shell_command 'uv run pytest tests/unit/')" 'shell-safe'
+run_guard 2 "$(payload_with_shell_command 'cat .env')" 'shell-secret'
+run_guard 2 "$(payload_with_shell_command 'cat "$TARGET"')" 'shell-dynamic'
+run_guard 2 '{"tool_name":"Shell","tool_input":{}}' 'shell-missing-command'
+run_guard 2 '{"tool_name":"Shell","tool_input":{"file_path":""}}' 'shell-empty-path'
+
 echo "guard.sh: ordinary Bash checks and explicit inspection allowed"
 for command in 'uv run pytest tests/unit/' 'uv run ruff check .' \
   'git status --short && git diff --stat' 'cat public/notes.txt'; do
@@ -104,5 +115,8 @@ for command in 'cat "$TARGET"' 'cat $(printf .env)' 'cat `printf .env`' \
 done
 run_guard 2 '{"tool_name":"Bash","tool_input":{}}' 'missing-command'
 run_guard 2 "$(payload_with_command 'cat "')" 'unclosed-quote'
+
+echo "guard.sh: an empty write path stays blocked"
+run_guard 2 '{"tool_name":"Write","tool_input":{"file_path":""}}' 'empty-file-path'
 
 echo "guard.sh: all $CASE_COUNT cases passed"

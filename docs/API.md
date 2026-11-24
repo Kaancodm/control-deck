@@ -82,7 +82,7 @@ Regeln, Antwortbedeutung und Grenzen: [ROUTING.md](ROUTING.md).
 | Personendaten oder geschuetzte Kennungen in `local_only` | **201**, `awaiting_approval` |
 | Nicht geheime Treffer in `cloud_ok` oder nicht unterstuetzte Treffer in `cloud_redacted` | **201**, `blocked`, keine Lease moeglich |
 | Unterstuetzte Treffer in `cloud_redacted` | **201**, `awaiting_approval`; vor Auslieferung lokal pseudonymisiert |
-| Unsichere, unlesbare oder nicht unterstuetzte Datei; Groessenlimit; `context_refs` | **422**, keine Speicherung |
+| Unsichere, unlesbare oder nicht unterstuetzte Datei; Groessenlimit; fehlende, unzulaessige oder nicht verfuegbare `context_refs` | **422**, keine Speicherung |
 | Fehlende Blocklist-Konfiguration fuer Cloud oder fehlerhafte konfigurierte Liste | **503**, keine Speicherung |
 
 Die API meldet bei Datenschutztreffern ausschliesslich Kategorie, Regel, strukturelles Feld und

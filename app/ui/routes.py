@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.api.deps import DbSession
+from app.assistant.providers import activation_status
 from app.audit.presentation import (
     ACTORS,
     AUTH_EVENT_TYPES,
@@ -26,8 +29,10 @@ from app.audit.presentation import (
 )
 from app.audit.repository import list_audit
 from app.audit.service import read_lane_health
+from app.channels.receipt import channel_facts, settle_task_receipt
 from app.core.schemas import DataClass, TaskV1, Worker
 from app.db.failures import list_failed_tasks
+from app.db.models import ChannelReceipt, Task
 from app.db.settings import read_settings, update_settings
 from app.db.state_machine import InvalidTaskTransitionError, TaskState
 from app.db.ui_auth import (
@@ -67,9 +72,33 @@ from app.ui.chat import ChatError, ChatRequest, UnavailableChat, ask_local
 from app.ui.files import MAX_FILE_BYTES, UiFileError, Upload, read_payload, store_uploads
 from app.ui.forms import FormError, form_from_draft, task_from_form, validate_draft
 from app.ui.middleware import MAX_BODY_BYTES
-from app.ui.views import page, preview_context, preview_redirect
+from app.ui.overview import (
+    PENDING_LANES,
+    PROJECT_STATUS,
+    PROJECT_STATUS_DATE,
+    WAKE_FACTS,
+    assistant_facts,
+    claims_summary,
+    feature_flags,
+    lane_rows,
+    lane_summary,
+    latest_outcome,
+    network_nodes,
+    open_points,
+    workflow_steps,
+)
+from app.ui.progress import AttemptProgress, attempt_progress
+from app.ui.views import HOME_PATH, page, preview_context, preview_redirect
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ui", include_in_schema=False)
+root_router = APIRouter(include_in_schema=False)
+
+
+@root_router.get("/")
+def root() -> Response:
+    # Fixed internal target; no query, cookie or session is read here.
+    return RedirectResponse("/ui", status_code=303)
 
 
 class UiError(Exception):
@@ -78,9 +107,18 @@ class UiError(Exception):
         self.status = status
 
 
-def owner(request: Request, session: Session) -> None:
+def require_owner(request: Request, session: Session) -> None:
     if get_ui_session(session, request.cookies.get(SESSION_COOKIE)) is None:
         raise UiError("login_required", 401)
+
+
+def owner(request: Request, session: Session) -> None:
+    require_owner(request, session)
+    load_owner_state(request, session)
+
+
+def load_owner_state(request: Request, session: Session) -> None:
+    """Runner controls and lane health for the shell; both are database reads."""
     request.state.controls = read_settings(session)
     try:
         request.state.lane_health = read_lane_health(session)
@@ -157,7 +195,7 @@ def csrf(request: Request, session: Session, data: FormData, *, anonymous: bool 
 
 @router.get("")
 def index() -> Response:
-    return RedirectResponse("/ui/tasks", status_code=303)
+    return RedirectResponse(HOME_PATH, status_code=303)
 
 
 @router.get("/login")
@@ -165,7 +203,7 @@ def login_page(request: Request, session: DbSession) -> Response:
     settings = get_auth_settings()
     existing = get_ui_session(session, request.cookies.get(SESSION_COOKIE), owner_required=False)
     if existing is not None and existing.authenticated:
-        return RedirectResponse("/ui/tasks", status_code=303)
+        return RedirectResponse(HOME_PATH, status_code=303)
     if owner_login_locked(session):
         return page(request, "login.html", owner=False, login_locked=True, status=423)
     retry_after = limit_login_page(session, settings, client=client_address(request))
@@ -202,7 +240,7 @@ def login(request: Request, session: DbSession, data: ParsedForm) -> Response:
     )
     session.commit()
     if outcome.credentials is not None:
-        response: Response = RedirectResponse("/ui/tasks", status_code=303)
+        response: Response = RedirectResponse(HOME_PATH, status_code=303)
         set_session_cookies(response, outcome.credentials, settings)
         return response
     if outcome.code == "login_locked":
@@ -241,6 +279,115 @@ def logout_all(request: Request, session: DbSession, data: ParsedForm) -> Respon
     response = RedirectResponse("/ui/login", status_code=303)
     clear_session_cookies(response, settings)
     return response
+
+
+def schema_head(session: Session) -> str | None:
+    """Read the Alembic head without writing. Missing or unreadable means it is not shown."""
+    try:
+        with session.begin_nested():
+            heads = session.scalars(text("SELECT version_num FROM alembic_version")).all()
+    except SQLAlchemyError:
+        return None
+    return " + ".join(sorted(heads)) or None
+
+
+# Sections the overview may open server-side; anything else in ``open`` is ignored.
+_OPENABLE_SECTIONS = frozenset({"meldungen"})
+
+
+@router.get("/overview")
+def overview(request: Request, session: DbSession) -> Response:
+    """Owner overview. Only existing read functions; every number has a stored source."""
+    require_owner(request, session)
+    flags = feature_flags()
+    requested = request.query_params.get("open", "")
+    shared: dict[str, Any] = {
+        "pending_lanes": PENDING_LANES,
+        "flags": flags,
+        "activation": activation_status(),
+        "assistant_facts": assistant_facts(),
+        "wake_facts": WAKE_FACTS,
+        "project_status": PROJECT_STATUS,
+        "project_status_date": PROJECT_STATUS_DATE,
+        "open_section": requested if requested in _OPENABLE_SECTIONS else None,
+    }
+    try:
+        load_owner_state(request, session)
+        lanes = request.state.lane_health
+        health_unavailable = getattr(request.state, "health_unavailable", False)
+        _, waiting_total = list_owner_tasks(session, needs_owner=True, limit=1)
+        # Pages are newest first, so the last offset is the oldest waiting task.
+        oldest, _ = (
+            list_owner_tasks(session, needs_owner=True, limit=1, offset=waiting_total - 1)
+            if waiting_total
+            else ([], 0)
+        )
+        _, blocked_total = list_owner_tasks(session, state=TaskState.BLOCKED, limit=1)
+        recent = list_audit(session, AuditFilter(limit=5))
+        backups = list_audit(
+            session, AuditFilter(source="operation", event_type="operation.backup", limit=10)
+        )
+        restores = list_audit(
+            session, AuditFilter(source="operation", event_type="operation.restore", limit=10)
+        )
+    except SQLAlchemyError as exc:
+        # Honest gap instead of an unhandled 500: no counts, no lane data, no empty claims.
+        session.rollback()
+        logger.warning("ui overview read failed: %s", type(exc).__name__)
+        request.state.lane_health = []
+        unknown = lane_summary([], health_unavailable=True)
+        return page(
+            request,
+            "overview.html",
+            status=503,
+            error="temporarily_unavailable",
+            data_unavailable=True,
+            controls=None,
+            lanes_summary=unknown,
+            nav_counts={"lanes": unknown.total},
+            **shared,
+        )
+    summary = lane_summary(lanes, health_unavailable=health_unavailable)
+    focus = oldest[0] if oldest else None
+    last_backup = latest_outcome(backups.items)
+    last_restore = latest_outcome(restores.items)
+    points = open_points(
+        controls=request.state.controls,
+        waiting_total=waiting_total,
+        blocked_total=blocked_total,
+        lanes=lanes,
+        health_unavailable=health_unavailable,
+        flags=flags,
+        last_backup=last_backup,
+        last_restore=last_restore,
+    )
+    return page(
+        request,
+        "overview.html",
+        waiting_total=waiting_total,
+        focus=focus,
+        steps=workflow_steps(None if focus is None else focus.status.value),
+        open_points=points,
+        audit=recent.items,
+        csv_url="/ui/audit.csv?limit=5",
+        last_backup=last_backup,
+        last_restore=last_restore,
+        claims=claims_summary(lanes),
+        lane_rows=lane_rows(lanes),
+        lanes_summary=summary,
+        net=network_nodes(
+            lanes=lanes,
+            flags=flags,
+            last_backup=last_backup,
+            health_unavailable=health_unavailable,
+        ),
+        schema_head=schema_head(session),
+        nav_counts={
+            "lanes": summary.total,
+            "open": sum(1 for point in points if point.tone == "warn"),
+        },
+        **shared,
+    )
 
 
 @router.get("/tasks")
@@ -357,6 +504,48 @@ def create_task(request: Request, session: DbSession, data: ParsedForm) -> Respo
         return page(request, "task_form.html", values={}, error=code, status=422)
 
 
+def _attempt_progress(task: Task, session: Session) -> AttemptProgress:
+    """Read stored events and the channel receipt. Worker start is a separate line."""
+    settle_task_receipt(session, task.id)
+    receipt = session.scalar(select(ChannelReceipt).where(ChannelReceipt.task_id == task.id))
+    channel_status, channel_transport = channel_facts(receipt)
+    result = max(task.results, key=lambda row: row.attempt, default=None)
+    result_status = None
+    error_code = None
+    profile = None
+    if result is not None:
+        stored = result.payload.get("status")
+        result_status = stored if isinstance(stored, str) else None
+        profile = result.execution_profile
+        raw_error = result.payload.get("error")
+        if isinstance(raw_error, dict):
+            code = raw_error.get("code")
+            error_code = code if isinstance(code, str) else None
+    fallback = task.status == TaskState.QUEUED and any(
+        isinstance(event.detail, dict) and event.detail.get("retry_action") == "fallback"
+        for event in task.events
+    )
+    started: list[int] = []
+    for event in task.events:
+        if event.event_type != "task.start" or not isinstance(event.detail, dict):
+            continue
+        attempt = event.detail.get("attempt")
+        if type(attempt) is int:
+            started.append(attempt)
+    return attempt_progress(
+        status=task.status.value,
+        current_attempt=task.attempt,
+        started_attempts=tuple(started),
+        result_attempt=None if result is None else result.attempt,
+        result_status=result_status,
+        error_code=error_code,
+        execution_profile=profile,
+        fallback_pending=fallback,
+        channel_status=channel_status,
+        channel_transport=channel_transport,
+    )
+
+
 @router.get("/tasks/{task_id}")
 def detail(request: Request, task_id: UUID, session: DbSession) -> Response:
     owner(request, session)
@@ -378,6 +567,7 @@ def detail(request: Request, task_id: UUID, session: DbSession) -> Response:
         request,
         "task_detail.html",
         task=task,
+        progress=_attempt_progress(task, session),
         outputs=outputs,
         contexts=contexts,
         context_unavailable=context_unavailable,

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 from pathlib import Path
 
 import pytest
 
-from app.operations.errors import OperationError
+from app.operations.errors import OperationError, ProcessExitError
 from app.operations.process import run_command
 
 
@@ -43,3 +44,17 @@ def test_process_limits_and_safe_errors(script: str, code: str) -> None:
         )
     assert error.value.code == code
     assert "private-diagnostic" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("script", "returncode"),
+    [
+        ("import sys;sys.exit(3)", 3),
+        ("import os,signal;os.kill(os.getpid(),signal.SIGTERM)", -signal.SIGTERM),
+    ],
+)
+def test_failed_exit_keeps_the_return_code(script: str, returncode: int) -> None:
+    with pytest.raises(ProcessExitError) as error:
+        run_command((sys.executable, "-c", script), env={"PATH": os.defpath}, timeout_s=20)
+    assert error.value.code == "process_failed"
+    assert error.value.returncode == returncode

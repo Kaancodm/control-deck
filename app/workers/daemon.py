@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import math
 import os
 import signal
@@ -11,8 +12,8 @@ import sys
 import threading
 from collections.abc import Mapping
 
-from app.core.schemas import Worker
-from app.operations.errors import OperationError
+from app.core.schemas import ATTEMPT_TIMEOUT_MAX_S, Worker
+from app.operations.errors import OperationError, ProcessExitError
 from app.operations.process import run_command
 from app.workers.live_config import LiveConfigurationError, load_live_config
 
@@ -25,11 +26,34 @@ _ENVIRONMENT = {
     "DECK_LIVE_ENABLED",
     "DECK_OLLAMA_URL",
 }
+# The signals main() handles. SIGKILL is excluded: it can also be the OOM killer.
+_STOP_SIGNALS = frozenset({signal.SIGTERM, signal.SIGINT})
+_log = logging.getLogger(__name__)
 
 
 def runner_environment(source: Mapping[str, str]) -> dict[str, str]:
     """Forward only host-runner configuration, excluding owner and lane credentials."""
     return {"PATH": os.defpath, **{key: source[key] for key in _ENVIRONMENT if key in source}}
+
+
+def _ended_by_service_stop(error: OperationError, stop: threading.Event) -> bool:
+    """Accept only our own stop: a timeout or a real exit code is a finished attempt."""
+    if error.code == "service_stopping":
+        return True
+    return (
+        stop.is_set() and isinstance(error, ProcessExitError) and -error.returncode in _STOP_SIGNALS
+    )
+
+
+def _record_failed_attempt(worker: Worker, error: OperationError, *, during_stop: bool) -> None:
+    """Journal the stable reason; the attempt identity stays inside the child runner."""
+    entry = {
+        "event": "runner_attempt_failed",
+        "worker": worker.value,
+        "reason": error.code,
+        "during_stop": during_stop,
+    }
+    _log.warning("%s", json.dumps(entry, sort_keys=True))
 
 
 def run_loop(
@@ -39,7 +63,7 @@ def run_loop(
     stop: threading.Event,
     iterations: int = 0,
     poll_seconds: float = 1,
-    attempt_timeout_s: float = 3600,
+    attempt_timeout_s: float = ATTEMPT_TIMEOUT_MAX_S,
     live: bool = False,
     command: tuple[str, ...] | None = None,
 ) -> int:
@@ -79,9 +103,12 @@ def run_loop(
                 cancelled=stop.is_set,
             )
         except OperationError as error:
-            if error.code == "service_stopping":
+            # A service stop can kill the child first, which reads as a process failure.
+            # The abandoned attempt keeps its lease, so the queue retries it after expiry.
+            if _ended_by_service_stop(error, stop):
                 break
-            if live:
+            _record_failed_attempt(worker, error, during_stop=stop.is_set())
+            if live and not stop.is_set():
                 # Unavailable providers are normal runner outcomes. A failed host
                 # process must reach systemd's supervisor restart policy instead.
                 raise

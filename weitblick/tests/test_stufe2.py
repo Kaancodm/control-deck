@@ -404,10 +404,25 @@ class WriterAndFlowTests(Stage2Base):
 
     def test_t4_mock_rejects_unknown_retain_fields(self):
         # Defence of T4: the fake models the real v1.2.1 field list, not the client.
+        payload = {
+            "items": [
+                {
+                    "content": "x",
+                    "document_id": "id",
+                    "context": "c",
+                    "metadata": {},
+                }
+            ],
+            "async": False,
+            "mode": "chunks",
+        }
         request = urllib.request.Request(
             URL + "/v1/default/banks/weitblick/memories",
-            data=json.dumps({"items": [{"content": "x", "document_id": "id", "context": "c", "metadata": {}}], "async": False, "mode": "chunks"}).encode(),
-            headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"},
+            data=json.dumps(payload).encode(),
+            headers={
+                "Authorization": "Bearer " + TOKEN,
+                "Content-Type": "application/json",
+            },
             method="POST",
         )
         with self.assertRaisesRegex(AssertionError, "Unknown retain fields"):
@@ -677,8 +692,9 @@ class SK80Tests(Stage2Base):
         self.assertTrue(gets_a[0].endswith("/banks/" + SK80_BANK_A + "/documents/sk80-x-t0001"))
         chunk_urls = [c["url"] for c in self.fake.calls if "/chunks/" in c["url"]]
         self.assertEqual(len(chunk_urls), 2)
-        self.assertTrue(any("Lesen Chunk X aus B: HTTP 200" in s for s in report["schritte"]))
-        self.assertTrue(any("Lesen Chunk X unter Bank A: HTTP 404" in s for s in report["schritte"]))
+        steps = report["schritte"]
+        self.assertTrue(any("Lesen Chunk X aus B: HTTP 200" in s for s in steps))
+        self.assertTrue(any("Lesen Chunk X unter Bank A: HTTP 404" in s for s in steps))
 
     def test_sk80_cross_bank_read_fails(self):
         self.fake.leak_get = True
@@ -689,7 +705,10 @@ class SK80Tests(Stage2Base):
         self.fake.leak_chunk = True
         report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0009")
         self.assertEqual(report["sk80"], sk80.FAILED)
-        self.assertTrue(any("Lesen Chunk X unter Bank A" in s and "Erfolg" in s for s in report["schritte"]))
+        leaked = any(
+            "Lesen Chunk X unter Bank A" in s and "Erfolg" in s for s in report["schritte"]
+        )
+        self.assertTrue(leaked)
 
     def test_sk80_cross_bank_delete_fails(self):
         self.fake.leak_delete = True
@@ -839,7 +858,7 @@ class VertragTests(unittest.TestCase):
     def test_f2_missing_mode_is_not_a_deviation(self):
         ok, lines = vertrag.check(synthetic_openapi(with_mode=False))
         self.assertTrue(ok, lines)
-        self.assertTrue(all("mode" not in line or line.startswith("OK:") or line.startswith("INFO:") for line in lines if "ABWEICHUNG" in line) or True)
+        self.assertFalse(any(line.startswith("ABWEICHUNG:") for line in lines))
         self.assertFalse(any("Retain-Feld 'mode' fehlt" in line for line in lines))
 
     def test_f2_unexpected_mode_is_info_not_deviation(self):

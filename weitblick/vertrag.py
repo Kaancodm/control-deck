@@ -106,7 +106,9 @@ def check(spec):
             lines.append(
                 "INFO: Retain-Feld 'mode' steht im Schema, ist in v1.2.1 aber kein Request-Feld"
             )
-        unknown = sorted(name for name in top if name not in RETAIN_ALLOWED_TOP_FIELDS and name != "mode")
+        unknown = sorted(
+            name for name in top if name not in RETAIN_ALLOWED_TOP_FIELDS and name != "mode"
+        )
         if unknown:
             lines.append("INFO: zusaetzliche Retain-Felder: " + ", ".join(unknown))
         present = [field for field in RETAIN_TOP_FIELDS if field in top]

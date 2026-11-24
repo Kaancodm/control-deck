@@ -152,12 +152,14 @@ def run_sk80(client, bank_a, bank_b, tag=None):
             steps.append(f"Lesen Chunk X aus B: HTTP {response.status}, Chunk nachgewiesen")
         else:
             steps.append(
-                f"Lesen Chunk X aus B: HTTP {response.status}, Form unbekannt; Chunk-Pfad bleibt offen"
+                f"Lesen Chunk X aus B: HTTP {response.status}, "
+                "Form unbekannt; Chunk-Pfad bleibt offen"
             )
             verdicts.append(OPEN)
     else:
         steps.append(
-            f"Lesen Chunk X aus B: HTTP {response.status}, nicht nachgewiesen; Chunk-Pfad bleibt offen"
+            f"Lesen Chunk X aus B: HTTP {response.status}, "
+            "nicht nachgewiesen; Chunk-Pfad bleibt offen"
         )
         verdicts.append(OPEN)
 

@@ -1,8 +1,34 @@
 # Stand des Repositorys
 
-## Nachtrag 2026-11-10: Wissens-DB mit echtem Embedding als Draft
+## Aktueller Stand (24.11.2026)
 
-Der Zweig `feat/kb-real-embedding` stellt die Wissens-DB auf ein lokales Ollama-Embedding mit
+Quelle: `git log` und `gh pr view` am 24.11.2026, Zeiten Europe/Zurich.
+`main` steht auf `75318c9` (#99).
+
+- Etappe 17 ist seit 03.11.2026 18:25 CET auf `main` (PR #32, `d118e0d`).
+- Der Ollama-Live-Stack ist seit 05.11.2026 auf `main`, darunter #39
+  (06:27 CET, `ccce403`), #40 (06:33 CET, `0d344d8`) und #44
+  (07:31 CET, `537c121`). Der aeltere Satz «Der Live-Stack bleibt ungemergt»
+  gilt nicht mehr. Canary, Live-Referenzmodus und ein Serverlauf bleiben offen.
+- Die UI-Angleichung an das Command-Center ist seit 10.11.2026 15:49 CET auf
+  `main` (PR #73, `92aadd3`).
+- Das echte lokale Embedding der Wissens-DB ist seit 10.11.2026 20:11 CET auf
+  `main` (PR #83, `a3f97fc`). Runtime-Migration und Profil-Aktivierung bleiben
+  beim Owner.
+- Weitblick Stufe 1 ist seit 23.11.2026 19:13 CET auf `main` (PR #96, `8d5f9e0`).
+  Der gemeinsame begrenzte JSON-Body-Reader fuer Ollama-HTTP ist seit
+  24.11.2026 12:59 CET auf `main` (PR #97, `6123488`). Weitblick Stufe 2 ist
+  seit 24.11.2026 13:44 CET auf `main` (PR #98, `979b89b`), die Haertung seit
+  24.11.2026 20:32 CET (PR #99, `75318c9`).
+- Gesamt-Abnahme, Inbetriebnahme, Tag `v1.0` und die Weitblick-Serverpruefung
+  bleiben offen. Zu Etappe 18 liegt der Lasttest #48 auf `main`.
+
+Die Nachtraege und Etappenabschnitte darunter bleiben als historische Notizen
+stehen; wo sie dem Stand oben widersprechen, gilt dieser Abschnitt.
+
+## Nachtrag 2026-11-10: Wissens-DB mit echtem Embedding (#83, gemergt)
+
+PR #83 (`feat/kb-real-embedding`, gemergt 10.11.2026 20:11 CET, `a3f97fc`) stellt die Wissens-DB auf ein lokales Ollama-Embedding mit
 1024 Dimensionen um (`kb_0002`, `OllamaEmbeddings`, Profil `runtime`, ADR 0011). Der Fake bleibt
 Standard, `disabled` bleibt das Standardprofil. Vor dem ersten `/api/embed` prüft der Adapter
 `/api/show` für `<modell>:local` und weist `remote_host`, `remote_model` sowie Cloud-Kennungen
@@ -14,9 +40,10 @@ nach einem Ollama-Update erneut zu prüfen). Nicht ausgerollt: Runtime-Migration
 Aktivierung des Profils und der Rollout aus
 [OPERATIONS.md](OPERATIONS.md#rollout-echtes-embedding-der-wissens-db) bleiben beim Owner.
 
-## Nachtrag 2026-11-10: UI-Angleichung als Draft
+## Nachtrag 2026-11-10: UI-Angleichung (#73, gemergt)
 
-Der Zweig `feat/ui-command-center-shell` setzt PR 1 aus
+PR #73 (`feat/ui-command-center-shell`, gemergt 10.11.2026 15:49 CET, `92aadd3`)
+setzt PR 1 aus
 [plans/UI_MOCKUP_ANGLEICHUNG.md](plans/UI_MOCKUP_ANGLEICHUNG.md) um: neue Shell,
 Übersicht unter `/ui/overview`, Redirect von `/`, überarbeitete Anmelde- und
 Assistentenseite. Auth, Session, CSRF, Login-Limit und CSP sind unverändert; der Zweig
@@ -51,7 +78,7 @@ Integrationsstand enthaelt die Kanal-Quittung und das Ergebnis nach externem
 Runner-Abbruch. Der Folgezweig ergaenzt den ausgeschalteten Routine-Wake aus
 [TRANSPORT.md](TRANSPORT.md). Die GitHub-Entwuerfe bleiben getrennt.
 
-## Nachtrag: Ollama Live-Adapter als Draft
+## Nachtrag: Ollama Live-Adapter (#39, #40, #44, gemergt 05.11.2026)
 
 Der auf `main` nach #37 neu aufgebaute Stack ergänzt gemäss [ADR 0009](DECISIONS/0009-ollama-loopback-http.md)
 den strikten Runner-Schalter, Loopback-HTTP für Ollama 0.40.14 und getrennte
@@ -65,20 +92,22 @@ Der systemd-Prüftest verwendet jetzt passend zu den installierten User-Units
 `systemd-analyze --user` und ein privates Runtime-Verzeichnis. Die bisherige
 System-Scope-Annahme erforderte unnötig lokale Systemrechte. Gültige Vorlagen
 bestehen; eine absichtlich beschädigte Vorlage wird weiterhin abgewiesen.
-Aktuelle Lint-, Test- und CI-Nachweise stehen in den Draft-PRs.
+Aktuelle Lint-, Test- und CI-Nachweise stehen in den gemergten PRs und in der CI auf `main`.
 
 Merge-Reihenfolge: #37 zuerst, danach #39, #40, #41, #42, #44, #45, #46, #47.
 #37 wurde ausserhalb dieser Arbeit als `a33cc3f` übernommen; der Live-Stack
-ist auf diesen tatsächlichen Main-Commit neu aufgebaut.
+wurde auf diesen tatsächlichen Main-Commit neu aufgebaut und ist seit 05.11.2026
+auf `main` (Reihenfolge #37, danach #39, #40, #41, #42, #44, #45, #46, #47).
+#39, #40 und #44 sind um 06:27, 06:33 und 07:31 CET gemergt.
 Die Login-Migration `20261104_0017` bleibt unverändert; die Provenienz-Migration
 `20261104_0018` folgt mit `down_revision = "20261104_0017"`. Health ermittelt den
 Alembic-Head weiterhin dynamisch. #43 ist nach dem dokumentierten Abgleich zugunsten
-von #39 zurückgezogen. Der Live-Stack bleibt ungemergt; ein Serverlauf erfolgte
-nicht. Jeder weitere Merge verlangt weiterhin ausdrückliches Owner-GO.
+von #39 zurückgezogen. Ein Serverlauf erfolgte nicht. Canary, Live-Referenzmodus
+und echte Modelle bleiben ungeprüft und brauchen Owner-GO.
 
-## Etappe 17 implementiert und lokal geprüft
+## Etappe 17 implementiert und lokal geprüft (#32, gemergt)
 
-Draft-PR: [#32](https://github.com/Kaancodm/control-deck/pull/32), gestapelt auf Etappe 16.
+PR [#32](https://github.com/Kaancodm/control-deck/pull/32), gemergt 03.11.2026 18:25 CET (`d118e0d`), gestapelt auf Etappe 16.
 Migration `0016` zählt ausschliesslich endgültig angenommene Ergebnisse, atomar mit
 Ergebnis und Statuswechsel. Zähler beginnen bei dieser Migration; positive Vorprüfungen
 bleiben getrennt. 15 SQL-Integrationstests prüfen Konkurrenz, verworfene Ergebnisse,
@@ -114,8 +143,9 @@ Anwendung, Migrationen und Tests sind identisch. CI des finalen Heads steht im P
 Der Abnahme-Entwurf aus
 Checkpoint `a2e6ff3` liegt unter `docs/ABNAHME_CHECKLISTE_ENTWURF.md`; sein Backup-Kriterium
 verlangt nun ausdrücklich beide Datenbanken, zwei leere Ziele und fehlgeschlagene Teil-Restores.
-Etappe 18 wird damit nicht gestartet. Externes Review durch einen anderen Anbieter
-und Owner-Merge bleiben ausstehend.
+PR #32 ist seit 03.11.2026 auf `main`. Etappe 18 (Abnahme 1.0, Tag `v1.0`)
+ist nicht abgeschlossen; auf `main` liegt der Lasttest #48. Gesamt-Abnahme
+und Inbetriebnahme bleiben offen.
 
 ### Inbetriebnahme
 

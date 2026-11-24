@@ -98,3 +98,10 @@ PR #99 gemergt 24.11.2026 20:32 CET (`75318c9`, mergedAt 2026-11-24T19:32:53Z, m
 CLAUDE.md, COORDINATION.md, LEADERBOARD.md, WORKLOG.md, README.md, CHANGELOG.md und `docs/ETAPPEN/README.md` nachgefuehrt. Kein Produktcode, kein Merge.
 Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 85.72s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
 Offen: Etappe 18 Abnahme und Tag v1.0, Weitblick-Serverpruefung, Egress-Proxy, Ollama-Modelle.
+
+## 2026-11-24 23:17 — Builder — Soll zu PR #101 (STAND und Changelog)
+
+`docs/STAND.md` auf den Stand von `main` nachgezogen: #83, #73 und #32 gemergt; Live-Stack #39/#40/#44 seit 05.11. auf `main`; Weitblick und #96 bis #99 ergaenzt. Quelle: `git log` und `gh pr view`.
+CHANGELOG: `retain_extraction_mode=chunks` als Bank- oder Server-Einstellung; Zurueckgeben nur bei `reserviert` ohne `sendet`, sonst `unklar` und offen.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 83.55s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Abnahme und Tag v1.0, Weitblick-Serverpruefung, Abgleich mit Draft #100. Kein Merge.

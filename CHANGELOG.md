@@ -9,12 +9,14 @@ Runtime-Rollouts bleiben offen.
 ### Weitblick Stufe 2 und Haertung (#98, #99)
 
 - Stufe 2 (#98, Merge 24.11.2026 13:44 CET, `979b89b`): Hindsight-Spiegel nur fuer Bank
-  `weitblick` (Modus chunks), gemeinsamer Pipeline-Pfad fuer CLI und Nachtlauf, S-K80-
-  und Vertragspruefer, `SERVERPRUEFUNG.md`. JSONL bleibt massgebend.
+  `weitblick`. `retain_extraction_mode=chunks` ist eine Bank- oder Server-Einstellung,
+  nicht ein Feld der Retain-Anfrage. Gemeinsamer Pipeline-Pfad fuer CLI und Nachtlauf,
+  S-K80- und Vertragspruefer, `SERVERPRUEFUNG.md`. JSONL bleibt massgebend.
 - Haertung (#99, Merge 24.11.2026 20:32 CET, `75318c9`): einheitliche Exit-Codes
-  (S-K80 `offen` = 4, Exit 3 nur Auth 401/403), Rollback verdeckt Auth nicht,
-  Reservierung nach Abbruch beim naechsten Start zurueck, Token-Formatpruefung ohne
-  Ausgabe des Tokens.
+  (S-K80 `offen` = 4, Exit 3 nur Auth 401/403), Rollback verdeckt Auth nicht.
+  Beim naechsten Start wird nur eine Reservierung im Zustand `reserviert` (ohne
+  `sendet`) zurueckgegeben; ein Eintrag mit `sendet` wird `unklar` und bleibt offen.
+  Token-Formatpruefung ohne Ausgabe des Tokens.
 
 ### Weitblick Stufe 1 (#96)
 

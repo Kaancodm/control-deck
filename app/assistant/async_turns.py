@@ -8,14 +8,15 @@ import queue
 import threading
 import time
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Literal
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.assistant.dialogue import DialogueReply, reply_to_owner, store_turn
+from app.assistant.dialogue import DialogueReply
 from app.assistant.errors import MODEL_BUSY_CODE, MODEL_BUSY_TEXT, AssistantError
+from app.assistant.memory_dialogue import conduct_dialogue
 
 _log = logging.getLogger(__name__)
 
@@ -52,8 +53,9 @@ class _DialogueWorkItem:
     session_factory: sessionmaker[Session]
     message: str
     data_class: str
-    profile_notes: str | None
-    history: tuple[tuple[str, str], ...]
+    include_profile: bool
+    include_history: bool
+    external_thread_id: str
     persist: bool
 
 
@@ -150,8 +152,9 @@ def start_dialogue_turn(
     *,
     message: str,
     data_class: str,
-    profile_notes: str | None,
-    history: Sequence[tuple[str, str]],
+    include_profile: bool,
+    include_history: bool,
+    external_thread_id: str,
     persist: bool,
 ) -> str:
     turn_id = str(uuid.uuid4())
@@ -172,8 +175,9 @@ def start_dialogue_turn(
             session_factory=session_factory,
             message=message,
             data_class=data_class,
-            profile_notes=profile_notes,
-            history=tuple(history),
+            include_profile=include_profile,
+            include_history=include_history,
+            external_thread_id=external_thread_id,
             persist=persist,
         )
     )
@@ -195,18 +199,18 @@ def _run_turn(item: _DialogueWorkItem) -> None:
                 job.updated_at = time.monotonic()
                 _notify_all()
 
-        reply = reply_to_owner(
-            item.message,
+        reply = conduct_dialogue(
+            session,
+            message=item.message,
             data_class=item.data_class,
-            profile_notes=item.profile_notes,
-            history=item.history,
+            include_profile=item.include_profile,
+            include_history=item.include_history,
+            external_thread_id=item.external_thread_id,
+            persist=item.persist,
             on_chunk=on_chunk,
         )
-        if item.persist:
-            reply = store_turn(session, reply, owner_text=item.message.strip())
-            session.commit()
-        else:
-            session.rollback()
+        # Quarantine rows are written even when the legacy persist flag is off.
+        session.commit()
         with _cond:
             job.reply = reply
             job.answer = reply.answer

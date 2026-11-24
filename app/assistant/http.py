@@ -32,14 +32,9 @@ from app.assistant.cards import (
     update_card,
 )
 from app.assistant.deepsearch import parse_corpus, run_deep_search
-from app.assistant.dialogue import (
-    current_profile,
-    recent_turns,
-    reply_to_owner,
-    store_turn,
-    write_profile,
-)
+from app.assistant.dialogue import current_profile, recent_turns, write_profile
 from app.assistant.errors import AssistantError
+from app.assistant.memory_dialogue import conduct_dialogue, normalize_external_thread_id
 from app.assistant.orders import describe_search, submit_order
 from app.assistant.providers import activation_status, resolve_search
 from app.assistant.records import AssistantCard, AssistantOrderKey, placeholders_of
@@ -109,24 +104,14 @@ def assistant_page(request: Request, session: DbSession) -> Response:
     return _page(request, session)
 
 
-def _talk_inputs(
-    session: DbSession, data: FormData
-) -> tuple[str, str, str | None, tuple[tuple[str, str], ...], bool]:
+def _talk_inputs(data: FormData) -> tuple[str, str, bool, bool, str, bool]:
     data_class = _text(data, "data_class")
     message = _text(data, "message")
-    notes = None
-    if _text(data, "include_profile") == "yes":
-        profile = current_profile(session)
-        notes = profile.notes if profile is not None else None
-    history: tuple[tuple[str, str], ...] = ()
-    if _text(data, "include_history") == "yes":
-        history = tuple(
-            (turn.owner_text, turn.reply_text)
-            for turn in recent_turns(session, limit=8)
-            if turn.data_class == data_class
-        )
+    include_profile = _text(data, "include_profile") == "yes"
+    include_history = _text(data, "include_history") == "yes"
+    external_thread_id = normalize_external_thread_id(_text(data, "external_thread_id"))
     persist = _text(data, "persist") == "yes"
-    return message, data_class, notes, history, persist
+    return message, data_class, include_profile, include_history, external_thread_id, persist
 
 
 @router.post("/talk")
@@ -134,28 +119,33 @@ def talk(request: Request, session: DbSession, data: ParsedForm) -> Response:
     owner(request, session)
     csrf(request, session, data)
     try:
-        message, data_class, notes, history, persist = _talk_inputs(session, data)
+        message, data_class, include_profile, include_history, external_thread_id, persist = (
+            _talk_inputs(data)
+        )
         if _text(data, "stream") == "yes":
             turn_id = start_dialogue_turn(
                 get_background_session_factory(),
                 message=message,
                 data_class=data_class,
-                profile_notes=notes,
-                history=history,
+                include_profile=include_profile,
+                include_history=include_history,
+                external_thread_id=external_thread_id,
                 persist=persist,
             )
             return JSONResponse(
                 {"turn_id": turn_id, "stream_url": f"/ui/assistant/talk/{turn_id}/stream"},
                 status_code=202,
             )
-        reply = reply_to_owner(
-            message,
+        reply = conduct_dialogue(
+            session,
+            message=message,
             data_class=data_class,
-            profile_notes=notes,
-            history=history,
+            include_profile=include_profile,
+            include_history=include_history,
+            external_thread_id=external_thread_id,
+            persist=persist,
         )
         if persist:
-            store_turn(session, reply, owner_text=message.strip())
             return RedirectResponse("/ui/assistant", status_code=303)
     except AssistantError as exc:
         return _fail(request, session, exc)

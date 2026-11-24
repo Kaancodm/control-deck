@@ -9,4 +9,4 @@ Checkpoint der Lead-Bots. Regeln: siehe `AGENTS.md`. Zeiten: Europe/Zurich.
 | Engineering Lead | — | Rolle in `AGENTS.md` (`6a6be1b`); kein Checkpoint in diesem Lauf | gelb | — |
 | Claude/Fable | — | kein Checkpoint in diesem Lauf | gelb | — |
 | Gemini | — | kein Checkpoint in diesem Lauf | gelb | — |
-| Cursor | 2026-11-24 23:31 | M1b Dialog-Thread, Entwurf #102 gegen #77, Checks lokal gruen | gelb | https://github.com/Kaancodm/control-deck/pull/102 |
+| Cursor | 2026-11-24 23:58 | Auftragsfreie Redaktion #76, Entwurf gegen main, Checks lokal gruen | gelb | — |

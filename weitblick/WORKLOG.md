@@ -23,3 +23,12 @@ Vertragspruefer, Offline-Tests, README-Abschnitt, `SERVERPRUEFUNG.md`.
 Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 60 tests, OK (0 failed, 0 skipped).
 Grenze: Ruff nicht verfuegbar (keine Installation), Format von Hand geprueft.
 Offen: F2/F5 und S-K80 nur auf dem Server entscheidbar; T8-Restore braucht GO.
+
+2026-11-24 12:00, Builder: Review-Fix zu PR #98. Feld `mode` aus dem
+Retain-Request entfernt (nicht in Hindsight v1.2.1). F2 in der README an der
+Quelle dokumentiert. T4 und der Fake pruefen gegen die echte Feldliste.
+Vertragspruefer meldet fehlendes `mode` nicht mehr als Abweichung. SERVERPRUEFUNG:
+Schritt 5 (retain_extraction_mode=chunks auf Test-Banks, braucht Kaans Ja, nicht
+ausgefuehrt) und Chunk-Pfad in S-K80/T5. Kann: Retry-Limit, Meldung bei
+Exception im zweiten Schreiber, Test-Banknamen als Konstante.
+Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 65 tests, OK (0 failed, 0 skipped), 24.11.2026 12:03 CET.

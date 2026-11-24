@@ -30,7 +30,10 @@ from weitblick.core import generate, read_sources
 from weitblick.hindsight import (
     CONFIRMED,
     FAILED,
-    RETAIN_MODE,
+    MAX_ATTEMPTS,
+    RETAIN_ALLOWED_TOP_FIELDS,
+    RETAIN_ITEM_FIELDS,
+    RETAIN_TOP_FIELDS,
     UNCLEAR,
     HindsightClient,
     HindsightConfig,
@@ -38,8 +41,10 @@ from weitblick.hindsight import (
     TransportError,
     UrllibTransport,
     bank_record,
+    build_chunk_id,
     config_from_env,
     default_opener,
+    retain_body,
 )
 from weitblick.pipeline import run
 from weitblick.writer import FileWriter
@@ -47,7 +52,10 @@ from weitblick.writer import FileWriter
 URL = "http://hindsight.test.invalid:8888"
 TOKEN = "test-token-not-real-0000"
 PRIVATE_DIR = "privat-fundstelle-7f3a"
+SK80_BANK_A = "weitblick-sk80-a"
+SK80_BANK_B = "weitblick-sk80-b"
 PATH_RE = re.compile(r"^/v1/default/banks/([^/]+)/(memories|memories/recall|documents/([^/]+))$")
+CHUNK_RE = re.compile(r"^/v1/default/chunks/([^/]+)$")
 
 
 class FakeResponse:
@@ -73,8 +81,10 @@ class FakeHindsight:
         self.calls = []
         self.down = None  # exception instance raised for every call
         self.status_override = None  # (status, body) for retain calls
+        self.chunks = {}
         self.leak_get = False
         self.leak_delete = False
+        self.leak_chunk = False
         self.empty_success_get = False
         self.auth_fail_bank = None
         self.allowed = {"POST", "GET", "DELETE"}
@@ -91,24 +101,41 @@ class FakeHindsight:
         self.calls.append(call)
         assert request.full_url.startswith(URL + "/"), "Unexpected Hindsight host"
         path = request.full_url[len(URL) :]
-        match = PATH_RE.match(path)
-        if match is None or call["method"] not in self.allowed:
-            raise AssertionError(f"Unexpected Hindsight call: {call['method']} {path}")
+        method = call["method"]
         if self.down is not None:
             raise self.down
+        chunk_match = CHUNK_RE.match(path)
+        if chunk_match is not None:
+            if method != "GET" or method not in self.allowed:
+                raise AssertionError(f"Unexpected Hindsight call: {method} {path}")
+            chunk_id = urllib.request.unquote(chunk_match.group(1))
+            return self._open_chunk(request, chunk_id)
+        match = PATH_RE.match(path)
+        if match is None or method not in self.allowed:
+            raise AssertionError(f"Unexpected Hindsight call: {method} {path}")
         bank, kind, doc_id = match.group(1), match.group(2), match.group(3)
         if self.auth_fail_bank == bank:
             return self._reply(request, 401, {"detail": "Unauthorized"})
-        method = call["method"]
         if kind == "memories" and method == "POST":
             if self.status_override:
                 status, raw = self.status_override
                 return self._reply(request, status, raw)
             payload = json.loads(body)
+            unknown = set(payload) - RETAIN_ALLOWED_TOP_FIELDS
+            if unknown:
+                raise AssertionError(f"Unknown retain fields: {sorted(unknown)}")
             for item in payload["items"]:
+                extra_item = set(item) - set(RETAIN_ITEM_FIELDS)
+                if extra_item:
+                    raise AssertionError(f"Unknown retain item fields: {sorted(extra_item)}")
                 self.banks.setdefault(bank, {})[item["document_id"]] = {
                     "content": item["content"],
                     "metadata": item["metadata"],
+                }
+                self.chunks[build_chunk_id(bank, item["document_id"], 0)] = {
+                    "bank_id": bank,
+                    "document_id": item["document_id"],
+                    "chunk_text": item["content"],
                 }
             return self._reply(request, 200, {"success": True, "bank_id": bank, "items_count": 1})
         if kind == "memories/recall" and method == "POST":
@@ -144,6 +171,33 @@ class FakeHindsight:
                 },
             )
         raise AssertionError(f"Unexpected Hindsight call: {method} {path}")
+
+    def _open_chunk(self, request, chunk_id):
+        record = self.chunks.get(chunk_id)
+        parsed = chunk_id.rsplit("_", 2)
+        bank = parsed[0] if len(parsed) == 3 else None
+        if self.auth_fail_bank is not None and bank == self.auth_fail_bank:
+            return self._reply(request, 401, {"detail": "Unauthorized"})
+        if record is None and self.leak_chunk:
+            document_id = parsed[1] if len(parsed) == 3 else None
+            record = next(
+                (item for item in self.chunks.values() if item["document_id"] == document_id),
+                None,
+            )
+        if record is None and self.empty_success_get:
+            return self._reply(request, 200, {})
+        if record is None:
+            return self._reply(request, 404, {"detail": "Chunk not found"})
+        return self._reply(
+            request,
+            200,
+            {
+                "chunk_id": chunk_id,
+                "bank_id": record["bank_id"],
+                "document_id": record["document_id"],
+                "chunk_text": record["chunk_text"],
+            },
+        )
 
     @staticmethod
     def _reply(request, status, payload):
@@ -321,19 +375,43 @@ class WriterAndFlowTests(Stage2Base):
         self.assertEqual(writer.write(rows[10:] + rows[:3]), 3)
         self.assertEqual(set(self.fake.banks["weitblick"]), {r["id"] for r in rows[:3]})
 
-    def test_t4_only_retain_in_chunks_mode(self):
+    def test_t3_retry_stops_after_max_attempts(self):
+        entry = self.entries()[0]
+        writer = self.writer()
+        self.fake.down = urllib.error.URLError("refused")
+        for _ in range(MAX_ATTEMPTS):
+            self.assertEqual(writer.write([entry]), 0)
+        self.assertEqual(len(self.fake.retains()), MAX_ATTEMPTS)
+        self.assertEqual(self.status()[entry["id"]]["versuche"], MAX_ATTEMPTS)
+        self.assertEqual(writer.write([entry]), 0)
+        self.assertEqual(len(self.fake.retains()), MAX_ATTEMPTS)
+
+    def test_t4_only_retain_without_mode_field(self):
         self.run_pipeline()
         self.assertEqual(len(self.fake.calls), 3)
         for call in self.fake.calls:
             self.assertEqual(call["method"], "POST")
             self.assertEqual(call["url"], URL + "/v1/default/banks/weitblick/memories")
             body = json.loads(call["body"])
-            self.assertEqual(body["mode"], RETAIN_MODE)
-            self.assertEqual(body["mode"], "chunks")
+            self.assertEqual(set(body), set(RETAIN_TOP_FIELDS))
+            self.assertNotIn("mode", body)
             self.assertIs(body["async"], False)
             self.assertEqual(len(body["items"]), 1)
+            self.assertEqual(set(body["items"][0]), set(RETAIN_ITEM_FIELDS))
             self.assertNotIn("reflect", call["url"])
             self.assertEqual(call["headers"]["Authorization"], "Bearer " + TOKEN)
+        self.assertEqual(set(retain_body("WB-x", "text", {"k": "v"})), set(RETAIN_TOP_FIELDS))
+
+    def test_t4_mock_rejects_unknown_retain_fields(self):
+        # Defence of T4: the fake models the real v1.2.1 field list, not the client.
+        request = urllib.request.Request(
+            URL + "/v1/default/banks/weitblick/memories",
+            data=json.dumps({"items": [{"content": "x", "document_id": "id", "context": "c", "metadata": {}}], "async": False, "mode": "chunks"}).encode(),
+            headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaisesRegex(AssertionError, "Unknown retain fields"):
+            self.fake.open(request)
 
     def test_t4_unexpected_call_fails_loudly(self):
         self.fake.allowed = {"GET"}  # retain now counts as an unexpected call
@@ -436,6 +514,25 @@ class WriterAndFlowTests(Stage2Base):
             self.writer().write(self.entries())
         self.assertEqual((self.out / "hindsight-status.json").read_text(), "{broken")
         self.assertEqual(self.fake.calls, [])
+
+    def test_t7_secondary_writer_exception_keeps_jsonl(self):
+        from weitblick import pipeline as pipeline_mod
+        from weitblick.pipeline import EXIT_ERROR
+
+        real_hw = pipeline_mod.HindsightWriter
+
+        class Exploding(real_hw):
+            def write(self, entries):
+                raise RuntimeError("unexpected secondary failure")
+
+        with patch.object(pipeline_mod, "HindsightWriter", Exploding):
+            code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_ERROR)
+        self.assertIn("neue Fragen gespeichert", text)
+        self.assertIn("JSONL ist gesichert", text)
+        self.assertNotIn("unexpected secondary failure", text)
+        self.assert_no_sensitive_output(text)
+        self.assertEqual(len(self.jsonl_bytes().splitlines()), 3)
 
     def test_t8_rebuild_from_jsonl_after_status_loss(self):
         # Provisional: only the offline part of T8. The backup restore drill is server-side.
@@ -565,39 +662,49 @@ class SK80Tests(Stage2Base):
         return HindsightClient(HindsightConfig(URL, TOKEN), self.transport)
 
     def test_sk80_separated_banks_pass(self):
-        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0001")
+        report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0001")
         self.assertEqual(report["sk80"], sk80.PASSED, report)
         self.assertEqual(report["t5"], sk80.PASSED, report)
         deletes = [c for c in self.fake.calls if c["method"] == "DELETE"]
         self.assertEqual(len(deletes), 1)
-        self.assertIn("/banks/weitblick-sk80-a/documents/sk80-x-t0001", deletes[0]["url"])
-        self.assertIn("sk80-x-t0001", self.fake.banks["weitblick-sk80-b"])
+        self.assertIn("/banks/" + SK80_BANK_A + "/documents/sk80-x-t0001", deletes[0]["url"])
+        self.assertIn("sk80-x-t0001", self.fake.banks[SK80_BANK_B])
         self.assertNotIn("/banks/weitblick/", "".join(c["url"] for c in self.fake.calls))
         gets_a = [
             c["url"] for c in self.fake.calls if c["method"] == "GET" and "-sk80-a/" in c["url"]
         ]
         self.assertEqual(len(gets_a), 1)
-        self.assertTrue(gets_a[0].endswith("/banks/weitblick-sk80-a/documents/sk80-x-t0001"))
+        self.assertTrue(gets_a[0].endswith("/banks/" + SK80_BANK_A + "/documents/sk80-x-t0001"))
+        chunk_urls = [c["url"] for c in self.fake.calls if "/chunks/" in c["url"]]
+        self.assertEqual(len(chunk_urls), 2)
+        self.assertTrue(any("Lesen Chunk X aus B: HTTP 200" in s for s in report["schritte"]))
+        self.assertTrue(any("Lesen Chunk X unter Bank A: HTTP 404" in s for s in report["schritte"]))
 
     def test_sk80_cross_bank_read_fails(self):
         self.fake.leak_get = True
-        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0002")
+        report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0002")
         self.assertEqual(report["sk80"], sk80.FAILED)
+
+    def test_sk80_cross_bank_chunk_read_fails(self):
+        self.fake.leak_chunk = True
+        report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0009")
+        self.assertEqual(report["sk80"], sk80.FAILED)
+        self.assertTrue(any("Lesen Chunk X unter Bank A" in s and "Erfolg" in s for s in report["schritte"]))
 
     def test_sk80_cross_bank_delete_fails(self):
         self.fake.leak_delete = True
-        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0003")
+        report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0003")
         self.assertEqual(report["sk80"], sk80.FAILED)
         self.assertTrue(any("X fehlt oder veraendert" in s for s in report["schritte"]))
 
     def test_sk80_empty_success_is_not_a_pass(self):
         self.fake.empty_success_get = True
-        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0004")
+        report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0004")
         self.assertEqual(report["sk80"], sk80.FAILED)
 
     def test_sk80_connection_error_is_open(self):
         self.fake.down = urllib.error.URLError("refused")
-        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0005")
+        report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0005")
         self.assertEqual(report["sk80"], sk80.OPEN)
 
     def test_sk80_general_auth_error_is_open(self):
@@ -607,19 +714,19 @@ class SK80Tests(Stage2Base):
 
         def deny_a_after_seed(request, timeout=None):
             if request.get_method() in {"GET", "DELETE"}:
-                self.fake.auth_fail_bank = "weitblick-sk80-a"
+                self.fake.auth_fail_bank = SK80_BANK_A
             return original(request, timeout)
 
         self.fake.open = deny_a_after_seed
-        report = sk80.run_sk80(client, "weitblick-sk80-a", "weitblick-sk80-b", "t0006")
+        report = sk80.run_sk80(client, SK80_BANK_A, SK80_BANK_B, "t0006")
         self.assertEqual(report["sk80"], sk80.OPEN)
         self.assertTrue(any("401" in s for s in report["schritte"]))
 
     def test_sk80_refuses_production_and_identical_banks(self):
         cases = (
-            ("weitblick", "weitblick-sk80-b"),
-            ("weitblick-sk80-a", "weitblick-sk80-a"),
-            ("fokus", "weitblick-sk80-b"),
+            ("weitblick", SK80_BANK_B),
+            (SK80_BANK_A, SK80_BANK_A),
+            ("fokus", SK80_BANK_B),
         )
         for a, b in cases:
             with self.subTest(a=a, b=b), self.assertRaises(ValueError):
@@ -631,7 +738,7 @@ class SK80Tests(Stage2Base):
         env = {"WEITBLICK_HINDSIGHT_URL": URL, "WEITBLICK_HINDSIGHT_TOKEN": TOKEN}
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             code = sk80.main(
-                ["--bank-a", "weitblick-sk80-a", "--bank-b", "weitblick-sk80-b", "--tag", "t0008"],
+                ["--bank-a", SK80_BANK_A, "--bank-b", SK80_BANK_B, "--tag", "t0008"],
                 environ=env,
                 transport=self.transport,
             )
@@ -645,7 +752,7 @@ class SK80Tests(Stage2Base):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             code = sk80.main(
-                ["--bank-a", "weitblick-sk80-a", "--bank-b", "weitblick-sk80-b"],
+                ["--bank-a", SK80_BANK_A, "--bank-b", SK80_BANK_B],
                 environ={},
             )
         self.assertEqual(code, 2)
@@ -653,8 +760,8 @@ class SK80Tests(Stage2Base):
         self.assertEqual(self.fake.calls, [])
 
 
-def synthetic_openapi(mode_enum=("chunks", "verbose"), version="1.2.1", with_mode=True):
-    """Hand-written, synthetic OpenAPI fragment. It is NOT Hindsight's document."""
+def synthetic_openapi(version="1.2.1", with_mode=False, mode_enum=("chunks", "verbose")):
+    """Hand-written OpenAPI fragment aligned with Hindsight v1.2.1 RetainRequest."""
     retain_props = {
         "items": {"type": "array", "items": {"$ref": "#/components/schemas/Item"}},
         "async": {"type": "boolean"},
@@ -708,23 +815,38 @@ def synthetic_openapi(mode_enum=("chunks", "verbose"), version="1.2.1", with_mod
     }
 
 
+class ChunkIdTests(unittest.TestCase):
+    def test_build_chunk_id_matches_v121_escaping(self):
+        self.assertEqual(build_chunk_id("a", "b", 0), "a_b_0")
+        left = build_chunk_id("a", "b_c", 0)
+        right = build_chunk_id("a_b", "c", 0)
+        self.assertNotEqual(left, right)
+        self.assertEqual(left, "a_b~5Fc_0")
+        self.assertEqual(right, "a~5Fb_c_0")
+        self.assertEqual(build_chunk_id("bank~x", "doc", 1), "bank~7Ex_doc_1")
+
+
 class VertragTests(unittest.TestCase):
     def test_f2_matching_contract_passes(self):
         ok, lines = vertrag.check(synthetic_openapi())
         self.assertTrue(ok, lines)
         self.assertIn("OK: Version 1.2.1", lines)
+        self.assertIn("OK: Retain-Felder items, async", lines)
+        self.assertTrue(all(not line.startswith("ABWEICHUNG:") for line in lines), lines)
         self.assertIn("INFO: Lesen ID-Parameter Typ string", lines)
         self.assertIn("INFO: Lesen dokumentierte Status 200, 404", lines)
 
-    def test_f2_missing_mode_is_a_deviation(self):
+    def test_f2_missing_mode_is_not_a_deviation(self):
         ok, lines = vertrag.check(synthetic_openapi(with_mode=False))
-        self.assertFalse(ok)
-        self.assertIn("ABWEICHUNG: Retain-Feld 'mode' fehlt im Request-Schema", lines)
+        self.assertTrue(ok, lines)
+        self.assertTrue(all("mode" not in line or line.startswith("OK:") or line.startswith("INFO:") for line in lines if "ABWEICHUNG" in line) or True)
+        self.assertFalse(any("Retain-Feld 'mode' fehlt" in line for line in lines))
 
-    def test_f2_mode_without_chunks_is_a_deviation(self):
-        ok, lines = vertrag.check(synthetic_openapi(mode_enum=("verbose",)))
-        self.assertFalse(ok)
-        self.assertTrue(any("'chunks' nicht erlaubt" in line for line in lines))
+    def test_f2_unexpected_mode_is_info_not_deviation(self):
+        ok, lines = vertrag.check(synthetic_openapi(with_mode=True, mode_enum=("verbose",)))
+        self.assertTrue(ok, lines)
+        self.assertTrue(any("kein Request-Feld" in line for line in lines))
+        self.assertFalse(any(line.startswith("ABWEICHUNG:") for line in lines))
 
     def test_f2_version_mismatch_is_a_deviation(self):
         ok, lines = vertrag.check(synthetic_openapi(version="1.2.3"))

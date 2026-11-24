@@ -68,3 +68,10 @@ Branch `feat/weitblick-stufe2`, nicht committet (keine Git-Identitaet), nicht ge
 Neu: Hindsight-Spiegel (Bank weitblick, Modus chunks), Nachtlauf, S-K80- und Vertragspruefer, `SERVERPRUEFUNG.md`.
 Check: `python3 -m unittest discover -s weitblick/tests -v`: Ran 60 tests, OK, 0 failed, 0 skipped. `scripts/check_rules.py` Exit 0.
 Offen: F2, F5, S-K80 und T5 nur auf dem Server; T8-Restore braucht GO; Ruff lokal nicht verfuegbar.
+
+## 2026-11-24 12:00 — Builder — Weitblick Stufe 2 Review-Fix (PR #98)
+
+Branch `feat/weitblick-stufe2`. Retain-Feld `mode` entfernt, F2 gegen
+Hindsight v1.2.1 dokumentiert, T4 und Vertrag angepasst, SERVERPRUEFUNG und
+S-K80 um Chunk-Pfad ergaenzt. PR auf Draft gestellt. Kein Merge.
+Offen: F2/F5/S-K80 auf dem Server; Schritt 5 der Serverpruefung braucht Kaans Ja.

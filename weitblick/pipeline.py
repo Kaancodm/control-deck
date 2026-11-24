@@ -37,7 +37,12 @@ class MirroredWriter:
 
     def write(self, entries):
         added = self.primary.write(entries)
-        self.secondary.write(self.primary.read_stored())
+        try:
+            self.secondary.write(self.primary.read_stored())
+        except Exception:
+            # JSONL is already fsynced. Do not leak exception details.
+            self.mirror_result = None
+            return added
         self.mirror_result = dict(self.secondary.last_result)
         return added
 
@@ -67,6 +72,12 @@ def run(paths, output, environ, *, no_hindsight=False, today=None, transport=Non
         out("Hindsight ausgeschaltet; kein Hindsight-Aufruf.")
         return EXIT_OK
     result = writer.mirror_result
+    if result is None:
+        out(
+            "Weitblick: Hindsight-Spiegelung fehlgeschlagen. JSONL ist gesichert; "
+            "offene Eintraege werden im naechsten Lauf erneut gesendet."
+        )
+        return EXIT_ERROR
     out(
         f"Hindsight (Bank {PRODUCTION_BANK}): {result[CONFIRMED]} bestaetigt, "
         f"{result[FAILED]} fehlgeschlagen, {result[UNCLEAR]} unklar, "

@@ -30,6 +30,7 @@ from .hindsight import (
     HindsightClient,
     HindsightConfigError,
     TransportError,
+    build_chunk_id,
     classify,
     config_from_env,
 )
@@ -134,6 +135,42 @@ def run_sk80(client, bank_a, bank_b, tag=None):
 
     markers = (x_marker, x_text)
     verdicts = []
+
+    # Unscoped path GET /v1/default/chunks/{chunk_id} (http.py:7561).
+    # The id encodes the bank; a forged id with bank A must not return X.
+    real_chunk = build_chunk_id(bank_b, x_id, 0)
+    forged_chunk = build_chunk_id(bank_a, x_id, 0)
+    response, error = _call("Lesen Chunk X aus B", client.get_chunk, real_chunk)
+    chunk_known = False
+    if error:
+        steps.append(error + "; Chunk-Pfad bleibt offen")
+        verdicts.append(OPEN)
+    elif 200 <= response.status < 300:
+        body = response.body.decode("utf-8", "replace")
+        if x_marker in body or x_text in body:
+            chunk_known = True
+            steps.append(f"Lesen Chunk X aus B: HTTP {response.status}, Chunk nachgewiesen")
+        else:
+            steps.append(
+                f"Lesen Chunk X aus B: HTTP {response.status}, Form unbekannt; Chunk-Pfad bleibt offen"
+            )
+            verdicts.append(OPEN)
+    else:
+        steps.append(
+            f"Lesen Chunk X aus B: HTTP {response.status}, nicht nachgewiesen; Chunk-Pfad bleibt offen"
+        )
+        verdicts.append(OPEN)
+
+    if chunk_known:
+        response, error = _call("Lesen Chunk X unter Bank A", client.get_chunk, forged_chunk)
+        if error:
+            verdicts.append(OPEN)
+            steps.append(error)
+        else:
+            verdict, note = _refusal("Lesen Chunk X unter Bank A", response, markers)
+            verdicts.append(verdict)
+            steps.append(note)
+
     for step, function in (
         ("Lesen X aus A", client.get_document),
         ("Loeschen X aus A", client.delete_document),

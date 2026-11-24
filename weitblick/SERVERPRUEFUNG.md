@@ -1,10 +1,11 @@
 # Weitblick Stufe 2 · Serverpruefung fuer Atik
 
-Diese Anleitung enthaelt nur lesende Pruefungen. Einzige Ausnahme ist S-K80
-(Schritt 5): zwei synthetische Eintraege in zwei isolierten Test-Banks und ein
-erwartbar abgewiesener Loeschversuch aus Bank A. Keine Bereinigung, keine
-Loeschung aus Bank B, keine Produktivdaten, kein Schreiben in die Bank
-`weitblick`, kein Cronjob, kein Timer, kein Neustart.
+Diese Anleitung enthaelt nur lesende Pruefungen, mit zwei klar markierten
+Ausnahmen: Schritt 5 (Bank-Einstellung `retain_extraction_mode=chunks` auf den
+Test-Banks, braucht Kaans Ja) und Schritt 6 (S-K80: zwei synthetische Eintraege
+in zwei isolierten Test-Banks und ein erwartbar abgewiesener Loeschversuch aus
+Bank A). Keine Bereinigung, keine Loeschung aus Bank B, keine Produktivdaten,
+kein Schreiben in die Bank `weitblick`, kein Cronjob, kein Timer, kein Neustart.
 
 Keine Werte ausgeben: URL, Token, Hostnamen und Adressen erscheinen weder im
 Terminal-Protokoll noch im Bericht. Fehlermeldungen von `curl` werden deshalb
@@ -30,7 +31,8 @@ verworfen; berichtet werden nur Exit-Codes, Statuscodes und Zaehler.
 python3 -m unittest discover -s weitblick/tests -v
 ```
 
-Bestanden: `Ran 60 tests`, `OK`, Exit 0. Sonst offen.
+Bestanden: `OK`, Exit 0, Anzahl der Tests wie in `weitblick/WORKLOG.md`.
+Sonst offen.
 
 ## Schritt 1 · F3 Umgebung pruefen, ohne Werte zu zeigen
 
@@ -69,14 +71,16 @@ python3 -B -m weitblick.vertrag "$HOME/hindsight-openapi.json"
 Die Datei bleibt privat im Home-Ordner und kommt nicht ins Repo.
 Der Pruefer gibt nur Pfade, Feldnamen, Typen und Statuscodes aus.
 
-- Bestanden: `Vertrag: passt`. Dann sind Retain-Pfad, `mode`-Feld mit
-  `chunks`, Lesen und Loeschen nach Dokument-ID sowie der ID-Typ auf
-  Schema-Ebene belegt. Die Fehlerform belegt erst S-K80.
+- Bestanden: `Vertrag: passt`. Dann sind Retain-Pfad, die Request-Felder
+  `items` und `async`, Lesen und Loeschen nach Dokument-ID sowie der ID-Typ
+  auf Schema-Ebene belegt. Ein Feld `mode` darf fehlen; in v1.2.1 gehoert es
+  nicht zum Retain-Request. Die Fehlerform belegt erst S-K80.
 - Offen: `curl Exit` ungleich 0 (anderer Pfad oder nicht erreichbar) oder
   `Vertrag: Abweichung`. Die `ABWEICHUNG`-Zeilen zeigen, welche Annahme in
   `weitblick/hindsight.py` anzupassen ist. Vorher kein Betrieb.
-- Zusatz: Meldet der Pruefer einen Chunk-Pfad als `NICHT bankgebunden`, ist eine
-  zusaetzliche S-K80-Variante fuer Chunk-IDs noetig. Bis dahin offen.
+- Zusatz: Der Pfad `GET /v1/default/chunks/{chunk_id}` ist in v1.2.1 nicht
+  bankgebunden (hindsight_api/api/http.py:7561). Schritt 6 prueft die
+  Banktrennung dieses Pfads.
 
 ## Schritt 4 · F5 Serverkonfiguration lesen (nur Namen)
 
@@ -88,14 +92,47 @@ Nur Namen, keine Werte. Existiert eine Variable fuer den Retain- oder
 Extraktionsmodus und ist sie sicher kein Schluessel, darf ihr Wert einzeln
 gelesen werden: `docker exec <hindsight-container> printenv <NAME>`.
 
-- Bestanden: Eine Server- oder Bank-Einstellung erzwingt den Modus `chunks`,
-  oder Schritt 3 zeigt das Request-Feld `mode` mit `chunks`, und die
-  Hindsight-Dokumentation genau dieser Version beschreibt `chunks` als Modus
-  ohne LLM-Aufruf.
-- Offen: Keine dieser Belegstellen gefunden. Dann ist nicht ausgeschlossen,
-  dass Hindsight ein unbekanntes Feld `mode` ignoriert und doch extrahiert.
+- Bestanden: Eine Server- oder Bank-Einstellung `retain_extraction_mode=chunks`
+  ist belegt. In v1.2.1 ist `chunks` ein zulaessiger Wert dieser Einstellung
+  und ueberspringt den LLM-Aufruf. Ein Request-Feld `mode` ist kein Beleg.
+- Offen: Keine Belegstelle fuer `retain_extraction_mode=chunks`. Dann bleibt
+  der Standard `concise` (mit LLM) moeglich.
 
-## Schritt 5 · S-K80 (einzige schreibende Ausnahme) und T5
+## Schritt 5 · Test-Banks auf retain_extraction_mode=chunks stellen
+
+**Schreibend. Braucht Kaans Ja. Ohne dieses Ja nicht ausfuehren.**
+
+Dieser Schritt aendert nur die beiden Test-Banks `weitblick-sk80-a` und
+`weitblick-sk80-b`. Die Bank `weitblick` bleibt unberuehrt. In Hindsight
+v1.2.1 ist `retain_extraction_mode` eine Bank- oder Server-Einstellung
+(hindsight_api/config.py:1900, 1901, 4290), nicht Teil des Retain-Requests.
+Der Wert `chunks` speichert den Text ohne LLM-Aufruf. Schreiben geht ueber
+`PATCH /v1/default/banks/{bank_id}/config` (hindsight_api/api/http.py:9149).
+Der Schreibzugriff kann serverseitig ausgeschaltet sein
+(`HINDSIGHT_API_ENABLE_BANK_CONFIG_API`). Existiert eine Test-Bank noch nicht,
+endet der Schritt mit `offen`; das Anlegen ist eine eigene Entscheidung (F6).
+
+Beispiel, nur nach Kaans Ja und nur fuer die beiden Test-Banks:
+
+```sh
+# SCHREIBEND, braucht Kaans Ja. Nicht ausfuehren ohne dieses Ja.
+for bank in weitblick-sk80-a weitblick-sk80-b; do
+  echo "PATCH $bank"
+  curl -sS --max-time 10 -o /tmp/weitblick-bank-config.out -w "HTTP %{http_code}\n"     -X PATCH -H "Authorization: Bearer $WEITBLICK_HINDSIGHT_TOKEN"     -H "Content-Type: application/json"     -d '{"updates":{"retain_extraction_mode":"chunks"}}'     "$WEITBLICK_HINDSIGHT_URL/v1/default/banks/$bank/config" 2>/dev/null
+  python3 -c 'import json,sys; d=json.load(open("/tmp/weitblick-bank-config.out")); c=d.get("config") or d.get("overrides") or {}; print("retain_extraction_mode", c.get("retain_extraction_mode","(fehlt)"))' 2>/dev/null || echo "Antwort nicht lesbar"
+done
+rm -f /tmp/weitblick-bank-config.out
+```
+
+Berichtet werden nur HTTP-Status und der Wert von `retain_extraction_mode`.
+Keine URL, kein Token, keine anderen Konfigurationswerte.
+
+- Bestanden: Beide Test-Banks antworten mit 200 und `retain_extraction_mode chunks`.
+- Offen: 404 (API aus oder Bank fehlt), 401, anderer Status, oder der Wert ist
+  nicht `chunks`. Dann S-K80 trotzdem nur nach gesondertem Entscheid ausfuehren,
+  weil der Standardmodus `concise` ein LLM aufruft.
+
+## Schritt 6 · S-K80 (schreibende Ausnahme) und T5
 
 ```sh
 START=$(date -u +%Y-%m-%dT%H:%M:%SZ); echo "Start $START"
@@ -110,11 +147,16 @@ Was passiert, in dieser Reihenfolge:
 2. Synthetischer Eintrag X in Bank B. Der Text enthaelt eine zufaellige Marke.
 3. X wird ueber seine ID aus B gelesen. Ohne diesen Nachweis endet der Lauf mit
    `offen`, denn dann beweist ein spaeterer Fehler nichts.
-4. Dieselbe ID wird im Kontext von A gelesen. Erwartet: 403 oder 404 ohne
-   Nutzdaten von X.
-5. Loeschversuch derselben ID im Kontext von A. Erwartet: 403 oder 404.
-6. X wird erneut aus B gelesen, ID und Inhalt werden mit Schritt 3 verglichen.
-7. T5: Suche nach dem Wortlaut von X in Bank A. Erwartet: X nicht gefunden.
+4. Der Chunk von X wird ueber `GET /v1/default/chunks/{chunk_id}` gelesen
+   (Pfad ist nicht bankgebunden, die ID kodiert die Bank). Ohne Nachweis
+   bleibt dieser Pruefpunkt `offen` und belegt keine Trennung.
+5. Dieselbe Dokument-ID wird im Kontext von A gelesen. Erwartet: 403 oder 404
+   ohne Nutzdaten von X.
+6. Eine gefaelschte Chunk-ID mit Bank A und der Dokument-ID von X wird ueber
+   denselben Chunk-Pfad gelesen. Erwartet: 403 oder 404 ohne Nutzdaten von X.
+7. Loeschversuch der Dokument-ID im Kontext von A. Erwartet: 403 oder 404.
+8. X wird erneut aus B gelesen, ID und Inhalt werden mit Schritt 3 verglichen.
+9. T5: Suche nach dem Wortlaut von X in Bank A. Erwartet: X nicht gefunden.
 
 Die Ausgabe enthaelt nur Schrittnamen, Statuscodes und Urteile.
 Die Test-Banks bleiben bestehen. Eine Bereinigung braucht ein eigenes GO.
@@ -123,7 +165,7 @@ das Werkzeug ab.
 
 | Ergebnis | Bedeutung |
 | --- | --- |
-| `S-K80: bestanden`, Exit 0 | Schritte 3 bis 6 wie erwartet. Banktrennung fuer Lesen und Loeschen nach Dokument-ID belegt. |
+| `S-K80: bestanden`, Exit 0 | Schritte 3 bis 8 wie erwartet. Banktrennung fuer Lesen und Loeschen nach Dokument-ID und fuer den unscoped Chunk-Pfad belegt. |
 | `S-K80: nicht bestanden`, Exit 1 | Lesen oder Loeschen aus A war erfolgreich, eine leere Erfolgsantwort kam, die Antwort enthielt Nutzdaten von X, oder X fehlt danach in B. Sofort melden, nicht umdeuten. |
 | `S-K80: offen`, Exit 3 | Verbindungsfehler, 401, 5xx, andere Statuscodes oder Vorbereitung nicht bestaetigt. Ein Verbindungs- oder allgemeiner Anmeldefehler belegt keine Banktrennung. |
 | `T5: bestanden` | Die Suche in A findet X nicht. |
@@ -133,7 +175,7 @@ Muessen Banks ausdruecklich angelegt werden, endet die Vorbereitung mit `nicht
 bestaetigt` und das Ergebnis ist `offen`. Das Anlegen ist eine eigene
 Entscheidung (Fable F6).
 
-## Schritt 6 · F5 LLM-Aufrufe im S-K80-Fenster ausschliessen
+## Schritt 7 · F5 LLM-Aufrufe im S-K80-Fenster ausschliessen
 
 ```sh
 docker logs --since "$START" --until "$END" <hindsight-container> 2>&1 \
@@ -159,7 +201,7 @@ Die Zeilen selbst liest nur Atik. Berichtet werden nur die Zaehler.
 - T8 Wiederherstellung aus der Nachtsicherung in eine Test-Datenbank: Das ist
   ein Schreibvorgang und braucht ein eigenes Owner-GO. Bleibt offen.
 - Aktivieren des Nachtlaufs (`WEITBLICK_HINDSIGHT_ENABLED=1` gegen die Bank
-  `weitblick`) und die Cron-Installation: erst nach bestandenen Schritten 0 bis 6
+  `weitblick`) und die Cron-Installation: erst nach bestandenen Schritten 0 bis 7
   und Owner-GO.
 
 ## Bericht an Kaan
@@ -167,5 +209,5 @@ Die Zeilen selbst liest nur Atik. Berichtet werden nur die Zaehler.
 Getrennt ausweisen:
 
 - Offline: Anzahl der Tests aus Schritt 0 und deren Ergebnis.
-- Server: Ergebnis je Schritt 1 bis 6 (`bestanden` oder `offen`, bei S-K80
+- Server: Ergebnis je Schritt 1 bis 7 (`bestanden` oder `offen`, bei S-K80
   auch `nicht bestanden`), mit Exit-Codes und Zaehlern, ohne Werte.

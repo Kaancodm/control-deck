@@ -122,8 +122,9 @@ Hindsight: siehe Stufe 2. Das Ziel Wissens-DB bleibt offen.
 Grundlage: Fables Bauplan vom 24.11.2026 und Kaans Auftrag vom selben Tag.
 JSONL bleibt die Hauptquelle. `HindsightWriter` ist ein zweiter Schreiber
 hinter `Writer.write(entries) -> int` und spiegelt bereits gesicherte
-Eintraege in die Bank `weitblick`, Version 1.2.1, Modus `chunks`, ohne
-LLM-Aufruf. Nur Python-Standardbibliothek.
+Eintraege in die Bank `weitblick`, Version 1.2.1. Der Extraktionsmodus
+`chunks` (ohne LLM-Aufruf) ist eine Bank- oder Server-Einstellung, kein
+Feld im Retain-Request. Nur Python-Standardbibliothek.
 
 ### Datenfluss
 
@@ -254,7 +255,19 @@ und werden in den Tests als solche benannt:
 - F2-a Pfade: Retain `POST /v1/default/banks/{bank}/memories`, Lesen
   `GET` und Loeschen `DELETE /v1/default/banks/{bank}/documents/{id}`,
   Suche `POST /v1/default/banks/{bank}/memories/recall`.
-- F2-b Modus: Request-Feld `"mode": "chunks"` mit `"async": false`.
+- F2-b Modus: Im Retain-Request von Hindsight v1.2.1 gibt es kein Feld
+  `mode`. Die Klasse `RetainRequest` (hindsight_api/api/http.py, Zeile 1354
+  im Paket hindsight-api-slim 1.2.1) kennt nur `items`, `async`,
+  `document_tags` (veraltet) und `operation_id`. Unbekannte Felder werden
+  still verworfen (Pydantic v2, Standard `extra=ignore`; `RetainRequest`
+  setzt `extra` nicht auf `forbid`). Der Extraktionsmodus ist die Bank-
+  oder Server-Einstellung `retain_extraction_mode`
+  (hindsight_api/config.py:1900 Standard `"concise"`, 1901 erlaubte Werte
+  inklusive `"chunks"`, 4290 je Bank konfigurierbar). `"chunks"` speichert
+  den Text ohne LLM-Aufruf (hindsight_api/engine/retain/fact_extraction.py:3481
+  und 3580). Weitblick sendet deshalb `"async": false` ohne `mode` und
+  erwartet, dass die Bank auf `retain_extraction_mode=chunks` steht
+  (siehe `SERVERPRUEFUNG.md`, Schritt 5, braucht Kaans Ja).
 - F2-c ID: Weitblick vergibt die `document_id` selbst (`WB-` plus 24
   Hex-Zeichen, Typ String). Ein Retain mit gleicher ID ersetzt das Dokument.
 - F2-d Fehler: fremde oder fehlende ID in einer Bank ergibt 404 (oder 403)
@@ -264,13 +277,15 @@ Ein Mock bestaetigt keinen API-Vertrag. Entscheidend sind
 `python3 -B -m weitblick.vertrag` gegen die OpenAPI-Datei des Servers
 (Schritt 3) und S-K80 (Schritt 5) in `SERVERPRUEFUNG.md`.
 
-F5: Offline zeigt `test_t4_only_retain_in_chunks_mode`, dass der Client je
-Eintrag genau ein `POST .../banks/weitblick/memories` mit `mode=chunks` sendet
-und sonst nichts. Der Fake-Opener laesst jeden anderen Aufruf mit
-`AssertionError` scheitern; der Writer faengt diesen Fehler nicht ab
-(`test_t4_unexpected_call_fails_loudly`). Jeder Socket-Zugriff laesst den Test
-scheitern. Ob Hindsight serverseitig dennoch ein LLM aufruft, zeigen nur die
-Serverkonfiguration und die Logs im Pruef-Fenster (Schritte 4 und 6).
+F5: Offline zeigt `test_t4_only_retain_without_mode_field`, dass der Client je
+Eintrag genau ein `POST .../banks/weitblick/memories` sendet, dessen Rumpf nur
+die erlaubten Felder `items` und `async=false` enthaelt und kein `mode`. Der
+Fake-Opener lehnt unbekannte Retain-Felder und jeden anderen Aufruf mit
+`AssertionError` ab (`test_t4_mock_rejects_unknown_retain_fields`,
+`test_t4_unexpected_call_fails_loudly`). Jeder Socket-Zugriff laesst den Test
+scheitern. Ob Hindsight serverseitig dennoch ein LLM aufruft, zeigen nur
+`retain_extraction_mode`, die Serverkonfiguration und die Logs im
+Pruef-Fenster (Schritte 4, 5 und 7 in `SERVERPRUEFUNG.md`).
 
 ### Abnahme: Zuordnung T1 bis T8 und S-K80
 
@@ -281,12 +296,12 @@ Testdatei `tests/test_stufe2.py`, Stufe-1-Tests in `tests/test_weitblick.py`.
 | T1 Bestand | alle 18 in `test_weitblick.py`, `test_t1_file_path_unchanged_without_hindsight` | 18 alte Tests gruen; ohne Einschalten 3 JSONL-Eintraege, 0 Hindsight-Aufrufe, keine Statusdatei | nach Bauplan |
 | T2 Schreiben | `test_t2_write_mirrors_released_fields`, `test_t2_return_value_meaning_preserved` | Bank `weitblick` enthaelt genau die JSONL-IDs; Abruf liefert alle freigegebenen Felder unveraendert; Rueckgabe = neue JSONL-Eintraege | angepasst: `fundstelle[].datei` wird bewusst nicht gespeichert |
 | T3 Budget | `test_t3_daily_limit_twenty_candidates`, `test_t3_total_limit_across_days`, `test_t3_repeated_nightly_run`, `test_t3_retry_does_not_widen_budget` | 20 Kandidaten ergeben 3, zweiter Lauf 0; ueber Tage hoechstens 5; zweiter Nachtlauf sendet nichts; Wiederholung erweitert das Budget nicht | nach Bauplan, erweitert |
-| T4 Ohne Modell | `test_t4_only_retain_in_chunks_mode`, `test_t4_unexpected_call_fails_loudly` | nur Retain, `mode=chunks`, `async=false`; unerwarteter Aufruf laesst den Test scheitern | offline nach Bauplan; Servernachweis F5 offen |
-| T5 Trennung | `test_t5_production_bank_only`, `test_sk80_separated_banks_pass` (T5-Teil) | alle Aufrufe nur an Bank `weitblick`, auch mit fremder Bank-Variable; Suche in A findet X nicht | offline vorlaeufig; Server: Schritt 5 |
+| T4 Ohne Modell | `test_t4_only_retain_without_mode_field`, `test_t4_mock_rejects_unknown_retain_fields`, `test_t4_unexpected_call_fails_loudly` | nur Retain, Rumpf nur `items` und `async=false`, kein `mode`; unbekannte Felder und unerwartete Aufrufe lassen den Test scheitern | offline gegen Vertrag v1.2.1; Servernachweis F5 offen |
+| T5 Trennung | `test_t5_production_bank_only`, `test_sk80_separated_banks_pass` (T5-Teil), `test_sk80_cross_bank_chunk_read_fails` | alle Produktionsaufrufe nur an Bank `weitblick`; Suche in A findet X nicht; unscoped `GET /v1/default/chunks/{chunk_id}` gibt X nicht unter Bank A frei | offline vorlaeufig; Server: Schritt 6 |
 | T6 Aus-Schalter | `test_t6_disabled_cli_makes_no_call`, `test_t6_hindsight_switch_keeps_jsonl`, `test_t6_nightly_disabled_reads_and_writes_nothing`, Stufe 1 `test_disabled_cli_creates_nothing` | `--disabled`: klare Meldung, Exit 0, nichts geschrieben, 0 Aufrufe; Hindsight aus: JSONL nutzbar, 0 Aufrufe | nach Bauplan |
 | T7 Nicht erreichbar | `test_t7_unreachable_keeps_jsonl_and_exits_1`, `test_t7_timeout_is_unclear`, `test_t7_response_classification_and_retry`, `test_t7_hindsight_failure_never_touches_jsonl`, `test_t7_corrupt_status_file_is_preserved` | Exit 1, Meldung ohne Quelldaten, URL oder Token; JSONL byte-gleich; Status `unklar`; naechster Lauf bestaetigt | nach Bauplan |
 | T8 Wiederherstellung | `test_t8_rebuild_from_jsonl_after_status_loss` | ohne Statusdatei und mit leerer Bank stellt ein Lauf alle JSONL-Eintraege wieder her | vorlaeufig: nur Offline-Teil; Restore aus Nachtsicherung braucht eigenes GO |
-| S-K80 | `test_sk80_separated_banks_pass`, `test_sk80_cross_bank_read_fails`, `test_sk80_cross_bank_delete_fails`, `test_sk80_empty_success_is_not_a_pass`, `test_sk80_connection_error_is_open`, `test_sk80_general_auth_error_is_open`, `test_sk80_refuses_production_and_identical_banks`, `test_sk80_cli_output_hides_url_and_token`, `test_sk80_cli_missing_config` | Pruefer urteilt `bestanden` nur bei Nachweis von X in B, Abweisung aus A ohne Nutzdaten, abgewiesenem Loeschen und unveraendertem X; Verbindungsfehler und 401 ergeben `offen` | offline: Pruefer-Logik; Server: Schritt 5 |
+| S-K80 | `test_sk80_separated_banks_pass`, `test_sk80_cross_bank_read_fails`, `test_sk80_cross_bank_chunk_read_fails`, `test_sk80_cross_bank_delete_fails`, `test_sk80_empty_success_is_not_a_pass`, `test_sk80_connection_error_is_open`, `test_sk80_general_auth_error_is_open`, `test_sk80_refuses_production_and_identical_banks`, `test_sk80_cli_output_hides_url_and_token`, `test_sk80_cli_missing_config` | Pruefer urteilt `bestanden` nur bei Nachweis von X in B, Abweisung des Dokument- und des Chunk-Pfads aus A ohne Nutzdaten, abgewiesenem Loeschen und unveraendertem X; Verbindungsfehler und 401 ergeben `offen` | offline: Pruefer-Logik; Server: Schritt 6 |
 
 Weitere Tests: Pfadfilter (`test_privacy_*`), Konfiguration F3 (`test_f3_*`),
 Vertragspruefer F2 (`test_f2_*`, gegen eine synthetische OpenAPI-Datei).

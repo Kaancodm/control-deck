@@ -4,11 +4,15 @@ Standard library only. The Stage 1 JSONL file stays authoritative; this
 writer never opens it for writing.
 
 API CONTRACT STATUS (F2, see README "Weitblick Stufe 2"):
-Locally evidenced is only Hindsight (vectorize-io, MIT), release v1.2.1, and a
-per-bank MCP path. The HTTP paths, the request field for the retain mode, the
-document ID semantics and the error form below are ASSUMPTIONS until Atik's
-read-only server check confirms them. They are kept in this one module on
-purpose. Offline tests prove what this client sends, not what Hindsight accepts.
+Checked locally against Hindsight v1.2.1 (PyPI package hindsight-api-slim==1.2.1,
+which hindsight-api==1.2.1 depends on). The RetainRequest in
+hindsight_api/api/http.py (class at line 1354) accepts only items, async,
+document_tags and operation_id. There is no request field "mode"; Pydantic v2
+ignores unknown fields by default, so a "mode" field would be discarded.
+"chunks" is the bank or server setting retain_extraction_mode
+(hindsight_api/config.py lines 1900, 1901 and 4290). Remaining path and
+error-form details are still confirmed on the server by Atik.
+Offline tests prove what this client sends, not what the running server accepts.
 """
 
 import json
@@ -32,7 +36,14 @@ from .writer import (
 
 PRODUCTION_BANK = "weitblick"
 HINDSIGHT_VERSION = "1.2.1"
-RETAIN_MODE = "chunks"
+# Bank/server setting retain_extraction_mode, not a retain request field.
+RETAIN_EXTRACTION_MODE = "chunks"
+RETAIN_TOP_FIELDS = ("items", "async")
+RETAIN_TOP_OPTIONAL_FIELDS = ("document_tags", "operation_id")
+RETAIN_ALLOWED_TOP_FIELDS = frozenset(RETAIN_TOP_FIELDS + RETAIN_TOP_OPTIONAL_FIELDS)
+RETAIN_ITEM_FIELDS = ("content", "document_id", "metadata", "context")
+# First send plus this many further attempts for fehlgeschlagen/unklar.
+MAX_ATTEMPTS = 3
 
 ENV_ENABLED = "WEITBLICK_HINDSIGHT_ENABLED"
 ENV_URL = "WEITBLICK_HINDSIGHT_URL"
@@ -178,6 +189,24 @@ def recall_path(bank):
     return _bank_segment(bank) + "/memories/recall"
 
 
+def chunk_path(chunk_id):
+    return "/v1/default/chunks/" + urllib.parse.quote(chunk_id, safe="~")
+
+
+def build_chunk_id(bank_id, document_id, chunk_index=0):
+    """Build a v1.2.1 chunk id (hindsight_api/engine/chunk_ids.py).
+
+    Underscore and tilde in bank or document ids are escaped so the join
+    stays injective. Common ids without those characters keep the plain form
+    bank_document_index.
+    """
+
+    def escape(value):
+        return value.replace("~", "~7E").replace("_", "~5F")
+
+    return f"{escape(bank_id)}_{escape(document_id)}_{int(chunk_index)}"
+
+
 def retain_body(document_id, content, metadata):
     return {
         "items": [
@@ -189,7 +218,6 @@ def retain_body(document_id, content, metadata):
             }
         ],
         "async": False,
-        "mode": RETAIN_MODE,
     }
 
 
@@ -274,6 +302,9 @@ class HindsightClient:
     def recall(self, bank, query):
         return self._call("POST", recall_path(bank), {"query": query, "max_tokens": 512})
 
+    def get_chunk(self, chunk_id):
+        return self._call("GET", chunk_path(chunk_id))
+
 
 def classify(response):
     """Map a retain response to bestaetigt, fehlgeschlagen or unklar."""
@@ -311,8 +342,10 @@ class HindsightWriter:
     reach the bank, also across repeated nightly runs.
 
     Retry rule: entries recorded as `fehlgeschlagen` or `unklar` are sent again
-    on the next run with the same document ID. Confirmed entries are never resent.
-    The JSONL file is neither read for writing nor changed here.
+    on the next run with the same document ID, up to MAX_ATTEMPTS times in
+    total. Confirmed entries are never resent. The reserved budget slot stays
+    occupied after the limit. The JSONL file is neither read for writing nor
+    changed here.
     """
 
     def __init__(self, output, client):
@@ -336,6 +369,9 @@ class HindsightWriter:
             raise ValueError("Invalid Hindsight status file")
         for value in data["eintraege"].values():
             if value.get("status") not in {CONFIRMED, FAILED, UNCLEAR} or not value.get("datum"):
+                raise ValueError("Invalid Hindsight status file")
+            attempts = value.get("versuche", 1)
+            if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts < 1:
                 raise ValueError("Invalid Hindsight status file")
         return data["eintraege"]
 
@@ -377,7 +413,9 @@ class HindsightWriter:
             retry = [
                 by_id[k]
                 for k, v in sorted(status.items())
-                if v["status"] != CONFIRMED and k in by_id
+                if v["status"] != CONFIRMED
+                and k in by_id
+                and int(v.get("versuche", 1)) < MAX_ATTEMPTS
             ]
             result["bereits"] = sum(
                 1 for k in by_id if k in status and status[k]["status"] == CONFIRMED
@@ -390,10 +428,12 @@ class HindsightWriter:
                 self._save_status(directory, status)
             for entry in retry + fresh:
                 outcome = self._send(entry)
+                previous = status[entry["id"]]
                 status[entry["id"]] = {
                     "datum": entry["datum"],
                     "status": outcome,
                     "zeit": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "versuche": int(previous.get("versuche", 0)) + 1,
                 }
                 self._save_status(directory, status)
                 result[outcome] += 1

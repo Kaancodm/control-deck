@@ -12,14 +12,13 @@ import json
 import re
 import sys
 
-from .hindsight import HINDSIGHT_VERSION, RETAIN_MODE
+from .hindsight import HINDSIGHT_VERSION, RETAIN_ALLOWED_TOP_FIELDS, RETAIN_TOP_FIELDS
 
 PARAM = re.compile(r"\{[^}]+\}")
 RETAIN = ("post", "/v1/default/banks/{}/memories")
 DOCUMENT_GET = ("get", "/v1/default/banks/{}/documents/{}")
 DOCUMENT_DELETE = ("delete", "/v1/default/banks/{}/documents/{}")
 RECALL = ("post", "/v1/default/banks/{}/memories/recall")
-RETAIN_TOP_FIELDS = ("items", "async", "mode")
 RETAIN_ITEM_FIELDS = ("content", "document_id", "metadata", "context")
 
 
@@ -103,13 +102,16 @@ def check(spec):
         for field in RETAIN_TOP_FIELDS:
             if field not in top:
                 bad(f"Retain-Feld '{field}' fehlt im Request-Schema")
-        mode = resolve(spec, top.get("mode", {}))
         if "mode" in top:
-            allowed = mode.get("enum")
-            if allowed is not None and RETAIN_MODE not in allowed:
-                bad(f"Retain-Modus '{RETAIN_MODE}' nicht erlaubt: {sorted(map(str, allowed))}")
-            else:
-                lines.append(f"OK: Retain-Feld 'mode' vorhanden, erlaubt: {allowed or 'frei'}")
+            lines.append(
+                "INFO: Retain-Feld 'mode' steht im Schema, ist in v1.2.1 aber kein Request-Feld"
+            )
+        unknown = sorted(name for name in top if name not in RETAIN_ALLOWED_TOP_FIELDS and name != "mode")
+        if unknown:
+            lines.append("INFO: zusaetzliche Retain-Felder: " + ", ".join(unknown))
+        present = [field for field in RETAIN_TOP_FIELDS if field in top]
+        if present:
+            lines.append("OK: Retain-Felder " + ", ".join(present))
         item = resolve(spec, resolve(spec, top.get("items", {})).get("items", {}))
         item_fields = item.get("properties", {})
         for field in RETAIN_ITEM_FIELDS:

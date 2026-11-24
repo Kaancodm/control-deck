@@ -290,13 +290,14 @@ def test_busy_turn_gives_the_stream_a_readable_message(monkeypatch):
     with async_turns._cond:
         async_turns._turns.clear()
     monkeypatch.setattr(async_turns, "_ensure_worker", lambda: None)
-    with patch("app.assistant.async_turns.reply_to_owner", side_effect=refuse):
+    with patch("app.assistant.async_turns.conduct_dialogue", side_effect=refuse):
         turn_id = async_turns.start_dialogue_turn(
             Session,
             message="Hallo",
             data_class="local_only",
-            profile_notes=None,
-            history=(),
+            include_profile=False,
+            include_history=False,
+            external_thread_id="deck",
             persist=False,
         )
         async_turns._run_turn(async_turns._work_queue.get())

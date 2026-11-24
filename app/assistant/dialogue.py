@@ -56,6 +56,7 @@ def compose_dialogue_messages(
     history: Sequence[tuple[str, str]],
     num_ctx: int,
     num_predict: int,
+    memory_context: str | None = None,
 ) -> list[dict[str, str]]:
     """Build chat messages with a deterministic token budget (drops oldest turns first)."""
     messages: list[dict[str, str]] = [{"role": "system", "content": _RULES}]
@@ -65,6 +66,10 @@ def compose_dialogue_messages(
         if len(notes) > 800:
             notes = notes[:800]
         messages.append({"role": "system", "content": f"Profil, nur Kontext:\n{notes}"})
+    if memory_context and memory_context.strip():
+        block = memory_context.strip()
+        reject_secrets(block, source="dialogue_memory")
+        messages.append({"role": "system", "content": block})
     turns: list[tuple[str, str]] = []
     for owner_text, reply_text in tuple(history):
         if not isinstance(owner_text, str) or not isinstance(reply_text, str):
@@ -117,6 +122,7 @@ def reply_to_owner(
     model: ModelAdapter | None = None,
     profile_notes: str | None = None,
     history: Sequence[tuple[str, str]] = (),
+    memory_context: str | None = None,
     on_chunk: Callable[[str], None] | None = None,
 ) -> DialogueReply:
     """Answer in dialogue. The mock ignores context. Loopback sends only an opted-in prompt."""
@@ -136,6 +142,7 @@ def reply_to_owner(
             history=history,
             num_ctx=adapter.num_ctx,
             num_predict=adapter.num_predict,
+            memory_context=memory_context,
         )
         produced = adapter.complete_messages(chat_messages, data_class=checked, on_chunk=on_chunk)
         if not _loopback_reply_ok(produced, checked):

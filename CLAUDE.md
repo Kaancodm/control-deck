@@ -20,6 +20,12 @@ Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
    Unterschied: em startet S-K80 und Vertragspruefung jetzt, Option 2 wartet auf F4.
    Quelle: Auftrag Kaan 24.11.2026, lokaler Branch `feat/weitblick-stufe2`, nicht gepusht.
 
+4. Entwurf M1b mergen
+   em: Entwurf offen lassen, bis die offenen Fragen im PR beantwortet sind.
+   Option 2: Nach gruenem CI mergen.
+   Unterschied: Option 2 schliesst #77, em laesst den Entwurf liegen.
+   Quelle: Issue #77, Branch `cursor/m1b-dialog-thread-f58e`.
+
 # CLAUDE.md
 
 Project and technical rules for Claude Code. Roles, merge, gates, reports, the GO list, the leaderboard, and the work log: see [AGENTS.md](AGENTS.md). If anything conflicts, AGENTS.md wins.

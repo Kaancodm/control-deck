@@ -490,13 +490,21 @@ ausserhalb `local_only` setzt `privacy_hold` wie `ingest_turn` auf `deck_ui`; di
 Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
 `blocklist_unavailable`). `privacy_held` im Bericht und im Audit zaehlt markierte neue Zeilen.
 
+## M1b, Dialog am Themen-Thread
+
+Der Live-Dialog schreibt den Eingang mit `ingest_turn` (Kanal `deck_ui`, Konto
+`owner`, Methode `deck_ui`) und die Antwort mit `record_deck_reply`. Beide
+bleiben `quarantined`. Ist `include_history` gesetzt, kommt der Prompt aus
+`load_memory_context(thread, "ollama", data_class)` statt aus den letzten acht
+`assistant_turns`. Nur freigegebene Zeilen; `unbewiesen` steht sichtbar im
+Prompt. Klassenfilter, `codex` und `privacy_hold` bleiben im Lader. Das
+Dialogziel ist `ollama` (Loopback oder Mock), kein Cloud-Ziel. Ohne aktiven
+Link ist der Thread leer. Die Aussen-Kennung kommt aus dem Feld, sonst `deck`.
+`num_ctx` bleibt 4096. `persist` schreibt weiter `assistant_turns` und gibt die
+Antwort nicht frei. Die Freigabe-Oberflaeche bleibt M2.
+
 ## Nicht in diesem Stand
 
-- **M1b, offen (Issue #77).** «Dialog nutzt Thread» ist nicht erledigt. Der Live-Dialog
-  liest weiter die letzten Saetze aus `assistant_turns`. M1b haengt den Dialog
-  an den Themen-Thread, nach dem Merge des UI-PR und vor G2.
-  `app/assistant/http.py` bleibt in M1 unveraendert und ruft weder
-  `ingest_turn` noch `load_memory_context`.
 - **M2, Oberflaeche (Issue #78).** Keine Quarantaene-Inbox, keine Freigabe- und
   keine Korrektur-Klicks. M2 zeigt `privacy_hold` (`privacy_block`,
   `blocklist_unavailable`) bei der Freigabe an.

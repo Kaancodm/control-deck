@@ -90,3 +90,9 @@ Kein Merge, PR bleibt Draft.
 
 README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
 sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.
+
+## 2026-11-24 23:31 — Cursor — M1b Dialog-Thread #77
+
+Branch `cursor/m1b-dialog-thread-f58e`. Dialog schreibt `ingest_turn` und `record_deck_reply`. Prompt aus `load_memory_context` (Ziel `ollama`). Quarantaene bleibt draussen, `num_ctx` 4096.
+Check: `make lint` Exit 0. `make test` mit Testdatenbank `controldeck_test`: 3754 passed, 143 skipped, 1 Starlette-Warnung, 266.00s.
+Offen: Entwurf, kein Merge. `persist` gibt die Antwort nicht frei (Frage zu #78 F5). Risiko: Konflikt mit #78 an der Dialog-UI, mit #76 an Lader und Doku.

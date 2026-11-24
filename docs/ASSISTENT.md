@@ -242,4 +242,4 @@ bleibt eine Autorenangabe. Dieser Stand hat das Modell nicht erneut aufgerufen.
 
 Der Einheits-Chat (Kanäle, Quarantäne, Owner-Freigabe, Kontextlader) steht in
 [KANAELE.md](KANAELE.md) und [ADR 0010](DECISIONS/0010-kanaele-und-gedaechtnis.md).
-Der Live-Dialog ist noch nicht an das neue Gedächtnis angeschlossen (M1b, #77).
+Der Live-Dialog haengt am Themen-Thread (M1b, #77): Eingang und Antwort gehen in die Quarantaene, der Prompt nur aus freigegebenen Zeilen. Die Freigabe-Oberflaeche bleibt M2 (#78).

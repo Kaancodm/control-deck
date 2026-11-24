@@ -305,11 +305,12 @@ Ketten (A -> B, spaeter B -> C) bleiben moeglich. Wird ein Nachfolger widerrufen
 Faktum ausgeblendet, bis der Owner ein neues Faktum freigibt. `thread_id` einer
 angehaengten Nachricht bleibt nach dem Loesen einer Verknuepfung bestehen.
 
-- Der Live-Dialog ist in diesem Stand **nicht** umverdrahtet (`app/assistant/http.py`
-  bleibt unveraendert). `load_memory_context` ist vorhanden und getestet und traegt
-  `evidence_status`, damit ein Aufrufer `unbewiesen` beschriften kann. **M1b**
-  (Issue #77, nach dem Merge des UI-PR, vor G2) haengt den Dialog an den
-  Themen-Thread. Bis dahin gilt «Dialog nutzt Thread» nicht als erledigt. **M2**
+- Der Live-Dialog haengt am Themen-Thread (**M1b**, Issue #77).
+  `app/assistant/http.py` schreibt Eingang und Antwort in die Quarantaene und
+  laedt den Prompt ueber `load_memory_context`. `evidence_status` `unbewiesen`
+  wird im Prompt beschriftet. Das Dialogziel ist `ollama`; `codex` und
+  Cloud-Ziele werden auf diesem Pfad nicht gewaehlt. `persist` gibt die
+  Deck-Antwort nicht frei. **M2**
   (Issue #78) liefert die Oberflaeche: Quarantaene-Inbox, Freigabe- und
   Korrektur-Klicks, Anzeige von `privacy_hold`, Labels fuer die Grundcodes und
   einen Leser fuer taskfreie `assistant.*`- und `memory.*`-Zeilen. Deck-Antworten

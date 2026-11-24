@@ -120,3 +120,9 @@ Offen: drei Reviews und das Merge-GO. Risiko: keines aus diesem CI-Lauf.
 PR #103, Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` prueft die Quelle wie `correct_fact`: abgelehnte Quelle ist `source_rejected`, nichts geschrieben. Randfaelle: not_found, not_decided, veralteter Hash, zwei konkurrierende Korrekturen, Kette, abgelaufene und idle Session, Rollback nach flush. Leaderboard Cursor bleibt gelb.
 Check: `make lint` Exit 0 (ruff, 480 formatiert, mypy 167, check_rules). `pytest` gegen `controldeck_test`: 3752 passed, 143 skipped, 1 Starlette-Warnung, 248.77s.
 Offen: drei Reviews und das Merge-GO. Kein Merge. Risiko: #78 muss die Quellpruefung beim Leeren eines freigegebenen Faktums mitrechnen.
+
+## 2026-11-25 00:07 — Cursor — Issue #80 main eingeholt
+
+Merge-Commit von `origin/main` `52c690c` (#102) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Beide Staende in Koordination, Leaderboard und Worklog. Cursor bleibt gelb.
+Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3761 passed, 143 skipped, 1 Starlette-Warnung, 249.49s.
+Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.

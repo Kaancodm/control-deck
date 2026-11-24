@@ -80,3 +80,8 @@ Offen: F2/F5/S-K80 auf dem Server; Schritt 5 der Serverpruefung braucht Kaans Ja
 
 Chunk-Pruefpunkt als offen ausgewiesen. Aufgegebene Eintraege nach 3 Versuchen
 mit Zaehlung, Exit ungleich 0 und Meldung. Kein Merge, PR bleibt Draft.
+
+## 2026-11-24 13:17 — Builder — Weitblick Stufe 2 Nachzug (PR #98, Draft)
+
+401/403 als Konfigurationsfehler (Exit 3), kein Versuch, Budget-Rollback.
+Kein Merge, PR bleibt Draft.

@@ -38,3 +38,9 @@ bleibt offen (404 auf unbekannte Chunk-ID belegt keine Trennung). Aufgegebene
 Eintraege nach 3 Versuchen werden gezaehlt, mit Exit ungleich 0 und klarer
 Meldung. Hinweis zu enable_observations in SERVERPRUEFUNG Schritt 5.
 Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 66 tests, OK (0 failed, 0 skipped), 24.11.2026 12:52 CET.
+
+2026-11-24 13:17, Builder: Review-Nachzug PR #98. HTTP 401/403 zaehlen nicht
+als Versuch; Lauf bricht mit Exit 3 ab, offene Eintraege bleiben unveraendert,
+frische Budget-Reservierungen werden zurueckgenommen. Aufgegebene Eintraege
+in der README zuruecksetzen dokumentiert (hindsight-status.json).
+Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 71 tests, OK (0 failed, 0 skipped), 24.11.2026 13:17 CET.

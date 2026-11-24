@@ -79,6 +79,10 @@ class HindsightConfigError(ValueError):
     """Configuration problem; the message names variables, never their values."""
 
 
+class HindsightAuthError(Exception):
+    """Server rejected authentication (HTTP 401 or 403). Not an attempt."""
+
+
 @dataclass(frozen=True)
 class HindsightConfig:
     url: str
@@ -316,6 +320,7 @@ def classify(response):
         return CONFIRMED
     if response.status in (408, 425, 429) or response.status >= 500:
         return UNCLEAR
+    # 401 and 403 are not attempts; HindsightWriter aborts before classify().
     return FAILED
 
 
@@ -345,8 +350,10 @@ class HindsightWriter:
     Retry rule: entries recorded as `fehlgeschlagen` or `unklar` are sent again
     on the next run with the same document ID, up to MAX_ATTEMPTS times in
     total. Confirmed entries are never resent. The reserved budget slot stays
-    occupied after the limit and counted as aufgegeben. The JSONL file is
-    neither read for writing nor changed here.
+    occupied after the limit and counted as aufgegeben. HTTP 401 or 403 is a
+    configuration error, not an attempt: open entries stay unchanged, fresh
+    reservations from this run are rolled back, and the writer aborts.
+    The JSONL file is neither read for writing nor changed here.
     """
 
     def __init__(self, output, client):
@@ -398,6 +405,8 @@ class HindsightWriter:
             response = self.client.retain(self.bank, entry["id"], content, metadata)
         except TransportError:
             return UNCLEAR
+        if response.status in (401, 403):
+            raise HindsightAuthError
         return classify(response)
 
     def write(self, entries):
@@ -427,8 +436,20 @@ class HindsightWriter:
                 status[entry["id"]] = {"datum": entry["datum"], "status": UNCLEAR}
             if fresh:
                 self._save_status(directory, status)
+            pending_fresh = {entry["id"] for entry in fresh}
             for entry in retry + fresh:
-                outcome = self._send(entry)
+                try:
+                    outcome = self._send(entry)
+                except HindsightAuthError:
+                    changed = False
+                    for entry_id in pending_fresh:
+                        record = status.get(entry_id)
+                        if record is not None and "versuche" not in record:
+                            del status[entry_id]
+                            changed = True
+                    if changed:
+                        self._save_status(directory, status)
+                    raise
                 previous = status[entry["id"]]
                 status[entry["id"]] = {
                     "datum": entry["datum"],
@@ -437,6 +458,7 @@ class HindsightWriter:
                     "versuche": int(previous.get("versuche", 0)) + 1,
                 }
                 self._save_status(directory, status)
+                pending_fresh.discard(entry["id"])
                 result[outcome] += 1
             result[ABANDONED] = sum(
                 1

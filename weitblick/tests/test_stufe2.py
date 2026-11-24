@@ -36,6 +36,7 @@ from weitblick.hindsight import (
     RETAIN_ITEM_FIELDS,
     RETAIN_TOP_FIELDS,
     UNCLEAR,
+    HindsightAuthError,
     HindsightClient,
     HindsightConfig,
     HindsightWriter,
@@ -87,6 +88,7 @@ class FakeHindsight:
         self.leak_delete = False
         self.leak_chunk = False
         self.empty_success_get = False
+        self.empty_success_chunk = False
         self.auth_fail_bank = None
         self.allowed = {"POST", "GET", "DELETE"}
 
@@ -105,6 +107,8 @@ class FakeHindsight:
         method = call["method"]
         if self.down is not None:
             raise self.down
+        if not request.get_header("Authorization"):
+            return self._reply(request, 401, {"detail": "Unauthorized"})
         chunk_match = CHUNK_RE.match(path)
         if chunk_match is not None:
             if method != "GET" or method not in self.allowed:
@@ -185,7 +189,7 @@ class FakeHindsight:
                 (item for item in self.chunks.values() if item["document_id"] == document_id),
                 None,
             )
-        if record is None and self.empty_success_get:
+        if record is None and (self.empty_success_get or self.empty_success_chunk):
             return self._reply(request, 200, {})
         if record is None:
             return self._reply(request, 404, {"detail": "Chunk not found"})
@@ -521,7 +525,6 @@ class WriterAndFlowTests(Stage2Base):
             ((500, b'{"detail": "boom"}'), UNCLEAR),
             ((429, b"{}"), UNCLEAR),
             ((400, b'{"detail": "bad"}'), FAILED),
-            ((401, b'{"detail": "auth"}'), FAILED),
             ((200, b"not json"), UNCLEAR),
             ((200, b'{"success": false}'), UNCLEAR),
         ]
@@ -572,6 +575,86 @@ class WriterAndFlowTests(Stage2Base):
         self.assertNotIn("unexpected secondary failure", text)
         self.assert_no_sensitive_output(text)
         self.assertEqual(len(self.jsonl_bytes().splitlines()), 3)
+
+    def test_t7_auth_error_aborts_without_counting_attempt(self):
+        from weitblick.pipeline import EXIT_AUTH
+
+        for status in (401, 403):
+            with self.subTest(status=status):
+                self.fake = FakeHindsight()
+                self.transport = UrllibTransport(opener=self.fake)
+                self.out = self.root / f"out-auth-{status}"
+                self.fake.status_override = (status, b'{"detail": "auth-secret"}')
+                writer = self.writer()
+                with self.assertRaises(HindsightAuthError):
+                    writer.write(self.entries())
+                self.assertEqual(len(self.fake.retains()), 1)
+                status_path = self.out / "hindsight-status.json"
+                if status_path.exists():
+                    self.assertEqual(self.status(), {})
+                code, text = self.run_pipeline()
+                self.assertEqual(code, EXIT_AUTH, text)
+                self.assertIn("Hindsight-Anmeldung abgelehnt", text)
+                self.assertIn("JSONL ist gesichert", text)
+                self.assertIn("unveraendert", text)
+                self.assertNotIn("auth-secret", text)
+                self.assertNotIn("Unauthorized", text)
+                self.assert_no_sensitive_output(text)
+                self.assertEqual(len(self.jsonl_bytes().splitlines()), 3)
+                if status_path.exists():
+                    self.assertEqual(self.status(), {})
+                self.assertEqual(len(self.fake.retains()), 2)
+
+    def test_t7_auth_error_does_not_occupy_budget(self):
+        from weitblick.pipeline import EXIT_AUTH, EXIT_OK
+
+        self.fake.status_override = (401, b"{}")
+        for _ in range(MAX_ATTEMPTS + 1):
+            code, text = self.run_pipeline()
+            self.assertEqual(code, EXIT_AUTH, text)
+            self.assertNotIn("aufgegeben", text)
+        status_path = self.out / "hindsight-status.json"
+        if status_path.exists():
+            self.assertEqual(self.status(), {})
+        self.fake.status_override = None
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_OK, text)
+        self.assertIn("3 bestaetigt", text)
+        self.assertEqual(len(self.status()), 3)
+        self.assertEqual({s["status"] for s in self.status().values()}, {CONFIRMED})
+
+    def test_t7_auth_error_leaves_existing_status_unchanged(self):
+        from weitblick.pipeline import EXIT_AUTH
+
+        self.fake.status_override = (500, b"{}")
+        writer = self.writer()
+        self.assertEqual(writer.write(self.entries()), 0)
+        before = json.loads((self.out / "hindsight-status.json").read_text())
+        self.assertEqual({s["versuche"] for s in before["eintraege"].values()}, {1})
+        self.fake.status_override = (403, b'{"detail": "forbidden"}')
+        with self.assertRaises(HindsightAuthError):
+            writer.write(self.entries())
+        after = json.loads((self.out / "hindsight-status.json").read_text())
+        self.assertEqual(after, before)
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_AUTH, text)
+        self.assertEqual(
+            json.loads((self.out / "hindsight-status.json").read_text()),
+            before,
+        )
+        self.assertNotIn("forbidden", text)
+        self.assert_no_sensitive_output(text)
+
+    def test_fake_rejects_missing_authorization(self):
+        request = urllib.request.Request(
+            URL + "/v1/default/banks/weitblick/memories",
+            data=b'{"items":[],"async":false}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.fake.open(request)
+        self.assertEqual(caught.exception.code, 401)
 
     def test_t8_rebuild_from_jsonl_after_status_loss(self):
         # Provisional: only the offline part of T8. The backup restore drill is server-side.
@@ -750,6 +833,18 @@ class SK80Tests(Stage2Base):
         report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0004")
         self.assertEqual(report["sk80"], sk80.FAILED)
 
+    def test_sk80_chunk_empty_success_is_failed(self):
+        self.fake.empty_success_chunk = True
+        report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0010")
+        self.assertEqual(report["chunk"], sk80.FAILED)
+        self.assertEqual(report["sk80"], sk80.FAILED)
+        self.assertTrue(
+            any(
+                "Lesen Chunk X unter Bank A" in s and "Erfolg statt Fehler" in s
+                for s in report["schritte"]
+            )
+        )
+
     def test_sk80_connection_error_is_open(self):
         self.fake.down = urllib.error.URLError("refused")
         report = sk80.run_sk80(self.client(), SK80_BANK_A, SK80_BANK_B, "t0005")
@@ -793,6 +888,8 @@ class SK80Tests(Stage2Base):
         text = stdout.getvalue() + stderr.getvalue()
         self.assertEqual(code, 0, text)
         self.assertIn("S-K80: bestanden", text)
+        self.assertIn("T5: bestanden", text)
+        self.assertIn("Chunk: offen", text)
         self.assertNotIn(TOKEN, text)
         self.assertNotIn("hindsight.test.invalid", text)
 

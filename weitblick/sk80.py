@@ -243,6 +243,7 @@ def main(argv=None, environ=None, transport=None):
         print("- " + line)
     print(f"S-K80: {report['sk80']}")
     print(f"T5: {report['t5']}")
+    print(f"Chunk: {report['chunk']}")
     return {PASSED: 0, FAILED: 1}.get(report["sk80"], 3)
 
 

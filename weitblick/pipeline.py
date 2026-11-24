@@ -10,6 +10,7 @@ from .hindsight import (
     MAX_ATTEMPTS,
     PRODUCTION_BANK,
     UNCLEAR,
+    HindsightAuthError,
     HindsightClient,
     HindsightConfigError,
     HindsightWriter,
@@ -20,6 +21,7 @@ from .writer import FileWriter
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_CONFIG = 2
+EXIT_AUTH = 3
 
 GENERIC_ERROR = "Weitblick: Eingabe oder Ausgabe ungueltig; keine Freigabe fuer Verwendung."
 
@@ -36,11 +38,17 @@ class MirroredWriter:
         self.primary = primary
         self.secondary = secondary
         self.mirror_result = None
+        self.auth_rejected = False
 
     def write(self, entries):
         added = self.primary.write(entries)
         try:
             self.secondary.write(self.primary.read_stored())
+        except HindsightAuthError:
+            # JSONL is already fsynced. Fresh Hindsight reservations were rolled back.
+            self.mirror_result = None
+            self.auth_rejected = True
+            return added
         except (OSError, ValueError, TypeError, KeyError):
             # JSONL is already fsynced. Do not leak exception details.
             self.mirror_result = None
@@ -73,6 +81,12 @@ def run(paths, output, environ, *, no_hindsight=False, today=None, transport=Non
     if config is None:
         out("Hindsight ausgeschaltet; kein Hindsight-Aufruf.")
         return EXIT_OK
+    if getattr(writer, "auth_rejected", False):
+        out(
+            "Weitblick: Hindsight-Anmeldung abgelehnt. JSONL ist gesichert; "
+            "offene Eintraege bleiben unveraendert."
+        )
+        return EXIT_AUTH
     result = writer.mirror_result
     if result is None:
         out(

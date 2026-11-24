@@ -2,14 +2,12 @@
 
 Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
 
+Nichts offen.
+
 Entschieden am 24.11.2026 mit `alle em`: Egress-Proxy bleibt aus. Ollama-Bestand bleibt.
 Weitblick-Schritte 1 bis 4 bleiben die lesende Pruefung und wurden hier nicht ausgefuehrt.
 Schritt 5 und S-K80 bleiben ohne Ja.
-
-1. Entwurf #95 offen lassen
-   em: Entwurf lassen. `main` ist per Merge `269b0fa` drin. Die 16 Fragen bleiben offen.
-   Option 2: Entwurf wieder schliessen.
-   Unterschied: Option 2 folgt dem Kommentar von 22:53 Uhr (Berlin), die oeffentliche Regelseite sei am 19.11. abgesagt. em folgt der Antwort `alle em`.
+#95 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:09:12Z). Der Branch `claude/wonderful-cori-d21yd2` bleibt auf `269b0fa`.
 
 # CLAUDE.md
 

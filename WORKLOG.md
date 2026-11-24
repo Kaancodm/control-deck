@@ -102,3 +102,9 @@ Offen: Entwurf #95 mit 16 Fragen. Risiko: #95 aendert dieselben Steuerdateien un
 Kommentar um 22:53 Uhr (Berlin) schloss #95. Passend zu em 5 wieder geoeffnet: Entwurf, Kopf `269b0fa`. Eine GO-Frage bleibt, ob die oeffentliche Regelseite doch draussen bleibt.
 Check: kein neuer Testlauf. Der Lauf davor gilt.
 Offen: diese eine Frage. Risiko: zwei Signale am selben Abend.
+
+## 2026-11-24 23:09 — Grok Bot — Phase Entwurf #95 geschlossen
+
+#95 geschlossen, nicht gemergt (closedAt 2026-11-24T22:09:12Z, Kopf `269b0fa`). Branch bleibt. GO-Frage dazu ist erledigt. Quelle: `gh pr view 95` und Kommentar auf dem PR.
+Check: `python3 scripts/check_rules.py`, Exit 0. Voller pytest-Lauf nicht wiederholt; nur diese vier Textdateien.
+Offen: nichts. Risiko: #100 und der geschlossene #95 aendern dieselben Steuerdateien nicht mehr gemeinsam, der Abgleich entfaellt.

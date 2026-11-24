@@ -29,7 +29,7 @@ Regeln: siehe `AGENTS.md`.
 | Ollama JSON-Leser | — | `main` | #97 | erledigt (gemergt, 6123488, merged_at 2026-11-24T11:59:17Z) | 24.11.2026 |
 | Weitblick Stufe 2 | — | `main` | #98 | erledigt (gemergt, 979b89b, merged_at 2026-11-24T12:44:16Z) | 24.11.2026 |
 | Weitblick Haertung | — | `main` | #99 | erledigt (gemergt, 75318c9, merged_at 2026-11-24T19:32:52Z) | 24.11.2026 |
-| `TEAM.md` als eine Regelseite | Claude Code | `claude/wonderful-cori-d21yd2` | #95 | offen, Entwurf. 16 Fragen in `TEAM.md` Abschnitt 12 bleiben offen. Nachzug `269b0fa` (Merge von `75318c9`), ohne Historie umzuschreiben. | 24.11.2026 |
+| `TEAM.md` als eine Regelseite | Claude Code | `claude/wonderful-cori-d21yd2` | #95 | geschlossen, nicht gemergt (closedAt 2026-11-24T22:09:12Z). Branch bleibt auf `269b0fa`. Kommentar: TEAM.md gilt ueber DECK-REGELN v1. | 24.11.2026 |
 | Ollama-HTTP aufräumen | Cursor Cloud Agent | `stage/cleanup-ollama-http` | #90 | erledigt (gemergt, 190a507, mergedAt 2026-11-11T22:13:38Z) | 12.11.2026 |
 | Regeln angleichen | Cursor Cloud Agent | `cursor/align-agent-rules-10a1` | #92 | erledigt (gemergt, a105245, mergedAt 2026-11-12T22:51:01Z, mergedBy Kaancodm) | 12.11.2026 |
 | GO-Liste nach Merge #92 | Cursor Cloud Agent | `cursor/clear-merged-go-10a1` | #93 | erledigt (gemergt, a123d40, mergedAt 2026-11-12T23:16:19Z, mergedBy Kaancodm) | 13.11.2026 |

@@ -146,7 +146,7 @@ Einstellungen zusammen gezwungen (config.py:4616-4622).
 ```sh
 START=$(date -u +%Y-%m-%dT%H:%M:%SZ); echo "Start $START"
 python3 -B -m weitblick.sk80 --bank-a weitblick-sk80-a --bank-b weitblick-sk80-b
-echo "sk80 Exit $?"
+echo "sk80 Exit $?"   # 0 bestanden, 1 nicht bestanden, 2 Konfiguration, 4 offen
 END=$(date -u +%Y-%m-%dT%H:%M:%SZ); echo "Ende $END"
 ```
 
@@ -179,7 +179,7 @@ das Werkzeug ab.
 | --- | --- |
 | `S-K80: bestanden`, Exit 0 | Banktrennung fuer Lesen und Loeschen nach Dokument-ID belegt (Schritte 3, 5, 7, 8). Der Chunk-Pfad bleibt `offen`; eine 404 auf eine unbekannte Chunk-ID belegt keine Trennung. |
 | `S-K80: nicht bestanden`, Exit 1 | Lesen oder Loeschen aus A war erfolgreich, eine leere Erfolgsantwort kam, die Antwort (Dokument oder Chunk) enthielt Nutzdaten von X, oder X fehlt danach in B. Sofort melden, nicht umdeuten. |
-| `S-K80: offen`, Exit 3 | Verbindungsfehler, 401, 5xx, andere Statuscodes oder Vorbereitung nicht bestaetigt. Ein Verbindungs- oder allgemeiner Anmeldefehler belegt keine Banktrennung. |
+| `S-K80: offen`, Exit 4 | Verbindungsfehler, 401, 5xx, andere Statuscodes oder Vorbereitung nicht bestaetigt. Ein Verbindungs- oder allgemeiner Anmeldefehler belegt keine Banktrennung. |
 | `T5: bestanden` | Die Suche in A findet X nicht. |
 | `T5: offen` | Suche nicht auswertbar (Pfad oder Antwortform anders, F2). |
 

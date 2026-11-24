@@ -12,6 +12,7 @@ import json
 import re
 import sys
 
+from .exitcodes import EXIT_CONFIG, EXIT_ERROR, EXIT_OK
 from .hindsight import HINDSIGHT_VERSION, RETAIN_ALLOWED_TOP_FIELDS, RETAIN_TOP_FIELDS
 
 PARAM = re.compile(r"\{[^}]+\}")
@@ -148,7 +149,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) != 1:
         print("Aufruf: python3 -B -m weitblick.vertrag <openapi.json>", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG
     try:
         with open(argv[0], encoding="utf-8") as stream:
             spec = json.load(stream)
@@ -156,12 +157,12 @@ def main(argv=None):
             raise ValueError
     except (OSError, ValueError):
         print("Vertrag: Datei nicht lesbar oder kein JSON-Objekt", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG
     ok, lines = check(spec)
     for line in lines:
         print(line)
     print("Vertrag: passt" if ok else "Vertrag: Abweichung, Adapter vor Betrieb anpassen")
-    return 0 if ok else 1
+    return EXIT_OK if ok else EXIT_ERROR
 
 
 if __name__ == "__main__":

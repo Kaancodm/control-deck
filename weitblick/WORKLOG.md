@@ -51,3 +51,12 @@ Tests: 401/403 mitten im Lauf, andere 4xx/5xx/Timeout als Versuch, stabile
 Exit-Codes 0/1/2/3, Zuruecksetzen gibt Budget frei, Fake 401 ohne Auth auch
 fuer GET, DELETE, Chunk und Recall.
 Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 75 tests, OK (0 failed, 0 skipped), 24.11.2026 13:23 CET.
+
+2026-11-24 20:06, Builder: Folge zu #98 (Haertung, Rest-KANN Code-Pruefer).
+Exit-Codes zentral in `exitcodes.py`; S-K80 `offen` neu Exit 4, Exit 3 nur
+noch Auth. OSError beim Rollback verdeckt 401/403 nicht mehr (Notiz am
+Auth-Fehler, Exit 3). Abbruch zwischen Reservierung und Senden: Status
+`reserviert`/`sendet` mit Lauf-ID, naechster Start gibt zurueck oder nimmt
+ohne Versuch wieder auf. Token-Format nach RFC 6750 b64token, leere Teile und
+Praefix `Bearer` abgewiesen, Token nie in Ausgaben.
+Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 88 tests, OK (0 failed, 0 skipped), 24.11.2026 20:06 CET.

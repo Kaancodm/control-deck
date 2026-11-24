@@ -158,7 +158,7 @@ python3 -B -m weitblick.nachtlauf
 | --- | --- | --- |
 | `WEITBLICK_HINDSIGHT_ENABLED` | nein | `1` schaltet die Spiegelung ein. Leer oder `0`: aus. Andere Werte: Konfigurationsfehler. |
 | `WEITBLICK_HINDSIGHT_URL` | wenn eingeschaltet | http(s)-Basisadresse von Hindsight, ohne Zugangsdaten, Query oder Fragment |
-| `WEITBLICK_HINDSIGHT_TOKEN` | wenn eingeschaltet | Bearer-Token, nur aus der Umgebung |
+| `WEITBLICK_HINDSIGHT_TOKEN` | wenn eingeschaltet | Bearer-Token, nur aus der Umgebung, ohne Praefix `Bearer` (Format siehe unten) |
 | `WEITBLICK_HINDSIGHT_TIMEOUT_S` | nein | Zeitlimit je Anfrage in Sekunden, Standard 10, hoechstens 120 |
 | `WEITBLICK_ENTSCHEIDE`, `WEITBLICK_SERVER`, `WEITBLICK_AUFTRAEGE` | Nachtlauf | Pfade der drei Quell-Listen |
 | `WEITBLICK_OUTPUT` | Nachtlauf | privater Ausgabeordner, immer derselbe (Budget und Status liegen dort) |
@@ -174,6 +174,13 @@ Fehlende Pflichtwerte im eingeschalteten Modus ergeben Exit 2 und die Meldung
 `Weitblick: Konfigurationsfehler: Hindsight ist eingeschaltet, aber es fehlen:`
 mit den Variablennamen. Werte werden nie ausgegeben, auch nicht in `repr`.
 Vor dieser Pruefung wird nichts gelesen oder geschrieben.
+
+Token-Format (`check_token` in `hindsight.py`): Leerraum am Anfang und Ende wird
+entfernt. Danach gilt die Form `b64token` aus RFC 6750: nur `A-Z a-z 0-9 - . _ ~ + /`,
+`=` nur am Ende. Abgewiesen mit Exit 2 werden: leeres Token, Praefix `Bearer`,
+Leer- oder Steuerzeichen im Token, andere Zeichen, und leere Teile zwischen
+Punkten (Punkt am Anfang, am Ende oder doppelt). Die Meldung nennt nur den
+Variablennamen und die Regel, nie das Token oder einen Teil davon.
 Pruefung mit gesetzter Umgebung ohne Werte: siehe `SERVERPRUEFUNG.md`, Schritt 1.
 
 ### Aus-Schalter
@@ -206,12 +213,28 @@ reservierten IDs mit Datum und Ergebnis, ohne Inhalt und ohne Pfade. Die
 Reservierung wird vor dem Senden gespeichert. Dadurch gelten die Grenzen auch
 bei erneutem Nachtlauf, nach Abbruch und nach Teilfehlern.
 
+Abbruch (z. B. SIGKILL) zwischen Reservierung und Senden kostet keinen Versuch:
+
+- Frische Reservierung: Status `reserviert`, `versuche: 0`, Lauf-ID (`lauf`) und
+  Zeit. Direkt vor dem HTTP-Aufruf wird `sendet` mit der Lauf-ID gesetzt.
+- Beim naechsten Start (Lock gehalten, also kein anderer Lauf aktiv):
+  `reserviert` ohne `sendet` wurde nie gesendet; der Platz wird zurueckgegeben
+  und die Budgetregel entscheidet im selben Lauf neu. Mit `sendet` kann der
+  Aufruf den Server erreicht haben; der Platz bleibt, der Satz wird `unklar`
+  mit unveraenderter Versuchszahl und geht mit gleicher `document_id` erneut
+  raus. Idempotenz kommt von der `document_id` (Hindsight ersetzt das
+  Dokument); `operation_id` wirkt in v1.2.1 nur bei `async: true` und wird
+  deshalb nicht gesendet.
+- Saetze aus Stufe 2 ohne `versuche` (alte Reservierung) gelten wie `sendet`.
+- Der Lauf meldet `abgebrochener Lauf erkannt: N Reservierungen zurueckgegeben,
+  M erneut offen, kein Versuch gezaehlt.`
+
 | Ergebnis | Wann | Erneuter Versuch |
 | --- | --- | --- |
 | `bestaetigt` | HTTP 2xx mit JSON-Objekt, nicht `success: false` | nie |
 | `fehlgeschlagen` | HTTP 3xx (Weiterleitung wird nicht verfolgt), 4xx ausser 401, 403, 408, 425, 429, oder lokale Pfadsperre | ja, im naechsten Lauf, gleiche Dokument-ID |
 | `unklar` | keine HTTP-Antwort, Zeitlimit, 408, 425, 429, 5xx, 2xx ohne JSON oder `success: false` | ja, im naechsten Lauf, gleiche Dokument-ID |
-| Konfigurationsfehler | HTTP 401 oder 403 | kein Versuch; Lauf bricht ab, Exit 3. Offene Eintraege bleiben unveraendert, frische Reservierungen dieses Laufs werden zurueckgenommen. |
+| Konfigurationsfehler | HTTP 401 oder 403 | kein Versuch; Lauf bricht ab, Exit 3. Offene Eintraege bleiben unveraendert, frische Reservierungen dieses Laufs werden zurueckgenommen. Scheitert dieses Zuruecknehmen (OSError), bleibt es Exit 3; der Fehler haengt als Notiz am Auth-Fehler (nur Typname), die Meldung sagt es, und der naechste Lauf gibt die Reservierungen ohne Versuch zurueck. |
 
 Ein nicht bestaetigter Eintrag darf hoechstens dreimal gesendet werden
 (inklusive des ersten Versuchs, `MAX_ATTEMPTS` in `hindsight.py`). Danach gilt
@@ -250,11 +273,23 @@ wird nicht ueberschrieben.
 
 ### Fehlerverhalten und Exit-Codes
 
+Eine Zahl hat in allen Befehlen dieselbe Bedeutung (`weitblick/exitcodes.py`):
+
+| Exit | Name | Pipeline und Nachtlauf | S-K80 | Vertrag |
+| --- | --- | --- | --- | --- |
+| 0 | `EXIT_OK` | erfolgreich | `bestanden` | passt |
+| 1 | `EXIT_ERROR` | Fehler oder Spiegelung unvollstaendig | `nicht bestanden` | Abweichung |
+| 2 | `EXIT_CONFIG` | Konfiguration oder Argumente | Konfiguration oder Argumente | Datei oder Aufruf |
+| 3 | `EXIT_AUTH` | Anmeldung abgelehnt (401/403) | nicht benutzt | nicht benutzt |
+| 4 | `EXIT_OPEN` | nicht benutzt | `offen` (frueher 3) | nicht benutzt |
+
+Pipeline im Detail:
+
 | Exit | Bedeutung |
 | --- | --- |
 | 0 | Erfolgreich; Hindsight aus oder alle offenen Eintraege bestaetigt |
 | 1 | Eingabe- oder Ausgabefehler (wie Stufe 1), oder Hindsight-Spiegelung unvollstaendig (einschliesslich aufgegebener Eintraege). JSONL ist dann bereits gesichert; Meldung nennt nur Zaehler. |
-| 2 | Falsche Argumente oder lokale Konfigurationsfehler (nur Variablennamen in der Meldung) |
+| 2 | Falsche Argumente oder lokale Konfigurationsfehler, auch ungueltiges Token-Format (nur Variablennamen in der Meldung) |
 | 3 | Hindsight hat die Anmeldung abgelehnt (HTTP 401 oder 403). Kein Versuch gezaehlt; offene Eintraege unveraendert. JSONL ist bereits gesichert. Meldung ohne Token und ohne Servertext. |
 
 Meldungen enthalten keine Quelldaten, keine Pfade, keine URL und kein Token.
@@ -329,13 +364,14 @@ Testdatei `tests/test_stufe2.py`, Stufe-1-Tests in `tests/test_weitblick.py`.
 | --- | --- | --- | --- |
 | T1 Bestand | alle 18 in `test_weitblick.py`, `test_t1_file_path_unchanged_without_hindsight` | 18 alte Tests gruen; ohne Einschalten 3 JSONL-Eintraege, 0 Hindsight-Aufrufe, keine Statusdatei | nach Bauplan |
 | T2 Schreiben | `test_t2_write_mirrors_released_fields`, `test_t2_return_value_meaning_preserved` | Bank `weitblick` enthaelt genau die JSONL-IDs; Abruf liefert alle freigegebenen Felder unveraendert; Rueckgabe = neue JSONL-Eintraege | angepasst: `fundstelle[].datei` wird bewusst nicht gespeichert |
-| T3 Budget | `test_t3_daily_limit_twenty_candidates`, `test_t3_total_limit_across_days`, `test_t3_repeated_nightly_run`, `test_t3_retry_does_not_widen_budget`, `test_t3_retry_stops_after_max_attempts`, `test_t3_abandoned_entries_fail_the_run`, `test_t7_auth_error_does_not_occupy_budget`, `test_t3_reset_abandoned_entry_frees_budget` | 20 Kandidaten ergeben 3, zweiter Lauf 0; ueber Tage hoechstens 5; zweiter Nachtlauf sendet nichts; Wiederholung erweitert das Budget nicht; nach 3 Versuchen Exit 1 und Zaehlung aufgegeben; 401/403 belegt keine Budget-Plaetze; Entfernen aufgegebener Schluessel in der Statusdatei gibt Plaetze frei | nach Bauplan, erweitert |
+| T3 Budget | `test_t3_daily_limit_twenty_candidates`, `test_t3_total_limit_across_days`, `test_t3_repeated_nightly_run`, `test_t3_retry_does_not_widen_budget`, `test_t3_retry_stops_after_max_attempts`, `test_t3_abandoned_entries_fail_the_run`, `test_t7_auth_error_does_not_occupy_budget`, `test_t3_reset_abandoned_entry_frees_budget` | 20 Kandidaten ergeben 3, zweiter Lauf 0; ueber Tage hoechstens 5; zweiter Nachtlauf sendet nichts; Wiederholung erweitert das Budget nicht; nach 3 Versuchen Exit 1 und Zaehlung aufgegeben; 401/403 belegt keine Budget-Plaetze; Entfernen aufgegebener Schluessel in der Statusdatei gibt Plaetze frei; Abbruch vor oder waehrend des Sendens kostet keinen Versuch und erweitert das Budget nicht (`test_t3_killed_run_costs_no_attempt`, `test_t3_killed_retry_keeps_last_attempt`, `test_t3_recovery_keeps_budget`, `test_status_file_rejects_bad_crash_fields`) | nach Bauplan, erweitert |
 | T4 Ohne Modell | `test_t4_only_retain_without_mode_field`, `test_t4_mock_rejects_unknown_retain_fields`, `test_t4_unexpected_call_fails_loudly` | nur Retain, Rumpf nur `items` und `async=false`, kein `mode`; unbekannte Felder und unerwartete Aufrufe lassen den Test scheitern | offline gegen Vertrag v1.2.1; Servernachweis F5 offen |
 | T5 Trennung | `test_t5_production_bank_only`, `test_sk80_separated_banks_pass` (T5-Teil), `test_sk80_cross_bank_chunk_read_fails` | alle Produktionsaufrufe nur an Bank `weitblick`; Suche in A findet X nicht; der unscoped Chunk-Pfad bleibt `offen` (404 belegt keine Trennung), Nutzdaten von X dort ergeben `nicht bestanden` | offline vorlaeufig; Server: Schritt 6 |
 | T6 Aus-Schalter | `test_t6_disabled_cli_makes_no_call`, `test_t6_hindsight_switch_keeps_jsonl`, `test_t6_nightly_disabled_reads_and_writes_nothing`, Stufe 1 `test_disabled_cli_creates_nothing` | `--disabled`: klare Meldung, Exit 0, nichts geschrieben, 0 Aufrufe; Hindsight aus: JSONL nutzbar, 0 Aufrufe | nach Bauplan |
-| T7 Nicht erreichbar | `test_t7_unreachable_keeps_jsonl_and_exits_1`, `test_t7_timeout_is_unclear`, `test_t7_response_classification_and_retry`, `test_t7_hindsight_failure_never_touches_jsonl`, `test_t7_corrupt_status_file_is_preserved`, `test_t7_auth_error_aborts_without_counting_attempt`, `test_t7_auth_error_does_not_occupy_budget`, `test_t7_auth_error_leaves_existing_status_unchanged`, `test_t7_auth_error_mid_run_keeps_sent_and_frees_unsent`, `test_t7_non_auth_errors_still_count_as_attempts`, `test_exit_codes_are_stable_and_distinct` | Exit 1 bei unvollstaendiger Spiegelung und bei 4xx/5xx/Timeout als Versuch; 401/403: Exit 3, auch mitten im Lauf (bereits gesendete bleiben, ungesendete Reservierungen zurueckgenommen); Meldung ohne Token oder Servertext; JSONL byte-gleich | nach Bauplan, erweitert |
+| T7 Nicht erreichbar | `test_t7_unreachable_keeps_jsonl_and_exits_1`, `test_t7_timeout_is_unclear`, `test_t7_response_classification_and_retry`, `test_t7_hindsight_failure_never_touches_jsonl`, `test_t7_corrupt_status_file_is_preserved`, `test_t7_auth_error_aborts_without_counting_attempt`, `test_t7_auth_error_does_not_occupy_budget`, `test_t7_auth_error_leaves_existing_status_unchanged`, `test_t7_auth_error_mid_run_keeps_sent_and_frees_unsent`, `test_t7_non_auth_errors_still_count_as_attempts`, `test_exit_codes_are_stable_and_distinct`, `test_exit_codes_shared_table_is_unique`, `test_t7_rollback_oserror_keeps_auth_error`, `test_t7_rollback_oserror_pipeline_exits_auth_and_recovers` | Exit 1 bei unvollstaendiger Spiegelung und bei 4xx/5xx/Timeout als Versuch; 401/403: Exit 3, auch mitten im Lauf (bereits gesendete bleiben, ungesendete Reservierungen zurueckgenommen); Meldung ohne Token oder Servertext; JSONL byte-gleich | nach Bauplan, erweitert |
 | T8 Wiederherstellung | `test_t8_rebuild_from_jsonl_after_status_loss` | ohne Statusdatei und mit leerer Bank stellt ein Lauf alle JSONL-Eintraege wieder her | vorlaeufig: nur Offline-Teil; Restore aus Nachtsicherung braucht eigenes GO |
-| S-K80 | `test_sk80_separated_banks_pass`, `test_sk80_cross_bank_read_fails`, `test_sk80_cross_bank_chunk_read_fails`, `test_sk80_cross_bank_delete_fails`, `test_sk80_empty_success_is_not_a_pass`, `test_sk80_chunk_empty_success_is_failed`, `test_sk80_connection_error_is_open`, `test_sk80_general_auth_error_is_open`, `test_sk80_refuses_production_and_identical_banks`, `test_sk80_cli_output_hides_url_and_token`, `test_sk80_cli_missing_config` | Pruefer urteilt `bestanden` nur bei Nachweis von X in B, Abweisung des Dokument-Pfads aus A ohne Nutzdaten, abgewiesenem Loeschen und unveraendertem X; der Chunk-Pfad bleibt `offen` und wird getrennt ausgegeben; Nutzdaten von X oder 2xx ohne Nutzdaten dort ergeben `nicht bestanden`; Verbindungsfehler und 401 ergeben `offen` | offline: Pruefer-Logik; Server: Schritt 6 |
+| S-K80 | `test_sk80_separated_banks_pass`, `test_sk80_cross_bank_read_fails`, `test_sk80_cross_bank_chunk_read_fails`, `test_sk80_cross_bank_delete_fails`, `test_sk80_empty_success_is_not_a_pass`, `test_sk80_chunk_empty_success_is_failed`, `test_sk80_connection_error_is_open`, `test_sk80_general_auth_error_is_open`, `test_sk80_refuses_production_and_identical_banks`, `test_sk80_cli_output_hides_url_and_token`, `test_sk80_cli_missing_config`, `test_sk80_open_has_own_exit_code_not_auth`, `test_sk80_exit_codes_per_verdict` | Pruefer urteilt `bestanden` nur bei Nachweis von X in B, Abweisung des Dokument-Pfads aus A ohne Nutzdaten, abgewiesenem Loeschen und unveraendertem X; der Chunk-Pfad bleibt `offen` und wird getrennt ausgegeben; Nutzdaten von X oder 2xx ohne Nutzdaten dort ergeben `nicht bestanden`; Verbindungsfehler und 401 ergeben `offen` (Exit 4) | offline: Pruefer-Logik; Server: Schritt 6 |
 
-Weitere Tests: Pfadfilter (`test_privacy_*`), Konfiguration F3 (`test_f3_*`),
+Weitere Tests: Pfadfilter (`test_privacy_*`), Konfiguration F3 (`test_f3_*`), Token-Format
+(`test_token_*`, Token nie in Meldung, `repr`, CLI oder Nachtlauf),
 Vertragspruefer F2 (`test_f2_*`, gegen eine synthetische OpenAPI-Datei).

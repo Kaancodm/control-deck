@@ -61,3 +61,32 @@ PR #93 ist gemergt: `a123d40`, mergedAt 2026-11-12T23:16:19Z, mergedBy Kaancodm.
 Check: `make lint && make test`, Exit 2. 2805 passed, 1 failed (`test_process.py`, pidfd EINVAL), 1082 skipped, 86.26s.
 Zweiter Lauf derselben 4 Tests: 4 passed, 1.62s. Kein Bezug zu den Doc-Dateien.
 Offen: Egress-Proxy, Ollama-Modelle. Risiko: der Prozess-Test ist einmal geflakt.
+
+## 2026-11-24 10:58 — Claude Opus 5.5 — Weitblick Stufe 2 (lokal)
+
+Branch `feat/weitblick-stufe2`, nicht committet (keine Git-Identitaet), nicht gepusht. Nur `weitblick/`, GO-Punkt 3 in `CLAUDE.md`.
+Neu: Hindsight-Spiegel (Bank weitblick, Modus chunks), Nachtlauf, S-K80- und Vertragspruefer, `SERVERPRUEFUNG.md`.
+Check: `python3 -m unittest discover -s weitblick/tests -v`: Ran 60 tests, OK, 0 failed, 0 skipped. `scripts/check_rules.py` Exit 0.
+Offen: F2, F5, S-K80 und T5 nur auf dem Server; T8-Restore braucht GO; Ruff lokal nicht verfuegbar.
+
+## 2026-11-24 12:00 — Builder — Weitblick Stufe 2 Review-Fix (PR #98)
+
+Branch `feat/weitblick-stufe2`. Retain-Feld `mode` entfernt, F2 gegen
+Hindsight v1.2.1 dokumentiert, T4 und Vertrag angepasst, SERVERPRUEFUNG und
+S-K80 um Chunk-Pfad ergaenzt. PR auf Draft gestellt. Kein Merge.
+Offen: F2/F5/S-K80 auf dem Server; Schritt 5 der Serverpruefung braucht Kaans Ja.
+
+## 2026-11-24 12:50 — Builder — Weitblick Stufe 2 Nachzug (PR #98, Draft)
+
+Chunk-Pruefpunkt als offen ausgewiesen. Aufgegebene Eintraege nach 3 Versuchen
+mit Zaehlung, Exit ungleich 0 und Meldung. Kein Merge, PR bleibt Draft.
+
+## 2026-11-24 13:17 — Builder — Weitblick Stufe 2 Nachzug (PR #98, Draft)
+
+401/403 als Konfigurationsfehler (Exit 3), kein Versuch, Budget-Rollback.
+Kein Merge, PR bleibt Draft.
+
+## 2026-11-24 13:23 — Builder — Weitblick Stufe 2 Haertung (PR #98, Draft)
+
+README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
+sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.

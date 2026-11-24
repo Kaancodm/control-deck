@@ -15,3 +15,11 @@ Keine Pakete installiert. Gesamttestsuite und Review bleiben offen.
 Review: SuperGrok. Merge ausschliesslich durch den Owner. Kein Deploy.
 Backup und Formatgrenzen: siehe README. Zustellung der Abschlussmeldung
 wartet auf einen erlaubten Postfachweg ohne Serverzugriff.
+
+# Arbeitsstand Stufe 2
+
+2026-11-24 10:52, Claude Opus 5.5: Hindsight-Spiegel, Nachtlauf, S-K80- und
+Vertragspruefer, Offline-Tests, README-Abschnitt, `SERVERPRUEFUNG.md`.
+Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 60 tests, OK (0 failed, 0 skipped).
+Grenze: Ruff nicht verfuegbar (keine Installation), Format von Hand geprueft.
+Offen: F2/F5 und S-K80 nur auf dem Server entscheidbar; T8-Restore braucht GO.

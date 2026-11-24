@@ -1,0 +1,753 @@
+"""Stage 2 tests: Hindsight writer, integration, nightly run and S-K80.
+
+All tests are offline. The transport boundary is `opener.open(request)`:
+the real HindsightWriter, HindsightClient and UrllibTransport build real
+urllib requests, and `FakeOpener` captures them byte for byte. Any socket
+use fails the test. The fake implements the ASSUMED Hindsight contract (F2);
+passing here proves the client side only, never the server API.
+
+Mapping (Fable plan, see README "Weitblick Stufe 2"):
+T1 test_t1_*  T2 test_t2_*  T3 test_t3_*  T4 test_t4_*  T5 test_t5_* (+ S-K80)
+T6 test_t6_*  T7 test_t7_*  T8 test_t8_* (provisional, offline part only)
+S-K80 test_sk80_*  F3 test_f3_*  Pfadfilter test_privacy_*  F2 test_f2_* (Vertragspruefer)
+"""
+
+import contextlib
+import hashlib
+import io
+import json
+import re
+import tempfile
+import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
+from unittest.mock import patch
+
+from weitblick import nachtlauf, sk80, vertrag
+from weitblick.__main__ import main as cli_main
+from weitblick.core import generate, read_sources
+from weitblick.hindsight import (
+    CONFIRMED,
+    FAILED,
+    RETAIN_MODE,
+    UNCLEAR,
+    HindsightClient,
+    HindsightConfig,
+    HindsightWriter,
+    TransportError,
+    UrllibTransport,
+    bank_record,
+    config_from_env,
+    default_opener,
+)
+from weitblick.pipeline import run
+from weitblick.writer import FileWriter
+
+URL = "http://hindsight.test.invalid:8888"
+TOKEN = "test-token-not-real-0000"
+PRIVATE_DIR = "privat-fundstelle-7f3a"
+PATH_RE = re.compile(r"^/v1/default/banks/([^/]+)/(memories|memories/recall|documents/([^/]+))$")
+
+
+class FakeResponse:
+    def __init__(self, status, body):
+        self.status = status
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class FakeHindsight:
+    """In-memory model of the assumed contract with bank-scoped documents."""
+
+    def __init__(self):
+        self.banks = {}
+        self.calls = []
+        self.down = None  # exception instance raised for every call
+        self.status_override = None  # (status, body) for retain calls
+        self.leak_get = False
+        self.leak_delete = False
+        self.empty_success_get = False
+        self.auth_fail_bank = None
+        self.allowed = {"POST", "GET", "DELETE"}
+
+    def open(self, request, timeout=None):
+        body = request.data
+        call = {
+            "method": request.get_method(),
+            "url": request.full_url,
+            "headers": dict(request.header_items()),
+            "body": body,
+            "timeout": timeout,
+        }
+        self.calls.append(call)
+        assert request.full_url.startswith(URL + "/"), "Unexpected Hindsight host"
+        path = request.full_url[len(URL) :]
+        match = PATH_RE.match(path)
+        if match is None or call["method"] not in self.allowed:
+            raise AssertionError(f"Unexpected Hindsight call: {call['method']} {path}")
+        if self.down is not None:
+            raise self.down
+        bank, kind, doc_id = match.group(1), match.group(2), match.group(3)
+        if self.auth_fail_bank == bank:
+            return self._reply(request, 401, {"detail": "Unauthorized"})
+        method = call["method"]
+        if kind == "memories" and method == "POST":
+            if self.status_override:
+                status, raw = self.status_override
+                return self._reply(request, status, raw)
+            payload = json.loads(body)
+            for item in payload["items"]:
+                self.banks.setdefault(bank, {})[item["document_id"]] = {
+                    "content": item["content"],
+                    "metadata": item["metadata"],
+                }
+            return self._reply(request, 200, {"success": True, "bank_id": bank, "items_count": 1})
+        if kind == "memories/recall" and method == "POST":
+            query = json.loads(body)["query"]
+            hits = [
+                {"document_id": k, "text": v["content"]}
+                for k, v in self.banks.get(bank, {}).items()
+                if query in v["content"]
+            ]
+            return self._reply(request, 200, {"results": hits})
+        if doc_id is not None and method in {"GET", "DELETE"}:
+            doc_id = urllib.request.unquote(doc_id)
+            owner = bank if doc_id in self.banks.get(bank, {}) else None
+            if owner is None and method == "GET" and self.empty_success_get:
+                return self._reply(request, 200, {})
+            leak = self.leak_get if method == "GET" else self.leak_delete
+            if owner is None and leak:
+                owner = next((b for b, docs in self.banks.items() if doc_id in docs), None)
+            if owner is None:
+                return self._reply(request, 404, {"detail": "Document not found"})
+            if method == "DELETE":
+                del self.banks[owner][doc_id]
+                return self._reply(request, 200, {"success": True})
+            doc = self.banks[owner][doc_id]
+            return self._reply(
+                request,
+                200,
+                {
+                    "id": doc_id,
+                    "bank_id": owner,
+                    "original_text": doc["content"],
+                    "metadata": doc["metadata"],
+                },
+            )
+        raise AssertionError(f"Unexpected Hindsight call: {method} {path}")
+
+    @staticmethod
+    def _reply(request, status, payload):
+        raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        if 200 <= status < 300:
+            return FakeResponse(status, raw)
+        raise urllib.error.HTTPError(request.full_url, status, "fake", {}, io.BytesIO(raw))
+
+    def retains(self):
+        return [c for c in self.calls if c["method"] == "POST" and c["url"].endswith("/memories")]
+
+
+class Stage2Base(unittest.TestCase):
+    def setUp(self):
+        for target in ("socket.socket", "socket.create_connection"):
+            patcher = patch(target, side_effect=AssertionError("Network forbidden"))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.src = self.root / PRIVATE_DIR
+        self.src.mkdir()
+        self.out = self.root / "output"
+        samples = {
+            "ENTSCHEIDE": "| Nummer | Thema | Optionen/Empfehlung | Ablauf-Status | Bezug |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "| E-901 | Suche | em: Index; Option 2: einfache Tabelle | erledigt | S-901 |\n"
+            "\n## E-902\n- Thema: Suche\n- Ablauf-Status: offen\n",
+            "SERVER": "| Nummer | Dienst | Status | Letzte Prüfung |\n"
+            "| --- | --- | --- | --- |\n| S-901 | Archiv | bereit | 2026-01-01 |\n",
+            "AUFTRAEGE": "## A-901\n- Titel: Alter Auftrag\n- Ablauf-Status: blockiert\n",
+        }
+        self.paths = {}
+        for name, content in samples.items():
+            path = self.src / (name + ".md")
+            path.write_text(content, encoding="utf-8")
+            self.paths[name] = path
+        self.fake = FakeHindsight()
+        self.transport = UrllibTransport(opener=self.fake)
+        self.env = {
+            "WEITBLICK_HINDSIGHT_ENABLED": "1",
+            "WEITBLICK_HINDSIGHT_URL": URL,
+            "WEITBLICK_HINDSIGHT_TOKEN": TOKEN,
+        }
+
+    def entries(self, day="2026-01-02"):
+        return generate(read_sources(self.paths), day)
+
+    def writer(self):
+        client = HindsightClient(config_from_env(self.env), self.transport)
+        return HindsightWriter(self.out, client)
+
+    def run_pipeline(self, env=None, **kwargs):
+        lines = []
+        code = run(
+            self.paths,
+            self.out,
+            self.env if env is None else env,
+            today="2026-01-02",
+            transport=self.transport,
+            out=lines.append,
+            **kwargs,
+        )
+        return code, "\n".join(lines)
+
+    def nightly_env(self, **extra):
+        env = dict(self.env)
+        env.update(
+            WEITBLICK_ENTSCHEIDE=str(self.paths["ENTSCHEIDE"]),
+            WEITBLICK_SERVER=str(self.paths["SERVER"]),
+            WEITBLICK_AUFTRAEGE=str(self.paths["AUFTRAEGE"]),
+            WEITBLICK_OUTPUT=str(self.out),
+        )
+        env.update(extra)
+        return env
+
+    def run_nightly(self, env):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = nachtlauf.main(env, transport=self.transport)
+        return code, stdout.getvalue() + stderr.getvalue()
+
+    def jsonl_bytes(self):
+        return (self.out / "weitblick.jsonl").read_bytes()
+
+    def status(self):
+        return json.loads((self.out / "hindsight-status.json").read_text())["eintraege"]
+
+    def assert_no_sensitive_output(self, text):
+        for value in (URL, TOKEN, "hindsight.test.invalid", PRIVATE_DIR, "Waere denkbar"):
+            self.assertNotIn(value, text)
+
+
+class WriterAndFlowTests(Stage2Base):
+    def test_t1_file_path_unchanged_without_hindsight(self):
+        code, text = self.run_pipeline(env={})
+        self.assertEqual(code, 0)
+        self.assertIn("3 neue Fragen gespeichert.", text)
+        self.assertIn("kein Hindsight-Aufruf", text)
+        self.assertEqual(len(self.jsonl_bytes().splitlines()), 3)
+        self.assertEqual(self.fake.calls, [])
+        self.assertFalse((self.out / "hindsight-status.json").exists())
+
+    def test_t2_write_mirrors_released_fields(self):
+        code, text = self.run_pipeline()
+        self.assertEqual(code, 0, text)
+        stored = FileWriter(self.out, self.paths.values()).read_stored()
+        bank = self.fake.banks["weitblick"]
+        self.assertEqual(set(bank), {e["id"] for e in stored})
+        client = HindsightClient(config_from_env(self.env), self.transport)
+        for entry in stored:
+            reply = client.get_document("weitblick", entry["id"])
+            record = json.loads(reply.json()["metadata"]["eintrag"])
+            expected = dict(entry)
+            expected["fundstelle"] = [
+                {"nummer": r["nummer"], "zeile": r["zeile"]} for r in entry["fundstelle"]
+            ]
+            self.assertEqual(record, expected)
+            self.assertEqual(record, bank_record(entry))
+            self.assertIn(entry["frage"], reply.json()["original_text"])
+        self.assertIn("3 bestaetigt, 0 fehlgeschlagen, 0 unklar", text)
+
+    def test_t2_return_value_meaning_preserved(self):
+        # Stage 1 meaning: the CLI count is the number of new JSONL entries.
+        code, text = self.run_pipeline()
+        self.assertIn("3 neue Fragen gespeichert.", text)
+        code, text = self.run_pipeline()
+        self.assertIn("0 neue Fragen gespeichert.", text)
+        self.assertIn("0 bestaetigt, 0 fehlgeschlagen, 0 unklar, 3 bereits bestaetigt", text)
+        self.assertEqual(code, 0)
+
+    def test_t3_daily_limit_twenty_candidates(self):
+        prototype = self.entries()[0]
+        rows = [dict(prototype, id=f"WB-candidate-{i}") for i in range(20)]
+        writer = self.writer()
+        self.assertEqual(writer.write(rows), 3)
+        self.assertEqual(len(self.fake.retains()), 3)
+        self.assertEqual(writer.write(rows), 0)
+        self.assertEqual(len(self.fake.retains()), 3)
+
+    def test_t3_total_limit_across_days(self):
+        prototype = self.entries()[0]
+        writer = self.writer()
+        sent = 0
+        for day in ("2026-01-02", "2026-01-03", "2026-01-04"):
+            rows = [dict(prototype, id=f"WB-{day}-{i}", datum=day) for i in range(4)]
+            sent += writer.write(rows)
+        self.assertEqual(sent, 5)
+        self.assertEqual(len(self.fake.retains()), 5)
+        self.assertEqual(len(self.fake.banks["weitblick"]), 5)
+        days = [s["datum"] for s in self.status().values()]
+        self.assertEqual(days.count("2026-01-02"), 3)
+        self.assertEqual(days.count("2026-01-03"), 2)
+
+    def test_t3_repeated_nightly_run(self):
+        env = self.nightly_env()
+        code, text = self.run_nightly(env)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(len(self.fake.retains()), 3)
+        code, text = self.run_nightly(env)
+        self.assertEqual(code, 0, text)
+        self.assertEqual(len(self.fake.retains()), 3)
+        self.assertIn("3 bereits bestaetigt", text)
+
+    def test_t3_retry_does_not_widen_budget(self):
+        prototype = self.entries()[0]
+        rows = [dict(prototype, id=f"WB-candidate-{i}") for i in range(20)]
+        writer = self.writer()
+        self.fake.down = urllib.error.URLError("refused")
+        self.assertEqual(writer.write(rows), 0)
+        self.assertEqual(len(self.fake.calls), 3)
+        self.fake.down = None
+        # New candidates must not take the reserved slots of the failed ones.
+        self.assertEqual(writer.write(rows[10:] + rows[:3]), 3)
+        self.assertEqual(set(self.fake.banks["weitblick"]), {r["id"] for r in rows[:3]})
+
+    def test_t4_only_retain_in_chunks_mode(self):
+        self.run_pipeline()
+        self.assertEqual(len(self.fake.calls), 3)
+        for call in self.fake.calls:
+            self.assertEqual(call["method"], "POST")
+            self.assertEqual(call["url"], URL + "/v1/default/banks/weitblick/memories")
+            body = json.loads(call["body"])
+            self.assertEqual(body["mode"], RETAIN_MODE)
+            self.assertEqual(body["mode"], "chunks")
+            self.assertIs(body["async"], False)
+            self.assertEqual(len(body["items"]), 1)
+            self.assertNotIn("reflect", call["url"])
+            self.assertEqual(call["headers"]["Authorization"], "Bearer " + TOKEN)
+
+    def test_t4_unexpected_call_fails_loudly(self):
+        self.fake.allowed = {"GET"}  # retain now counts as an unexpected call
+        with self.assertRaises(AssertionError):
+            self.writer().write(self.entries())
+
+    def test_t5_production_bank_only(self):
+        env = dict(self.env, WEITBLICK_HINDSIGHT_BANK="fokus")
+        self.run_pipeline(env=env)
+        self.assertTrue(self.fake.calls)
+        for call in self.fake.calls:
+            self.assertEqual(PATH_RE.match(call["url"][len(URL) :]).group(1), "weitblick")
+        self.assertEqual(set(self.fake.banks), {"weitblick"})
+
+    def test_t6_disabled_cli_makes_no_call(self):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = cli_main(["--disabled"], environ=self.env, transport=self.transport)
+        self.assertEqual(code, 0)
+        self.assertIn("ausgeschaltet", stdout.getvalue())
+        self.assertEqual(self.fake.calls, [])
+        self.assertFalse(self.out.exists())
+
+    def test_t6_hindsight_switch_keeps_jsonl(self):
+        switched_off = dict(self.env, WEITBLICK_HINDSIGHT_ENABLED="0")
+        for env, flag in ((self.env, True), (switched_off, False)):
+            with self.subTest(flag=flag):
+                code, text = self.run_pipeline(env=env, no_hindsight=flag)
+                self.assertEqual(code, 0)
+                self.assertIn("Hindsight ausgeschaltet; kein Hindsight-Aufruf.", text)
+                self.assertEqual(len(self.jsonl_bytes().splitlines()), 3)
+                self.assertEqual(self.fake.calls, [])
+
+    def test_t6_nightly_disabled_reads_and_writes_nothing(self):
+        code, text = self.run_nightly(self.nightly_env(WEITBLICK_DISABLED="1"))
+        self.assertEqual(code, 0)
+        self.assertIn("ausgeschaltet", text)
+        self.assertEqual(self.fake.calls, [])
+        self.assertFalse(self.out.exists())
+
+    def test_t7_unreachable_keeps_jsonl_and_exits_1(self):
+        code, _ = self.run_pipeline(env={})
+        before = self.jsonl_bytes()
+        self.fake.down = urllib.error.URLError("refused " + URL)
+        code, text = self.run_nightly(self.nightly_env())
+        self.assertEqual(code, 1)
+        self.assertIn("JSONL ist gesichert", text)
+        self.assertIn("0 bestaetigt, 0 fehlgeschlagen, 3 unklar", text)
+        self.assert_no_sensitive_output(text)
+        self.assertEqual(self.jsonl_bytes(), before)
+        self.assertEqual({s["status"] for s in self.status().values()}, {UNCLEAR})
+        self.fake.down = None
+        code, text = self.run_nightly(self.nightly_env())
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.jsonl_bytes(), before)
+        self.assertEqual({s["status"] for s in self.status().values()}, {CONFIRMED})
+
+    def test_t7_timeout_is_unclear(self):
+        self.fake.down = TimeoutError("timed out")
+        writer = self.writer()
+        self.assertEqual(writer.write(self.entries()), 0)
+        self.assertEqual(writer.last_result[UNCLEAR], 3)
+        self.assertEqual(writer.last_result[CONFIRMED], 0)
+        self.assertEqual({s["status"] for s in self.status().values()}, {UNCLEAR})
+
+    def test_t7_response_classification_and_retry(self):
+        cases = [
+            ((500, b'{"detail": "boom"}'), UNCLEAR),
+            ((429, b"{}"), UNCLEAR),
+            ((400, b'{"detail": "bad"}'), FAILED),
+            ((401, b'{"detail": "auth"}'), FAILED),
+            ((200, b"not json"), UNCLEAR),
+            ((200, b'{"success": false}'), UNCLEAR),
+        ]
+        for override, expected in cases:
+            with self.subTest(status=override[0], body=override[1]):
+                self.fake = FakeHindsight()
+                self.transport = UrllibTransport(opener=self.fake)
+                self.out = self.root / f"out-{override[0]}-{len(override[1])}"
+                self.fake.status_override = override
+                writer = self.writer()
+                self.assertEqual(writer.write(self.entries()), 0)
+                self.assertEqual(writer.last_result[expected], 3)
+                self.fake.status_override = None
+                self.assertEqual(writer.write(self.entries()), 3)
+                self.assertEqual(writer.write(self.entries()), 0)
+                self.assertEqual(len(self.fake.retains()), 6)
+
+    def test_t7_hindsight_failure_never_touches_jsonl(self):
+        FileWriter(self.out, self.paths.values()).write(self.entries())
+        digest = hashlib.sha256(self.jsonl_bytes()).hexdigest()
+        self.fake.status_override = (500, b"{}")
+        self.writer().write(FileWriter(self.out, self.paths.values()).read_stored())
+        self.assertEqual(hashlib.sha256(self.jsonl_bytes()).hexdigest(), digest)
+
+    def test_t7_corrupt_status_file_is_preserved(self):
+        self.out.mkdir()
+        (self.out / "hindsight-status.json").write_text("{broken")
+        with self.assertRaises(ValueError):
+            self.writer().write(self.entries())
+        self.assertEqual((self.out / "hindsight-status.json").read_text(), "{broken")
+        self.assertEqual(self.fake.calls, [])
+
+    def test_t8_rebuild_from_jsonl_after_status_loss(self):
+        # Provisional: only the offline part of T8. The backup restore drill is server-side.
+        self.run_pipeline()
+        (self.out / "hindsight-status.json").unlink()
+        self.fake.banks.clear()
+        code, text = self.run_pipeline()
+        self.assertEqual(code, 0, text)
+        stored = FileWriter(self.out, self.paths.values()).read_stored()
+        self.assertEqual(set(self.fake.banks["weitblick"]), {e["id"] for e in stored})
+        self.assertEqual(len(self.fake.retains()), 6)
+
+
+class PrivacyTests(Stage2Base):
+    def test_privacy_private_path_absent_from_full_request(self):
+        self.run_pipeline()
+        self.assertEqual(len(self.fake.calls), 3)
+        private = str(self.src.resolve())
+        variants = {
+            private,
+            PRIVATE_DIR,
+            json.dumps(private)[1:-1],
+            urllib.request.quote(private, safe=""),
+        }
+        for call in self.fake.calls:
+            wire = "\n".join(
+                [call["method"], call["url"], json.dumps(call["headers"]), call["body"].decode()]
+            )
+            for value in variants:
+                self.assertNotIn(value, wire)
+            for item in json.loads(call["body"])["items"]:
+                record = json.loads(item["metadata"]["eintrag"])
+                for ref in record["fundstelle"]:
+                    self.assertEqual(set(ref), {"nummer", "zeile"})
+
+    def test_privacy_guard_blocks_path_in_released_field(self):
+        entry = dict(self.entries()[0])
+        entry["nicht_gewaehlte_option"] = "siehe " + entry["fundstelle"][0]["datei"]
+        writer = self.writer()
+        self.assertEqual(writer.write([entry]), 0)
+        self.assertEqual(writer.last_result[FAILED], 1)
+        self.assertEqual(self.fake.calls, [])
+
+
+class ConfigTests(Stage2Base):
+    def test_f3_missing_values_named_without_values(self):
+        cases = [
+            (
+                {"WEITBLICK_HINDSIGHT_ENABLED": "1"},
+                ["WEITBLICK_HINDSIGHT_URL", "WEITBLICK_HINDSIGHT_TOKEN"],
+            ),
+            (dict(self.env, WEITBLICK_HINDSIGHT_TOKEN=""), ["WEITBLICK_HINDSIGHT_TOKEN"]),
+            (dict(self.env, WEITBLICK_HINDSIGHT_URL="  "), ["WEITBLICK_HINDSIGHT_URL"]),
+        ]
+        for env, names in cases:
+            with self.subTest(names=names):
+                code, text = self.run_pipeline(env=env)
+                self.assertEqual(code, 2)
+                for name in names:
+                    self.assertIn(name, text)
+                self.assert_no_sensitive_output(text)
+                self.assertFalse(self.out.exists())
+                self.assertEqual(self.fake.calls, [])
+
+    def test_f3_invalid_values_rejected_without_echo(self):
+        secret_url = "https://user:" + "pw" + "@hindsight.test.invalid"
+        for env in (
+            dict(self.env, WEITBLICK_HINDSIGHT_URL=secret_url),
+            dict(self.env, WEITBLICK_HINDSIGHT_URL="ftp://hindsight.test.invalid"),
+            dict(self.env, WEITBLICK_HINDSIGHT_ENABLED="vielleicht"),
+            dict(self.env, WEITBLICK_HINDSIGHT_TIMEOUT_S="abc"),
+            dict(self.env, WEITBLICK_HINDSIGHT_TOKEN="two words"),
+        ):
+            with self.subTest(env=sorted(env)):
+                code, text = self.run_pipeline(env=env)
+                self.assertEqual(code, 2)
+                self.assertNotIn("pw@", text)
+                self.assertNotIn("two words", text)
+                self.assert_no_sensitive_output(text)
+                self.assertEqual(self.fake.calls, [])
+
+    def test_f3_nightly_missing_paths(self):
+        env = self.nightly_env(WEITBLICK_OUTPUT="", WEITBLICK_SERVER="")
+        code, text = self.run_nightly(env)
+        self.assertEqual(code, 2)
+        self.assertIn("WEITBLICK_SERVER", text)
+        self.assertIn("WEITBLICK_OUTPUT", text)
+        self.assert_no_sensitive_output(text)
+
+    def test_f3_config_repr_hides_values(self):
+        config = config_from_env(self.env)
+        self.assertNotIn(TOKEN, repr(config))
+        self.assertNotIn("hindsight.test.invalid", repr(config))
+        self.assertIsNone(config_from_env({}))
+
+    def test_f3_transport_error_hides_target(self):
+        class Broken:
+            def open(self, request, timeout=None):
+                raise urllib.error.URLError("cannot reach " + URL)
+
+        with self.assertRaises(TransportError) as caught:
+            UrllibTransport(opener=Broken()).request("GET", URL + "/x", {})
+        self.assertNotIn("hindsight.test.invalid", str(caught.exception))
+
+    def test_f3_default_opener_has_no_proxy_and_no_redirect(self):
+        def env_proxies(candidate):
+            return [
+                h
+                for h in candidate.handlers
+                if isinstance(h, urllib.request.ProxyHandler) and h.proxies
+            ]
+
+        with patch.dict("os.environ", {"http_proxy": "http://proxy.test.invalid:1"}):
+            # Control: the stock opener would pick up the environment proxy.
+            self.assertTrue(env_proxies(urllib.request.build_opener()))
+            opener = default_opener()
+        self.assertEqual(env_proxies(opener), [])
+        redirect = [h for h in opener.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)]
+        self.assertTrue(redirect)
+        request = urllib.request.Request(URL + "/a", headers={"Authorization": "Bearer x"})
+        for handler in redirect:
+            self.assertIsNone(handler.redirect_request(request, None, 302, "", {}, "http://other"))
+
+
+class SK80Tests(Stage2Base):
+    def client(self):
+        return HindsightClient(HindsightConfig(URL, TOKEN), self.transport)
+
+    def test_sk80_separated_banks_pass(self):
+        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0001")
+        self.assertEqual(report["sk80"], sk80.PASSED, report)
+        self.assertEqual(report["t5"], sk80.PASSED, report)
+        deletes = [c for c in self.fake.calls if c["method"] == "DELETE"]
+        self.assertEqual(len(deletes), 1)
+        self.assertIn("/banks/weitblick-sk80-a/documents/sk80-x-t0001", deletes[0]["url"])
+        self.assertIn("sk80-x-t0001", self.fake.banks["weitblick-sk80-b"])
+        self.assertNotIn("/banks/weitblick/", "".join(c["url"] for c in self.fake.calls))
+        gets_a = [
+            c["url"] for c in self.fake.calls if c["method"] == "GET" and "-sk80-a/" in c["url"]
+        ]
+        self.assertEqual(len(gets_a), 1)
+        self.assertTrue(gets_a[0].endswith("/banks/weitblick-sk80-a/documents/sk80-x-t0001"))
+
+    def test_sk80_cross_bank_read_fails(self):
+        self.fake.leak_get = True
+        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0002")
+        self.assertEqual(report["sk80"], sk80.FAILED)
+
+    def test_sk80_cross_bank_delete_fails(self):
+        self.fake.leak_delete = True
+        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0003")
+        self.assertEqual(report["sk80"], sk80.FAILED)
+        self.assertTrue(any("X fehlt oder veraendert" in s for s in report["schritte"]))
+
+    def test_sk80_empty_success_is_not_a_pass(self):
+        self.fake.empty_success_get = True
+        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0004")
+        self.assertEqual(report["sk80"], sk80.FAILED)
+
+    def test_sk80_connection_error_is_open(self):
+        self.fake.down = urllib.error.URLError("refused")
+        report = sk80.run_sk80(self.client(), "weitblick-sk80-a", "weitblick-sk80-b", "t0005")
+        self.assertEqual(report["sk80"], sk80.OPEN)
+
+    def test_sk80_general_auth_error_is_open(self):
+        # Y in A would already fail; so seed first, then deny A.
+        client = self.client()
+        original = self.fake.open
+
+        def deny_a_after_seed(request, timeout=None):
+            if request.get_method() in {"GET", "DELETE"}:
+                self.fake.auth_fail_bank = "weitblick-sk80-a"
+            return original(request, timeout)
+
+        self.fake.open = deny_a_after_seed
+        report = sk80.run_sk80(client, "weitblick-sk80-a", "weitblick-sk80-b", "t0006")
+        self.assertEqual(report["sk80"], sk80.OPEN)
+        self.assertTrue(any("401" in s for s in report["schritte"]))
+
+    def test_sk80_refuses_production_and_identical_banks(self):
+        cases = (
+            ("weitblick", "weitblick-sk80-b"),
+            ("weitblick-sk80-a", "weitblick-sk80-a"),
+            ("fokus", "weitblick-sk80-b"),
+        )
+        for a, b in cases:
+            with self.subTest(a=a, b=b), self.assertRaises(ValueError):
+                sk80.run_sk80(self.client(), a, b, "t0007")
+        self.assertEqual(self.fake.calls, [])
+
+    def test_sk80_cli_output_hides_url_and_token(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        env = {"WEITBLICK_HINDSIGHT_URL": URL, "WEITBLICK_HINDSIGHT_TOKEN": TOKEN}
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = sk80.main(
+                ["--bank-a", "weitblick-sk80-a", "--bank-b", "weitblick-sk80-b", "--tag", "t0008"],
+                environ=env,
+                transport=self.transport,
+            )
+        text = stdout.getvalue() + stderr.getvalue()
+        self.assertEqual(code, 0, text)
+        self.assertIn("S-K80: bestanden", text)
+        self.assertNotIn(TOKEN, text)
+        self.assertNotIn("hindsight.test.invalid", text)
+
+    def test_sk80_cli_missing_config(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = sk80.main(
+                ["--bank-a", "weitblick-sk80-a", "--bank-b", "weitblick-sk80-b"],
+                environ={},
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("WEITBLICK_HINDSIGHT_URL", stderr.getvalue())
+        self.assertEqual(self.fake.calls, [])
+
+
+def synthetic_openapi(mode_enum=("chunks", "verbose"), version="1.2.1", with_mode=True):
+    """Hand-written, synthetic OpenAPI fragment. It is NOT Hindsight's document."""
+    retain_props = {
+        "items": {"type": "array", "items": {"$ref": "#/components/schemas/Item"}},
+        "async": {"type": "boolean"},
+    }
+    if with_mode:
+        retain_props["mode"] = {"type": "string", "enum": list(mode_enum)}
+    doc_op = {
+        "parameters": [
+            {"name": "bank_id", "in": "path", "schema": {"type": "string"}},
+            {"name": "document_id", "in": "path", "schema": {"type": "string"}},
+        ],
+        "responses": {"200": {}, "404": {}},
+    }
+    return {
+        "info": {"version": version},
+        "paths": {
+            "/v1/default/banks/{bank_id}/memories": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/Retain"},
+                            },
+                        },
+                    },
+                },
+            },
+            "/v1/default/banks/{bank_id}/documents/{document_id}": {
+                "get": doc_op,
+                "delete": doc_op,
+            },
+            "/v1/default/banks/{bank_id}/memories/recall": {"post": {}},
+            "/v1/default/chunks/{chunk_id}": {"get": {}},
+        },
+        "components": {
+            "schemas": {
+                "Retain": {"type": "object", "properties": retain_props},
+                "Item": {
+                    "allOf": [
+                        {
+                            "properties": {
+                                "content": {"type": "string"},
+                                "document_id": {"type": "string"},
+                            },
+                        },
+                        {"properties": {"metadata": {}, "context": {}}},
+                    ],
+                },
+            },
+        },
+    }
+
+
+class VertragTests(unittest.TestCase):
+    def test_f2_matching_contract_passes(self):
+        ok, lines = vertrag.check(synthetic_openapi())
+        self.assertTrue(ok, lines)
+        self.assertIn("OK: Version 1.2.1", lines)
+        self.assertIn("INFO: Lesen ID-Parameter Typ string", lines)
+        self.assertIn("INFO: Lesen dokumentierte Status 200, 404", lines)
+
+    def test_f2_missing_mode_is_a_deviation(self):
+        ok, lines = vertrag.check(synthetic_openapi(with_mode=False))
+        self.assertFalse(ok)
+        self.assertIn("ABWEICHUNG: Retain-Feld 'mode' fehlt im Request-Schema", lines)
+
+    def test_f2_mode_without_chunks_is_a_deviation(self):
+        ok, lines = vertrag.check(synthetic_openapi(mode_enum=("verbose",)))
+        self.assertFalse(ok)
+        self.assertTrue(any("'chunks' nicht erlaubt" in line for line in lines))
+
+    def test_f2_version_mismatch_is_a_deviation(self):
+        ok, lines = vertrag.check(synthetic_openapi(version="1.2.3"))
+        self.assertFalse(ok)
+        self.assertIn("ABWEICHUNG: Version 1.2.3 statt 1.2.1", lines)
+
+    def test_f2_unscoped_chunk_path_is_reported(self):
+        _, lines = vertrag.check(synthetic_openapi())
+        self.assertIn("INFO: Chunk-Pfad /v1/default/chunks/{chunk_id} (NICHT bankgebunden)", lines)
+
+    def test_f2_cli_exit_codes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good = Path(tmp) / "spec.json"
+            good.write_text(json.dumps(synthetic_openapi()))
+            broken = Path(tmp) / "broken.json"
+            broken.write_text("{nope")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                self.assertEqual(vertrag.main([str(good)]), 0)
+                self.assertEqual(vertrag.main([str(broken)]), 2)
+                self.assertEqual(vertrag.main([]), 2)
+            self.assertIn("Vertrag: passt", stdout.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()

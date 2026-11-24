@@ -2,6 +2,14 @@
 
 ## Unveröffentlicht
 
+### Dialog nutzt den Themen-Thread (Issue #77)
+
+- Der Live-Dialog schreibt den Eingang (`ingest_turn`, Kanal `deck_ui`) und die
+  Antwort (`record_deck_reply`) in die Quarantaene. Beide bleiben unfreigegeben.
+- `include_history` laedt `load_memory_context` statt der letzten acht Saetze.
+  `unbewiesen` ist im Prompt etikettiert. `num_ctx` bleibt 4096.
+- `persist` legt weiter eine Zeile in `assistant_turns` an und gibt nichts frei.
+
 Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.
 

@@ -97,6 +97,18 @@ Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` leert `valid_to` u
 Check: `make lint` Exit 0 (ruff, 480 formatiert, mypy 167, check_rules). `pytest` gegen `controldeck_test`: 3748 passed, 143 skipped, 1 Starlette-Warnung, 263.35s.
 Offen: Draft-PR, drei Reviews, kein Merge. Risiko: #78 hasht den gespeicherten Entscheid; Leeren und Entscheidwechsel bleiben zwei Korrekturen.
 
+## 2026-11-24 23:31 — Cursor — M1b Dialog-Thread #77
+
+Branch `cursor/m1b-dialog-thread-f58e`. Dialog schreibt `ingest_turn` und `record_deck_reply`. Prompt aus `load_memory_context` (Ziel `ollama`). Quarantaene bleibt draussen, `num_ctx` 4096.
+Check: `make lint` Exit 0. `make test` mit Testdatenbank `controldeck_test`: 3754 passed, 143 skipped, 1 Starlette-Warnung, 266.00s.
+Offen: Entwurf, kein Merge. `persist` gibt die Antwort nicht frei (Frage zu #78 F5). Risiko: Konflikt mit #78 an der Dialog-UI, mit #76 an Lader und Doku.
+
+## 2026-11-24 23:36 — Cursor — M1b Entwurf #102
+
+Draft-PR https://github.com/Kaancodm/control-deck/pull/102 gegen main. Branch `cursor/m1b-dialog-thread-f58e`, Commit `0b8dbf3`. Kein Merge.
+Check: gitleaks 8.30.1 auf `75318c9..0b8dbf3`, keine Funde. CI beim Oeffnen noch laufend.
+Offen: fuenf Fragen im PR, darunter #78 F5. Risiko: #78 Dialog-UI, #76 Lader und Doku, #80 `approval.py` (hier unberuehrt).
+
 ## 2026-11-24 23:40 — Cursor — Issue #80 CI
 
 PR #103, HEAD `8890579`. Checks: quality pass (7m6s), CodeFactor pass, GitGuardian pass.

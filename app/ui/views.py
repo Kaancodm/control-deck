@@ -166,6 +166,10 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
         "Die Datenklasse fehlt oder ist unbekannt.",
         "Eine erlaubte Klasse wählen.",
     ),
+    "thread_class_block": (
+        "Das Thema nimmt diese Datenklasse nicht an.",
+        "Eine passende Klasse wählen oder eine andere Kennung angeben.",
+    ),
     "assistant_card": ("Die Karte ist ungültig.", "Vorlage, Platzhalter und Grösse prüfen."),
     "assistant_oversize": ("Die Eingabe ist zu gross.", "Text kürzen und erneut senden."),
     "profile_owner_only": (

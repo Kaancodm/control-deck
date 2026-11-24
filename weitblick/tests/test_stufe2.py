@@ -83,6 +83,8 @@ class FakeHindsight:
         self.calls = []
         self.down = None  # exception instance raised for every call
         self.status_override = None  # (status, body) for retain calls
+        # Per-retain overrides; None in the list means the normal success path.
+        self.retain_queue = None
         self.chunks = {}
         self.leak_get = False
         self.leak_delete = False
@@ -122,6 +124,11 @@ class FakeHindsight:
         if self.auth_fail_bank == bank:
             return self._reply(request, 401, {"detail": "Unauthorized"})
         if kind == "memories" and method == "POST":
+            if self.retain_queue:
+                item = self.retain_queue.pop(0)
+                if item is not None:
+                    status, raw = item
+                    return self._reply(request, status, raw)
             if self.status_override:
                 status, raw = self.status_override
                 return self._reply(request, status, raw)
@@ -646,15 +653,167 @@ class WriterAndFlowTests(Stage2Base):
         self.assert_no_sensitive_output(text)
 
     def test_fake_rejects_missing_authorization(self):
-        request = urllib.request.Request(
-            URL + "/v1/default/banks/weitblick/memories",
-            data=b'{"items":[],"async":false}',
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        paths = (
+            ("POST", "/v1/default/banks/weitblick/memories", b'{"items":[],"async":false}'),
+            ("GET", "/v1/default/banks/weitblick/documents/WB-x", None),
+            ("DELETE", "/v1/default/banks/weitblick/documents/WB-x", None),
+            ("GET", "/v1/default/chunks/weitblick_WB-x_0", None),
+            ("POST", "/v1/default/banks/weitblick/memories/recall", b'{"query":"x"}'),
         )
-        with self.assertRaises(urllib.error.HTTPError) as caught:
-            self.fake.open(request)
-        self.assertEqual(caught.exception.code, 401)
+        for method, path, data in paths:
+            with self.subTest(method=method, path=path):
+                headers = {"Content-Type": "application/json"} if data is not None else {}
+                request = urllib.request.Request(
+                    URL + path,
+                    data=data,
+                    headers=headers,
+                    method=method,
+                )
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    self.fake.open(request)
+                self.assertEqual(caught.exception.code, 401)
+
+    def test_t7_auth_error_mid_run_keeps_sent_and_frees_unsent(self):
+        from weitblick.pipeline import EXIT_AUTH, EXIT_OK
+
+        cases = (
+            (None, CONFIRMED),
+            ((500, b'{"detail": "boom"}'), UNCLEAR),
+        )
+        for first, kept in cases:
+            for auth_status in (401, 403):
+                with self.subTest(first=first, auth=auth_status):
+                    self.fake = FakeHindsight()
+                    self.transport = UrllibTransport(opener=self.fake)
+                    label = "ok" if first is None else str(first[0])
+                    self.out = self.root / f"out-mid-{label}-{auth_status}"
+                    entries = self.entries()
+                    self.assertEqual(len(entries), 3)
+                    self.fake.retain_queue = [
+                        first,
+                        (auth_status, b'{"detail": "auth-secret"}'),
+                    ]
+                    writer = self.writer()
+                    with self.assertRaises(HindsightAuthError):
+                        writer.write(entries)
+                    ids = [entry["id"] for entry in entries]
+                    status = self.status()
+                    self.assertEqual(set(status), {ids[0]})
+                    self.assertEqual(status[ids[0]]["status"], kept)
+                    self.assertEqual(status[ids[0]]["versuche"], 1)
+                    self.assertNotIn(ids[1], status)
+                    self.assertNotIn(ids[2], status)
+                    # Pipeline run must see 401 immediately, otherwise a later
+                    # fresh entry would be sent before the auth error.
+                    self.fake.retain_queue = [(auth_status, b'{"detail": "auth-secret"}')]
+                    code, text = self.run_pipeline()
+                    self.assertEqual(code, EXIT_AUTH, text)
+                    self.assertIn("Hindsight-Anmeldung abgelehnt", text)
+                    self.assertIn("JSONL ist gesichert", text)
+                    self.assertNotIn("auth-secret", text)
+                    self.assertNotIn("boom", text)
+                    self.assert_no_sensitive_output(text)
+                    self.assertEqual(set(self.status()), {ids[0]})
+                    self.assertEqual(self.status()[ids[0]]["status"], kept)
+                    self.assertEqual(self.status()[ids[0]]["versuche"], 1)
+                    self.assertEqual(len(self.jsonl_bytes().splitlines()), 3)
+                    self.fake.retain_queue = None
+                    code, text = self.run_pipeline()
+                    self.assertEqual(code, EXIT_OK, text)
+                    after = self.status()
+                    self.assertEqual(set(after), set(ids))
+                    self.assertEqual({s["status"] for s in after.values()}, {CONFIRMED})
+
+    def test_t7_non_auth_errors_still_count_as_attempts(self):
+        from weitblick.pipeline import EXIT_AUTH, EXIT_ERROR
+
+        cases = [
+            ((400, b'{"detail": "bad-secret"}'), FAILED),
+            ((404, b'{"detail": "missing"}'), FAILED),
+            ((409, b'{"detail": "conflict"}'), FAILED),
+            ((500, b'{"detail": "boom"}'), UNCLEAR),
+            ((503, b'{"detail": "busy"}'), UNCLEAR),
+        ]
+        for override, expected in cases:
+            with self.subTest(status=override[0]):
+                self.fake = FakeHindsight()
+                self.transport = UrllibTransport(opener=self.fake)
+                self.out = self.root / f"out-count-{override[0]}"
+                self.fake.status_override = override
+                code, text = self.run_pipeline()
+                self.assertEqual(code, EXIT_ERROR, text)
+                self.assertNotEqual(code, EXIT_AUTH)
+                self.assertNotIn("Anmeldung abgelehnt", text)
+                self.assertNotIn("bad-secret", text)
+                self.assertNotIn("missing", text)
+                self.assertNotIn("conflict", text)
+                self.assertNotIn("boom", text)
+                self.assertNotIn("busy", text)
+                self.assert_no_sensitive_output(text)
+                records = self.status()
+                self.assertEqual(len(records), 3)
+                self.assertEqual({s["status"] for s in records.values()}, {expected})
+                self.assertEqual({s["versuche"] for s in records.values()}, {1})
+
+        self.fake = FakeHindsight()
+        self.transport = UrllibTransport(opener=self.fake)
+        self.out = self.root / "out-count-timeout"
+        self.fake.down = TimeoutError("timed out")
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_ERROR, text)
+        self.assertNotEqual(code, EXIT_AUTH)
+        self.assertNotIn("timed out", text)
+        self.assert_no_sensitive_output(text)
+        records = self.status()
+        self.assertEqual({s["status"] for s in records.values()}, {UNCLEAR})
+        self.assertEqual({s["versuche"] for s in records.values()}, {1})
+
+    def test_exit_codes_are_stable_and_distinct(self):
+        from weitblick.pipeline import EXIT_AUTH, EXIT_CONFIG, EXIT_ERROR, EXIT_OK
+
+        self.assertEqual((EXIT_OK, EXIT_ERROR, EXIT_CONFIG, EXIT_AUTH), (0, 1, 2, 3))
+        self.assertEqual(len({EXIT_OK, EXIT_ERROR, EXIT_CONFIG, EXIT_AUTH}), 4)
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_OK, text)
+        self.fake.status_override = (500, b"{}")
+        self.out = self.root / "out-exit-error"
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_ERROR, text)
+        self.fake.status_override = (401, b'{"detail": "auth-secret"}')
+        self.out = self.root / "out-exit-auth"
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_AUTH, text)
+        self.assertNotIn("auth-secret", text)
+        self.assert_no_sensitive_output(text)
+        code, text = self.run_pipeline(env={"WEITBLICK_HINDSIGHT_ENABLED": "1"})
+        self.assertEqual(code, EXIT_CONFIG, text)
+
+    def test_t3_reset_abandoned_entry_frees_budget(self):
+        from weitblick.pipeline import EXIT_ERROR, EXIT_OK
+
+        self.fake.down = urllib.error.URLError("refused")
+        for _ in range(MAX_ATTEMPTS):
+            code, text = self.run_pipeline()
+            self.assertEqual(code, EXIT_ERROR, text)
+        abandoned = self.status()
+        self.assertEqual(len(abandoned), 3)
+        self.assertTrue(all(s["versuche"] >= MAX_ATTEMPTS for s in abandoned.values()))
+        self.fake.down = None
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_ERROR, text)
+        self.assertIn("aufgegeben", text)
+        self.assertEqual(set(self.status()), set(abandoned))
+        # README reset path: drop abandoned keys in hindsight-status.json, keep JSONL.
+        path = self.out / "hindsight-status.json"
+        data = json.loads(path.read_text())
+        for key in list(data["eintraege"]):
+            data["eintraege"].pop(key)
+        path.write_text(json.dumps(data, ensure_ascii=True, indent=1, sort_keys=True) + "\n")
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_OK, text)
+        self.assertIn("3 bestaetigt", text)
+        self.assertEqual({s["status"] for s in self.status().values()}, {CONFIRMED})
+        self.assertEqual(set(self.status()), set(abandoned))
 
     def test_t8_rebuild_from_jsonl_after_status_loss(self):
         # Provisional: only the offline part of T8. The backup restore drill is server-side.

@@ -44,3 +44,10 @@ als Versuch; Lauf bricht mit Exit 3 ab, offene Eintraege bleiben unveraendert,
 frische Budget-Reservierungen werden zurueckgenommen. Aufgegebene Eintraege
 in der README zuruecksetzen dokumentiert (hindsight-status.json).
 Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 71 tests, OK (0 failed, 0 skipped), 24.11.2026 13:17 CET.
+
+2026-11-24 13:23, Builder: Haertung PR #98. Versuchslimit, aufgegeben und
+Zuruecksetzen in der README unter Grenzen und Wiederholung (inkl. Beispiel).
+Tests: 401/403 mitten im Lauf, andere 4xx/5xx/Timeout als Versuch, stabile
+Exit-Codes 0/1/2/3, Zuruecksetzen gibt Budget frei, Fake 401 ohne Auth auch
+fuer GET, DELETE, Chunk und Recall.
+Pruefung: `python3 -m unittest discover -s weitblick/tests -v`: Ran 75 tests, OK (0 failed, 0 skipped), 24.11.2026 13:23 CET.

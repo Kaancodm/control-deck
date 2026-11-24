@@ -213,12 +213,40 @@ bei erneutem Nachtlauf, nach Abbruch und nach Teilfehlern.
 | `unklar` | keine HTTP-Antwort, Zeitlimit, 408, 425, 429, 5xx, 2xx ohne JSON oder `success: false` | ja, im naechsten Lauf, gleiche Dokument-ID |
 | Konfigurationsfehler | HTTP 401 oder 403 | kein Versuch; Lauf bricht ab, Exit 3. Offene Eintraege bleiben unveraendert, frische Reservierungen dieses Laufs werden zurueckgenommen. |
 
-Ein erneuter Versuch betrifft nur bereits reservierte IDs. Neue Kandidaten
-duerfen deren Platz nicht einnehmen. Die Wiederholung ist nur dann ohne Dublette,
-wenn Hindsight ein Retain mit gleicher `document_id` ersetzt statt anhaengt
-(Annahme F2-c, Serverpruefung Schritt 3 und S-K80). Geht die Statusdatei
-verloren, sendet der naechste Lauf die hoechstens fuenf JSONL-Eintraege erneut
-mit ihren Dokument-IDs. Eine beschaedigte Statusdatei wird nicht ueberschrieben.
+Ein nicht bestaetigter Eintrag darf hoechstens dreimal gesendet werden
+(inklusive des ersten Versuchs, `MAX_ATTEMPTS` in `hindsight.py`). Danach gilt
+er als `aufgegeben`: der Lauf zaehlt ihn, beendet mit Exit 1 und sendet ihn
+nicht erneut. Die reservierte ID bleibt in `hindsight-status.json` und belegt
+dauerhaft einen der hoechstens fuenf Budget-Plaetze (und einen der drei Plaetze
+je `datum`). Neue Kandidaten duerfen diesen Platz nicht einnehmen.
+
+Zum Zuruecksetzen nur den betreffenden Schluessel unter `eintraege` in
+`hindsight-status.json` im Ausgabeordner entfernen. Die Datei `weitblick.jsonl`
+nicht aendern; sie bleibt die Quelle. Bestaetigte Eintraege in der Statusdatei
+stehen lassen, sonst wuerde der naechste Lauf sie erneut senden, soweit das
+Budget reicht. Die ganze Statusdatei nur loeschen, wenn ein bewusstes erneutes
+Senden gewollt ist (siehe T8).
+
+Beispiel: steht unter `eintraege` ein Satz wie
+
+```json
+"WB-000000000000000000000001": {
+ "datum": "2026-01-02",
+ "status": "unklar",
+ "versuche": 3,
+ "zeit": "2026-01-02T01:15:00Z"
+}
+```
+
+diesen Schluessel `WB-000000000000000000000001` entfernen. Danach kann dieselbe
+ID beim naechsten Lauf wieder einen freien Budget-Platz erhalten.
+
+Ein erneuter Versuch betrifft nur bereits reservierte IDs. Die Wiederholung ist
+nur dann ohne Dublette, wenn Hindsight ein Retain mit gleicher `document_id`
+ersetzt statt anhaengt (Annahme F2-c, Serverpruefung Schritt 3 und S-K80). Geht
+die Statusdatei verloren, sendet der naechste Lauf die hoechstens fuenf
+JSONL-Eintraege erneut mit ihren Dokument-IDs. Eine beschaedigte Statusdatei
+wird nicht ueberschrieben.
 
 ### Fehlerverhalten und Exit-Codes
 
@@ -231,17 +259,9 @@ mit ihren Dokument-IDs. Eine beschaedigte Statusdatei wird nicht ueberschrieben.
 
 Meldungen enthalten keine Quelldaten, keine Pfade, keine URL und kein Token.
 
-Aufgegebene Eintraege stehen in `hindsight-status.json` im Ausgabeordner unter
-`eintraege`: Schluessel ist die Dokument-ID, dazu `datum`, `status`, `zeit` und
-`versuche`. Ein Eintrag gilt als aufgegeben, wenn `status` nicht `bestaetigt`
-ist und `versuche` mindestens 3 betraegt. Diese IDs belegen weiter das Budget
-(hoechstens drei je `datum`, fuenf insgesamt). Zum Zuruecksetzen nur die
-betreffenden Schluessel unter `eintraege` entfernen, nicht `weitblick.jsonl`
-aendern (die JSONL-Datei bleibt die Quelle). Bestaetigte Eintraege in der
-Statusdatei stehen lassen; sonst wuerde der naechste Lauf sie erneut senden,
-soweit das Budget reicht. Die ganze Statusdatei nur loeschen, wenn ein
-bewusstes erneutes Senden gewollt ist (siehe T8). Nach dem Entfernen koennen
-dieselben IDs beim naechsten Lauf wieder einen freien Budget-Platz erhalten.
+Aufgegebene Eintraege und der Weg zum Zuruecksetzen sind unter
+«Grenzen und Wiederholung» beschrieben (`hindsight-status.json`, Schluessel
+unter `eintraege` entfernen, `weitblick.jsonl` nicht aendern).
 
 ### Spaeterer Installationsschritt (nicht ausgefuehrt)
 
@@ -309,11 +329,11 @@ Testdatei `tests/test_stufe2.py`, Stufe-1-Tests in `tests/test_weitblick.py`.
 | --- | --- | --- | --- |
 | T1 Bestand | alle 18 in `test_weitblick.py`, `test_t1_file_path_unchanged_without_hindsight` | 18 alte Tests gruen; ohne Einschalten 3 JSONL-Eintraege, 0 Hindsight-Aufrufe, keine Statusdatei | nach Bauplan |
 | T2 Schreiben | `test_t2_write_mirrors_released_fields`, `test_t2_return_value_meaning_preserved` | Bank `weitblick` enthaelt genau die JSONL-IDs; Abruf liefert alle freigegebenen Felder unveraendert; Rueckgabe = neue JSONL-Eintraege | angepasst: `fundstelle[].datei` wird bewusst nicht gespeichert |
-| T3 Budget | `test_t3_daily_limit_twenty_candidates`, `test_t3_total_limit_across_days`, `test_t3_repeated_nightly_run`, `test_t3_retry_does_not_widen_budget`, `test_t3_retry_stops_after_max_attempts`, `test_t3_abandoned_entries_fail_the_run`, `test_t7_auth_error_does_not_occupy_budget` | 20 Kandidaten ergeben 3, zweiter Lauf 0; ueber Tage hoechstens 5; zweiter Nachtlauf sendet nichts; Wiederholung erweitert das Budget nicht; nach 3 Versuchen Exit 1 und Zaehlung aufgegeben; 401/403 belegt keine Budget-Plaetze | nach Bauplan, erweitert |
+| T3 Budget | `test_t3_daily_limit_twenty_candidates`, `test_t3_total_limit_across_days`, `test_t3_repeated_nightly_run`, `test_t3_retry_does_not_widen_budget`, `test_t3_retry_stops_after_max_attempts`, `test_t3_abandoned_entries_fail_the_run`, `test_t7_auth_error_does_not_occupy_budget`, `test_t3_reset_abandoned_entry_frees_budget` | 20 Kandidaten ergeben 3, zweiter Lauf 0; ueber Tage hoechstens 5; zweiter Nachtlauf sendet nichts; Wiederholung erweitert das Budget nicht; nach 3 Versuchen Exit 1 und Zaehlung aufgegeben; 401/403 belegt keine Budget-Plaetze; Entfernen aufgegebener Schluessel in der Statusdatei gibt Plaetze frei | nach Bauplan, erweitert |
 | T4 Ohne Modell | `test_t4_only_retain_without_mode_field`, `test_t4_mock_rejects_unknown_retain_fields`, `test_t4_unexpected_call_fails_loudly` | nur Retain, Rumpf nur `items` und `async=false`, kein `mode`; unbekannte Felder und unerwartete Aufrufe lassen den Test scheitern | offline gegen Vertrag v1.2.1; Servernachweis F5 offen |
 | T5 Trennung | `test_t5_production_bank_only`, `test_sk80_separated_banks_pass` (T5-Teil), `test_sk80_cross_bank_chunk_read_fails` | alle Produktionsaufrufe nur an Bank `weitblick`; Suche in A findet X nicht; der unscoped Chunk-Pfad bleibt `offen` (404 belegt keine Trennung), Nutzdaten von X dort ergeben `nicht bestanden` | offline vorlaeufig; Server: Schritt 6 |
 | T6 Aus-Schalter | `test_t6_disabled_cli_makes_no_call`, `test_t6_hindsight_switch_keeps_jsonl`, `test_t6_nightly_disabled_reads_and_writes_nothing`, Stufe 1 `test_disabled_cli_creates_nothing` | `--disabled`: klare Meldung, Exit 0, nichts geschrieben, 0 Aufrufe; Hindsight aus: JSONL nutzbar, 0 Aufrufe | nach Bauplan |
-| T7 Nicht erreichbar | `test_t7_unreachable_keeps_jsonl_and_exits_1`, `test_t7_timeout_is_unclear`, `test_t7_response_classification_and_retry`, `test_t7_hindsight_failure_never_touches_jsonl`, `test_t7_corrupt_status_file_is_preserved`, `test_t7_auth_error_aborts_without_counting_attempt`, `test_t7_auth_error_does_not_occupy_budget`, `test_t7_auth_error_leaves_existing_status_unchanged` | Exit 1 bei unvollstaendiger Spiegelung; 401/403: Exit 3, kein Versuch, Status unveraendert, keine neuen Budget-Plaetze, Meldung ohne Token oder Servertext; JSONL byte-gleich; Status `unklar` bleibt wiederholbar | nach Bauplan, erweitert |
+| T7 Nicht erreichbar | `test_t7_unreachable_keeps_jsonl_and_exits_1`, `test_t7_timeout_is_unclear`, `test_t7_response_classification_and_retry`, `test_t7_hindsight_failure_never_touches_jsonl`, `test_t7_corrupt_status_file_is_preserved`, `test_t7_auth_error_aborts_without_counting_attempt`, `test_t7_auth_error_does_not_occupy_budget`, `test_t7_auth_error_leaves_existing_status_unchanged`, `test_t7_auth_error_mid_run_keeps_sent_and_frees_unsent`, `test_t7_non_auth_errors_still_count_as_attempts`, `test_exit_codes_are_stable_and_distinct` | Exit 1 bei unvollstaendiger Spiegelung und bei 4xx/5xx/Timeout als Versuch; 401/403: Exit 3, auch mitten im Lauf (bereits gesendete bleiben, ungesendete Reservierungen zurueckgenommen); Meldung ohne Token oder Servertext; JSONL byte-gleich | nach Bauplan, erweitert |
 | T8 Wiederherstellung | `test_t8_rebuild_from_jsonl_after_status_loss` | ohne Statusdatei und mit leerer Bank stellt ein Lauf alle JSONL-Eintraege wieder her | vorlaeufig: nur Offline-Teil; Restore aus Nachtsicherung braucht eigenes GO |
 | S-K80 | `test_sk80_separated_banks_pass`, `test_sk80_cross_bank_read_fails`, `test_sk80_cross_bank_chunk_read_fails`, `test_sk80_cross_bank_delete_fails`, `test_sk80_empty_success_is_not_a_pass`, `test_sk80_chunk_empty_success_is_failed`, `test_sk80_connection_error_is_open`, `test_sk80_general_auth_error_is_open`, `test_sk80_refuses_production_and_identical_banks`, `test_sk80_cli_output_hides_url_and_token`, `test_sk80_cli_missing_config` | Pruefer urteilt `bestanden` nur bei Nachweis von X in B, Abweisung des Dokument-Pfads aus A ohne Nutzdaten, abgewiesenem Loeschen und unveraendertem X; der Chunk-Pfad bleibt `offen` und wird getrennt ausgegeben; Nutzdaten von X oder 2xx ohne Nutzdaten dort ergeben `nicht bestanden`; Verbindungsfehler und 401 ergeben `offen` | offline: Pruefer-Logik; Server: Schritt 6 |
 

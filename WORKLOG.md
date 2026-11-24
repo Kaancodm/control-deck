@@ -85,3 +85,8 @@ mit Zaehlung, Exit ungleich 0 und Meldung. Kein Merge, PR bleibt Draft.
 
 401/403 als Konfigurationsfehler (Exit 3), kein Versuch, Budget-Rollback.
 Kein Merge, PR bleibt Draft.
+
+## 2026-11-24 13:23 — Builder — Weitblick Stufe 2 Haertung (PR #98, Draft)
+
+README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
+sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.

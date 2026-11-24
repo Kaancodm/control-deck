@@ -17,9 +17,11 @@ Offline tests prove what this client sends, not what the running server accepts.
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.client import HTTPException
@@ -58,6 +60,16 @@ CONFIRMED = "bestaetigt"
 FAILED = "fehlgeschlagen"
 UNCLEAR = "unklar"
 ABANDONED = "aufgegeben"
+# Budget slot taken, nothing sent yet. Only ever seen on disk after a crash.
+RESERVED = "reserviert"
+# Key set on a record right before its HTTP call; holds the run ID.
+SENDING = "sendet"
+RETURNED = "zurueckgegeben"
+RESUMED = "wiederaufgenommen"
+RESULT_KEYS = (CONFIRMED, FAILED, UNCLEAR, "bereits", ABANDONED, RETURNED, RESUMED)
+
+# RFC 6750 b64token: the only form a Bearer credential may take.
+TOKEN_RE = re.compile(r"[A-Za-z0-9\-._~+/]+=*")
 
 # Fields released for the bank. `fundstelle[].datei` holds a private absolute
 # path and is never sent (F4 open: until Atik decides, paths stay local).
@@ -103,6 +115,27 @@ def is_enabled(environ):
     raise HindsightConfigError(f"{ENV_ENABLED} muss 1 oder 0 sein")
 
 
+def check_token(raw):
+    """Return the stripped token or raise. Messages never contain any part of it."""
+    token = raw.strip()
+    if not token:
+        raise HindsightConfigError(f"{ENV_TOKEN} ist leer")
+    if any(c.isspace() for c in token):
+        if token[:6].lower() == "bearer" and token[6:7].isspace():
+            raise HindsightConfigError(f"{ENV_TOKEN} ohne Praefix 'Bearer' setzen, nur das Token")
+        raise HindsightConfigError(f"{ENV_TOKEN} darf keine Leer- oder Steuerzeichen enthalten")
+    if not TOKEN_RE.fullmatch(token):
+        raise HindsightConfigError(
+            f"{ENV_TOKEN} enthaelt unzulaessige Zeichen "
+            "(erlaubt: A-Z a-z 0-9 - . _ ~ + / und = am Ende)"
+        )
+    if "" in token.rstrip("=").split("."):
+        raise HindsightConfigError(
+            f"{ENV_TOKEN} hat leere Teile (Punkt am Anfang, am Ende oder doppelt)"
+        )
+    return token
+
+
 def config_from_env(environ):
     """Return None when Hindsight is switched off, else a checked config."""
     if not is_enabled(environ):
@@ -125,9 +158,7 @@ def config_from_env(environ):
         raise HindsightConfigError(
             f"{ENV_URL} muss eine http(s)-Basisadresse ohne Zugangsdaten, Query oder Fragment sein"
         )
-    token = environ[ENV_TOKEN].strip()
-    if any(ord(c) < 33 or ord(c) > 126 for c in token):
-        raise HindsightConfigError(f"{ENV_TOKEN} enthaelt unzulaessige Zeichen")
+    token = check_token(environ[ENV_TOKEN])
     raw_timeout = environ.get(ENV_TIMEOUT, "").strip()
     try:
         timeout = float(raw_timeout) if raw_timeout else DEFAULT_TIMEOUT_S
@@ -353,6 +384,9 @@ class HindsightWriter:
     occupied after the limit and counted as aufgegeben. HTTP 401 or 403 is a
     configuration error, not an attempt: open entries stay unchanged, fresh
     reservations from this run are rolled back, and the writer aborts.
+    Crash rule: a record still `reserviert` or marked `sendet` at the start of
+    a run comes from a killed run; `_recover` returns or resumes it without
+    using an attempt.
     The JSONL file is neither read for writing nor changed here.
     """
 
@@ -362,7 +396,7 @@ class HindsightWriter:
             raise ValueError("Output symlinks are forbidden")
         self.client = client
         self.bank = PRODUCTION_BANK
-        self.last_result = {CONFIRMED: 0, FAILED: 0, UNCLEAR: 0, "bereits": 0, ABANDONED: 0}
+        self.last_result = dict.fromkeys(RESULT_KEYS, 0)
 
     def _load_status(self, directory):
         text = read_text(directory, STATUS_NAME)
@@ -376,11 +410,18 @@ class HindsightWriter:
         ):
             raise ValueError("Invalid Hindsight status file")
         for value in data["eintraege"].values():
-            if value.get("status") not in {CONFIRMED, FAILED, UNCLEAR} or not value.get("datum"):
+            if not isinstance(value, dict):
                 raise ValueError("Invalid Hindsight status file")
-            attempts = value.get("versuche", 1)
-            if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts < 1:
+            if value.get("status") not in {CONFIRMED, FAILED, UNCLEAR, RESERVED}:
                 raise ValueError("Invalid Hindsight status file")
+            if not value.get("datum"):
+                raise ValueError("Invalid Hindsight status file")
+            attempts = value.get("versuche", 0)
+            if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts < 0:
+                raise ValueError("Invalid Hindsight status file")
+            for key in (SENDING, "lauf"):
+                if key in value and not isinstance(value[key], str):
+                    raise ValueError("Invalid Hindsight status file")
         return data["eintraege"]
 
     def _save_status(self, directory, status):
@@ -392,6 +433,57 @@ class HindsightWriter:
         )
         replace_atomically(directory, STATUS_NAME, content + "\n")
         os.fsync(directory)
+
+    @staticmethod
+    def _recover(status):
+        """Repair records left by a run that died (SIGKILL, power loss).
+
+        The output lock is held, so no other run is active. Neither case
+        consumes an attempt:
+        - `reserviert` without `sendet`: nothing left the machine. The slot is
+          returned and the budget rule decides again in this run.
+        - `sendet` set: the call may have reached the server. The slot stays,
+          the record becomes `unklar` with the old attempt count, and the next
+          send reuses the same document ID, which Hindsight replaces
+          (idempotent; operation_id only applies to async retain).
+        Records from Stufe 2 before this change have no `versuche` when the
+        run died before sending; they are treated like `sendet`.
+        """
+        returned = resumed = 0
+        for key in sorted(status):
+            record = status[key]
+            if record["status"] == RESERVED and SENDING not in record:
+                del status[key]
+                returned += 1
+            elif SENDING in record or "versuche" not in record:
+                status[key] = {
+                    "datum": record["datum"],
+                    "status": UNCLEAR,
+                    "versuche": int(record.get("versuche", 0)),
+                }
+                if "zeit" in record:
+                    status[key]["zeit"] = record["zeit"]
+                resumed += 1
+        return returned, resumed
+
+    def _rollback(self, directory, status, pending_fresh, error):
+        """Return this run's unsent reservations after HTTP 401/403.
+
+        A failing rollback must not hide the auth error: it is attached as a
+        note (type name only, no path) and the next run recovers the records.
+        """
+        for entry_id in pending_fresh:
+            record = status.get(entry_id)
+            if record is not None and record["status"] == RESERVED:
+                del status[entry_id]
+        try:
+            self._save_status(directory, status)
+        except OSError as rollback_error:
+            error.rollback_failed = True
+            error.add_note(
+                "Reservierungen nicht zurueckgegeben: "
+                f"{type(rollback_error).__name__}; der naechste Lauf gibt sie zurueck"
+            )
 
     def _send(self, entry):
         record = bank_record(entry)
@@ -412,10 +504,14 @@ class HindsightWriter:
     def write(self, entries):
         for entry in entries:
             validate(entry)
-        result = {CONFIRMED: 0, FAILED: 0, UNCLEAR: 0, "bereits": 0, ABANDONED: 0}
+        result = dict.fromkeys(RESULT_KEYS, 0)
         self.last_result = result
+        run_id = uuid.uuid4().hex
         with locked_output(self.output) as directory:
             status = self._load_status(directory)
+            result[RETURNED], result[RESUMED] = self._recover(status)
+            if result[RETURNED] or result[RESUMED]:
+                self._save_status(directory, status)
             reserved = [{"id": k, "datum": v["datum"]} for k, v in status.items()]
             by_id = {}
             for entry in entries:
@@ -423,9 +519,7 @@ class HindsightWriter:
             retry = [
                 by_id[k]
                 for k, v in sorted(status.items())
-                if v["status"] != CONFIRMED
-                and k in by_id
-                and int(v.get("versuche", 1)) < MAX_ATTEMPTS
+                if v["status"] != CONFIRMED and k in by_id and v["versuche"] < MAX_ATTEMPTS
             ]
             result["bereits"] = sum(
                 1 for k in by_id if k in status and status[k]["status"] == CONFIRMED
@@ -433,29 +527,32 @@ class HindsightWriter:
             fresh = select_new(reserved, list(by_id.values()))
             for entry in fresh:
                 # Reserve before sending: an interrupted run still keeps the budget.
-                status[entry["id"]] = {"datum": entry["datum"], "status": UNCLEAR}
+                status[entry["id"]] = {
+                    "datum": entry["datum"],
+                    "status": RESERVED,
+                    "versuche": 0,
+                    "lauf": run_id,
+                    "zeit": _now(),
+                }
             if fresh:
                 self._save_status(directory, status)
             pending_fresh = {entry["id"] for entry in fresh}
             for entry in retry + fresh:
+                previous = status[entry["id"]]
+                # Mark before the call so a crash during it is recognised later.
+                status[entry["id"]] = dict(previous, **{SENDING: run_id})
+                self._save_status(directory, status)
                 try:
                     outcome = self._send(entry)
-                except HindsightAuthError:
-                    changed = False
-                    for entry_id in pending_fresh:
-                        record = status.get(entry_id)
-                        if record is not None and "versuche" not in record:
-                            del status[entry_id]
-                            changed = True
-                    if changed:
-                        self._save_status(directory, status)
+                except HindsightAuthError as error:
+                    status[entry["id"]] = previous
+                    self._rollback(directory, status, pending_fresh, error)
                     raise
-                previous = status[entry["id"]]
                 status[entry["id"]] = {
                     "datum": entry["datum"],
                     "status": outcome,
-                    "zeit": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "versuche": int(previous.get("versuche", 0)) + 1,
+                    "zeit": _now(),
+                    "versuche": previous["versuche"] + 1,
                 }
                 self._save_status(directory, status)
                 pending_fresh.discard(entry["id"])
@@ -465,6 +562,10 @@ class HindsightWriter:
                 for key, value in status.items()
                 if key in by_id
                 and value["status"] != CONFIRMED
-                and int(value.get("versuche", 1)) >= MAX_ATTEMPTS
+                and value["versuche"] >= MAX_ATTEMPTS
             )
         return result[CONFIRMED]
+
+
+def _now():
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

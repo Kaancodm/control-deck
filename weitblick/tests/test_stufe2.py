@@ -24,7 +24,7 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
-from weitblick import nachtlauf, sk80, vertrag
+from weitblick import exitcodes, nachtlauf, sk80, vertrag
 from weitblick.__main__ import main as cli_main
 from weitblick.core import generate, read_sources
 from weitblick.hindsight import (
@@ -32,13 +32,18 @@ from weitblick.hindsight import (
     CONFIRMED,
     FAILED,
     MAX_ATTEMPTS,
+    RESERVED,
+    RESUMED,
     RETAIN_ALLOWED_TOP_FIELDS,
     RETAIN_ITEM_FIELDS,
     RETAIN_TOP_FIELDS,
+    RETURNED,
+    SENDING,
     UNCLEAR,
     HindsightAuthError,
     HindsightClient,
     HindsightConfig,
+    HindsightConfigError,
     HindsightWriter,
     TransportError,
     UrllibTransport,
@@ -772,7 +777,9 @@ class WriterAndFlowTests(Stage2Base):
         from weitblick.pipeline import EXIT_AUTH, EXIT_CONFIG, EXIT_ERROR, EXIT_OK
 
         self.assertEqual((EXIT_OK, EXIT_ERROR, EXIT_CONFIG, EXIT_AUTH), (0, 1, 2, 3))
-        self.assertEqual(len({EXIT_OK, EXIT_ERROR, EXIT_CONFIG, EXIT_AUTH}), 4)
+        self.assertEqual(exitcodes.EXIT_OPEN, 4)
+        codes = {EXIT_OK, EXIT_ERROR, EXIT_CONFIG, EXIT_AUTH, exitcodes.EXIT_OPEN}
+        self.assertEqual(len(codes), 5)
         code, text = self.run_pipeline()
         self.assertEqual(code, EXIT_OK, text)
         self.fake.status_override = (500, b"{}")
@@ -1061,6 +1068,281 @@ class SK80Tests(Stage2Base):
             )
         self.assertEqual(code, 2)
         self.assertIn("WEITBLICK_HINDSIGHT_URL", stderr.getvalue())
+        self.assertEqual(self.fake.calls, [])
+
+
+class Killed(BaseException):
+    """Stands in for SIGKILL: nothing after it runs, no cleanup code."""
+
+
+class HaertungTests(Stage2Base):
+    """Folge zu PR #98: exit codes, rollback errors, crash recovery, token format."""
+
+    def write_status(self, records):
+        self.out.mkdir(parents=True, exist_ok=True)
+        payload = {"bank": "weitblick", "version": 1, "eintraege": records}
+        (self.out / "hindsight-status.json").write_text(json.dumps(payload))
+
+    # 1. Exit codes
+
+    def test_exit_codes_shared_table_is_unique(self):
+        from weitblick import pipeline
+
+        table = (
+            exitcodes.EXIT_OK,
+            exitcodes.EXIT_ERROR,
+            exitcodes.EXIT_CONFIG,
+            exitcodes.EXIT_AUTH,
+            exitcodes.EXIT_OPEN,
+        )
+        self.assertEqual(table, (0, 1, 2, 3, 4))
+        self.assertEqual(set(exitcodes.EXIT_CODES), set(table))
+        self.assertEqual(len(set(exitcodes.EXIT_CODES.values())), len(table))
+        self.assertEqual(pipeline.EXIT_AUTH, exitcodes.EXIT_AUTH)
+        self.assertEqual(pipeline.EXIT_CONFIG, exitcodes.EXIT_CONFIG)
+
+    def sk80_cli(self, tag):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        env = {"WEITBLICK_HINDSIGHT_URL": URL, "WEITBLICK_HINDSIGHT_TOKEN": TOKEN}
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = sk80.main(
+                ["--bank-a", SK80_BANK_A, "--bank-b", SK80_BANK_B, "--tag", tag],
+                environ=env,
+                transport=self.transport,
+            )
+        return code, stdout.getvalue() + stderr.getvalue()
+
+    def test_sk80_open_has_own_exit_code_not_auth(self):
+        self.fake.down = urllib.error.URLError("refused")
+        code, text = self.sk80_cli("t0101")
+        self.assertIn("S-K80: offen", text)
+        self.assertEqual(code, exitcodes.EXIT_OPEN)
+        self.assertNotEqual(code, exitcodes.EXIT_AUTH)
+        self.assert_no_sensitive_output(text)
+
+    def test_sk80_exit_codes_per_verdict(self):
+        code, text = self.sk80_cli("t0102")
+        self.assertEqual(code, exitcodes.EXIT_OK, text)
+        self.fake = FakeHindsight()
+        self.transport = UrllibTransport(opener=self.fake)
+        self.fake.leak_get = True
+        code, text = self.sk80_cli("t0103")
+        self.assertIn("S-K80: nicht bestanden", text)
+        self.assertEqual(code, exitcodes.EXIT_ERROR, text)
+
+    # 2. Rollback error must not hide 401/403
+
+    def fail_rollback_save(self):
+        original = HindsightWriter._save_status
+        fake = self.fake
+
+        def save(writer, directory, status):
+            # The queue is empty only after the auth reply was consumed.
+            if fake.retain_queue == []:
+                raise PermissionError(13, "denied", str(self.root / PRIVATE_DIR))
+            return original(writer, directory, status)
+
+        return patch.object(HindsightWriter, "_save_status", save)
+
+    def test_t7_rollback_oserror_keeps_auth_error(self):
+        for auth_status in (401, 403):
+            with self.subTest(auth=auth_status):
+                self.fake = FakeHindsight()
+                self.transport = UrllibTransport(opener=self.fake)
+                self.out = self.root / f"out-rb-{auth_status}"
+                self.fake.retain_queue = [None, (auth_status, b'{"detail": "auth-secret"}')]
+                with self.fail_rollback_save(), self.assertRaises(HindsightAuthError) as caught:
+                    self.writer().write(self.entries())
+                error = caught.exception
+                self.assertTrue(error.rollback_failed)
+                notes = " ".join(getattr(error, "__notes__", []))
+                self.assertIn("PermissionError", notes)
+                self.assertNotIn(PRIVATE_DIR, notes)
+                self.assertNotIn(str(self.root), notes)
+
+    def test_t7_rollback_oserror_pipeline_exits_auth_and_recovers(self):
+        from weitblick.pipeline import EXIT_AUTH, EXIT_OK
+
+        entries = self.entries()
+        ids = [entry["id"] for entry in entries]
+        self.fake.retain_queue = [None, (401, b'{"detail": "auth-secret"}')]
+        with self.fail_rollback_save():
+            code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_AUTH, text)
+        self.assertIn("Hindsight-Anmeldung abgelehnt", text)
+        self.assertIn("Reservierungen konnten nicht zurueckgegeben werden", text)
+        self.assertNotIn("auth-secret", text)
+        self.assertNotIn("denied", text)
+        self.assert_no_sensitive_output(text)
+        self.assertEqual(len(self.jsonl_bytes().splitlines()), 3)
+        left = self.status()
+        self.assertEqual(left[ids[0]]["status"], CONFIRMED)
+        self.assertEqual(left[ids[1]]["status"], RESERVED)
+        self.assertIn(SENDING, left[ids[1]])
+        self.assertEqual(left[ids[2]]["status"], RESERVED)
+        self.fake.retain_queue = None
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_OK, text)
+        self.assertIn("1 Reservierungen zurueckgegeben, 1 erneut offen", text)
+        after = self.status()
+        self.assertEqual({s["status"] for s in after.values()}, {CONFIRMED})
+        self.assertEqual({s["versuche"] for s in after.values()}, {1})
+
+    # 3. Crash between reservation and send
+
+    def test_t3_killed_run_costs_no_attempt(self):
+        from weitblick.pipeline import EXIT_OK
+
+        entries = self.entries()
+        ids = [entry["id"] for entry in entries]
+        writer = self.writer()
+        with patch.object(HindsightWriter, "_send", side_effect=Killed), self.assertRaises(Killed):
+            writer.write(entries)
+        self.assertEqual(self.fake.retains(), [])
+        killed = self.status()
+        self.assertEqual({s["status"] for s in killed.values()}, {RESERVED})
+        self.assertEqual({s["versuche"] for s in killed.values()}, {0})
+        self.assertEqual(len({s["lauf"] for s in killed.values()}), 1)
+        self.assertIn(SENDING, killed[ids[0]])
+        self.assertNotIn(SENDING, killed[ids[1]])
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_OK, text)
+        self.assertIn("abgebrochener Lauf erkannt", text)
+        self.assertIn("2 Reservierungen zurueckgegeben, 1 erneut offen", text)
+        self.assertNotIn("aufgegeben.", text.replace("0 aufgegeben.", ""))
+        after = self.status()
+        self.assertEqual(set(after), set(ids))
+        self.assertEqual({s["status"] for s in after.values()}, {CONFIRMED})
+        self.assertEqual({s["versuche"] for s in after.values()}, {1})
+        for record in after.values():
+            self.assertNotIn(SENDING, record)
+        # Same document IDs, each sent once: no duplicate in the bank.
+        self.assertEqual(sorted(self.fake.banks["weitblick"]), sorted(ids))
+        self.assertEqual(len(self.fake.retains()), 3)
+
+    def test_t3_killed_retry_keeps_last_attempt(self):
+        from weitblick.pipeline import EXIT_OK
+
+        entries = self.entries()
+        ids = [entry["id"] for entry in entries]
+        day = entries[0]["datum"]
+        records = {
+            ids[0]: {
+                "datum": day,
+                "status": FAILED,
+                "versuche": MAX_ATTEMPTS - 1,
+                SENDING: "abc",
+            },
+            # Stufe 2 format before this change: reservation without versuche.
+            ids[1]: {"datum": day, "status": UNCLEAR},
+            ids[2]: {"datum": day, "status": RESERVED, "versuche": 0, "lauf": "abc"},
+        }
+        self.write_status(records)
+        writer = self.writer()
+        self.assertEqual(writer.write(entries), 3)
+        self.assertEqual(writer.last_result[RETURNED], 1)
+        self.assertEqual(writer.last_result[RESUMED], 2)
+        self.assertEqual(writer.last_result[ABANDONED], 0)
+        after = self.status()
+        self.assertEqual(after[ids[0]]["versuche"], MAX_ATTEMPTS)
+        self.assertEqual(after[ids[1]]["versuche"], 1)
+        self.assertEqual(after[ids[2]]["versuche"], 1)
+        self.assertEqual({s["status"] for s in after.values()}, {CONFIRMED})
+        code, text = self.run_pipeline()
+        self.assertEqual(code, EXIT_OK, text)
+        self.assertNotIn("abgebrochener Lauf", text)
+
+    def test_t3_recovery_keeps_budget(self):
+        rows = []
+        for day in range(1, 5):
+            rows += self.entries(f"2026-01-0{day}")
+        writer = self.writer()
+        with patch.object(HindsightWriter, "_send", side_effect=Killed), self.assertRaises(Killed):
+            writer.write(rows)
+        for _ in range(3):
+            self.writer().write(rows)
+        self.assertLessEqual(len(self.status()), 5)
+        self.assertLessEqual(len(self.fake.banks.get("weitblick", {})), 5)
+
+    def test_status_file_rejects_bad_crash_fields(self):
+        day = "2026-01-02"
+        for record in (
+            {"datum": day, "status": RESERVED, "versuche": -1},
+            {"datum": day, "status": RESERVED, "versuche": 0, SENDING: 7},
+            {"datum": day, "status": "irgendwas", "versuche": 0},
+        ):
+            with self.subTest(record=record):
+                self.write_status({"WB-x": record})
+                with self.assertRaises(ValueError):
+                    self.writer().write(self.entries())
+
+    # 4. Token format, never echoed
+
+    BAD_TOKENS = (
+        "Bearer secretpart-abc123",
+        "bearer\tsecretpart-abc123",
+        "secret part-abc123",
+        "secretpart\nabc123",
+        ".secretpart-abc123",
+        "secretpart-abc123.",
+        "secretpart..abc123",
+        "secretpart.abc123.=",
+        "secretpart:abc123",
+        "secretpart@abc123",
+        "secretpart\u00e4abc123",
+        "=secretpart",
+    )
+
+    def test_token_format_rejected_with_config_exit(self):
+        from weitblick.pipeline import EXIT_CONFIG
+
+        for token in self.BAD_TOKENS:
+            with self.subTest(index=self.BAD_TOKENS.index(token)):
+                env = dict(self.env, WEITBLICK_HINDSIGHT_TOKEN=token)
+                with self.assertRaises(HindsightConfigError) as caught:
+                    config_from_env(env)
+                message = str(caught.exception)
+                self.assertIn("WEITBLICK_HINDSIGHT_TOKEN", message)
+                self.assertIsNone(caught.exception.__cause__)
+                code, text = self.run_pipeline(env=env)
+                self.assertEqual(code, EXIT_CONFIG, text)
+                for part in ("secretpart", "abc123", token.strip()):
+                    self.assertNotIn(part, message)
+                    self.assertNotIn(part, text)
+                self.assertEqual(self.fake.calls, [])
+
+    def test_token_bearer_prefix_has_clear_message(self):
+        env = dict(self.env, WEITBLICK_HINDSIGHT_TOKEN="Bearer " + TOKEN)
+        with self.assertRaises(HindsightConfigError) as caught:
+            config_from_env(env)
+        self.assertIn("ohne Praefix", str(caught.exception))
+        self.assertNotIn(TOKEN, str(caught.exception))
+
+    def test_token_valid_forms_accepted(self):
+        for token in (TOKEN, "  " + TOKEN + "\n", "aaa.bbb.ccc", "abc+/~_-.x==", "x"):
+            with self.subTest(index=len(token)):
+                config = config_from_env(dict(self.env, WEITBLICK_HINDSIGHT_TOKEN=token))
+                self.assertEqual(config.token, token.strip())
+                self.assertNotIn(token.strip(), repr(config))
+                self.assertNotIn(token.strip(), str(config))
+
+    def test_token_never_in_cli_or_nightly_output(self):
+        secret = "secretpart.abc123..tail"
+        env = self.nightly_env(WEITBLICK_HINDSIGHT_TOKEN=secret)
+        code, text = self.run_nightly(env)
+        self.assertEqual(code, exitcodes.EXIT_CONFIG, text)
+        for part in ("secretpart", "abc123", "tail"):
+            self.assertNotIn(part, text)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = sk80.main(
+                ["--bank-a", SK80_BANK_A, "--bank-b", SK80_BANK_B],
+                environ={"WEITBLICK_HINDSIGHT_URL": URL, "WEITBLICK_HINDSIGHT_TOKEN": secret},
+            )
+        text = stdout.getvalue() + stderr.getvalue()
+        self.assertEqual(code, exitcodes.EXIT_CONFIG, text)
+        for part in ("secretpart", "abc123", "tail"):
+            self.assertNotIn(part, text)
         self.assertEqual(self.fake.calls, [])
 
 

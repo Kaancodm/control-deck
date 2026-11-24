@@ -13,6 +13,8 @@ Output: step names, HTTP status codes and verdicts only; never bodies, URL or to
 The read/delete paths and the document fields are assumptions (F2) from
 weitblick.hindsight. A connection or general authentication error never
 counts as proof of separation; the verdict is then "offen".
+Exit codes (weitblick.exitcodes): 0 bestanden, 1 nicht bestanden,
+2 Konfiguration, 4 offen.
 """
 
 import argparse
@@ -21,6 +23,7 @@ import re
 import sys
 import uuid
 
+from .exitcodes import EXIT_CONFIG, EXIT_ERROR, EXIT_OK, EXIT_OPEN
 from .hindsight import (
     CONFIRMED,
     ENV_TIMEOUT,
@@ -237,14 +240,15 @@ def main(argv=None, environ=None, transport=None):
     except (HindsightConfigError, ValueError) as error:
         print(f"S-K80: Konfigurationsfehler: {error}", file=sys.stderr)
         print(f"Benoetigt: {ENV_URL}, {ENV_TOKEN} (optional {ENV_TIMEOUT})", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG
     report = run_sk80(HindsightClient(config, transport), args.bank_a, args.bank_b, args.tag)
     for line in report["schritte"]:
         print("- " + line)
     print(f"S-K80: {report['sk80']}")
     print(f"T5: {report['t5']}")
     print(f"Chunk: {report['chunk']}")
-    return {PASSED: 0, FAILED: 1}.get(report["sk80"], 3)
+    # offen has its own code: 3 is reserved for a rejected login in the pipeline.
+    return {PASSED: EXIT_OK, FAILED: EXIT_ERROR}.get(report["sk80"], EXIT_OPEN)
 
 
 if __name__ == "__main__":

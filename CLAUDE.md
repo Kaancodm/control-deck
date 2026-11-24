@@ -20,6 +20,12 @@ Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
    Unterschied: em startet S-K80 und Vertragspruefung jetzt, Option 2 wartet auf F4.
    Quelle: Auftrag Kaan 24.11.2026, lokaler Branch `feat/weitblick-stufe2`, nicht gepusht.
 
+4. Deck-Gedaechtnis Entwurf (Issue #78, PR #105)
+   em: Entwurf lassen, bis Security, Codequalitaet und Plan-Passung geprueft sind.
+   Option 2: Reviews jetzt anfordern.
+   Unterschied: Option 2 startet die drei Reviews sofort, em laesst den Entwurf liegen.
+   Quelle: Auftrag 24.11.2026, PR #105, unproven bis Review.
+
 # CLAUDE.md
 
 Project and technical rules for Claude Code. Roles, merge, gates, reports, the GO list, the leaderboard, and the work log: see [AGENTS.md](AGENTS.md). If anything conflicts, AGENTS.md wins.

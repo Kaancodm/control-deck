@@ -29,9 +29,9 @@ Regeln: siehe `AGENTS.md`.
 | Regeln angleichen | Cursor Cloud Agent | `cursor/align-agent-rules-10a1` | #92 | erledigt (gemergt, a105245, mergedAt 2026-11-12T22:51:01Z, mergedBy Kaancodm) | 12.11.2026 |
 | GO-Liste nach Merge #92 | Cursor Cloud Agent | `cursor/clear-merged-go-10a1` | #93 | erledigt (gemergt, a123d40, mergedAt 2026-11-12T23:16:19Z, mergedBy Kaancodm) | 13.11.2026 |
 | M1b Dialog-Thread #77 | Cursor Cloud Agent | `cursor/m1b-dialog-thread-f58e` | #102 | erledigt (gemergt, 52c690c) | 24.11.2026 |
-| Auftragsfreie Redaktion #76 | Cursor Cloud Agent | `cursor/order-free-redaction-60ba` | #104 | Entwurf gegen main, kein Merge | 25.11.2026 |
-| Issue #80 valid_to und superseded_by leeren | Cursor Cloud Agent | `cursor/80-korrektur-leeren-0407` | #103 | Entwurf, Nachzug, Reviews und GO offen, nicht gemergt | 24.11.2026 |
-| Issue #78 Deck-Gedaechtnis | Cursor Cloud Agent | `cursor/78-deck-gedaechtnis-a1b0` | #105 | Entwurf, F5 und Inbox-Kappung, gestapelt auf #103, nicht gemergt | 25.11.2026 |
+| Auftragsfreie Redaktion #76 | Cursor Cloud Agent | `cursor/order-free-redaction-60ba` | #104 | erledigt (gemergt, e771dc4) | 25.11.2026 |
+| Issue #80 valid_to und superseded_by leeren | Cursor Cloud Agent | `cursor/80-korrektur-leeren-0407` | #103 | erledigt (gemergt, 5d1de27) | 25.11.2026 |
+| Issue #78 Deck-Gedaechtnis | Cursor Cloud Agent | `cursor/78-deck-gedaechtnis-a1b0` | #105 | Entwurf, Basis main, nicht gemergt | 25.11.2026 |
 
 ## deck-server
 

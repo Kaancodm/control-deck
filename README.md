@@ -6,10 +6,11 @@ Lokale Steuerzentrale für KI-gestützte Aufgaben — ohne bezahlte APIs zur Lau
 Dieses Repository enthält API, PostgreSQL-Queue, Übergabe-Schemas (`task.v1`, `result.v1`),
 Abnahme, Datenschranke und lokale Pseudonymisierung.
 
-**Status:** Etappe 11 ergänzt eine themebare Owner-Oberfläche mit Passwort-Login,
-Freigaben, Reviews, sicheren Dateien und lokalem Chat mit unverbindlichen Entwürfen.
-Host-Runner und Chat-Tests sind simuliert; echte Anbieteraufrufe bleiben aus.
-Bedienung: [docs/UI.md](docs/UI.md). Arbeitsstand: [docs/STAND.md](docs/STAND.md).
+**Status:** Etappen 1 bis 17 sind auf `main` gemergt (PRs #1–#5, #19, #21–#32).
+Zu Etappe 18 liegt der Lasttest mit isolierten Fake-Runnern auf `main` (#48);
+ein Tag `v1.0` ist nicht gesetzt. Weitblick Stufe 1 und Stufe 2 samt Haertung
+sind auf `main` (#96, #98, #99). Bedienung: [docs/UI.md](docs/UI.md).
+Arbeitsstand: [docs/STAND.md](docs/STAND.md).
 
 ## Zweck
 
@@ -34,6 +35,7 @@ standardisierten Format. Menschliche Freigabe ist standardmässig vorgesehen.
 | `config/` | Router-Konfiguration ohne echte Modellnamen oder Zugangsdaten |
 | `tests/` | Unit-, Integrations- und Referenztests |
 | `docs/` | Architektur, Schema-Doku, Architecture Decision Records |
+| `weitblick/` | Offline-Skript Stufe 1 und 2: Fragen aus Listen, optionaler Spiegel in die Bank `weitblick` |
 | `scripts/` | CLI-Hilfen (z. B. Schema-Validator) |
 | `docker/`, `deploy/` | Spätere Container- und Deploy-Artefakte |
 

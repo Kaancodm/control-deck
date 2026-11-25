@@ -2,29 +2,21 @@
 
 Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
 
-1. Egress-Proxy (E2) starten
-   em: Aus lassen.
-   Option 2: Start freigeben.
-   Unterschied: Option 2 startet den Proxy, em laesst ihn aus.
-   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+Nichts offen.
 
-2. Ollama-Modelle aufraeumen
-   em: Nichts loeschen.
-   Option 2: Aufraeumen freigeben.
-   Unterschied: Option 2 darf Modelle entfernen, em laesst den Bestand.
-   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+Entschieden am 24.11.2026 mit `alle em`: Egress-Proxy bleibt aus. Ollama-Bestand bleibt.
+Weitblick-Schritte 1 bis 4 bleiben die lesende Pruefung und wurden hier nicht ausgefuehrt.
+Schritt 5 und S-K80 bleiben ohne Ja.
+#95 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:09:12Z). Der Branch `claude/wonderful-cori-d21yd2` bleibt auf `269b0fa`.
+#100 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:55:40Z, Kaan em).
 
-3. Weitblick Stufe 2 zur Serverpruefung freigeben
-   em: Branch veroeffentlichen, Draft-PR, Atik prueft laut `weitblick/SERVERPRUEFUNG.md`.
-   Option 2: Branch lokal lassen, bis F4 (Fundstellen-Pfade in der Bank) entschieden ist.
-   Unterschied: em startet S-K80 und Vertragspruefung jetzt, Option 2 wartet auf F4.
-   Quelle: Auftrag Kaan 24.11.2026, lokaler Branch `feat/weitblick-stufe2`, nicht gepusht.
+Weitblick Stufe 2 ist gemergt: PR #98 seit 24.11.2026 13:44 CET auf main (`979b89b`),
+PR #99 seit 24.11.2026 20:32 CET auf main (`75318c9`).
 
-4. Entwurf Redaktion #76 mergen
-   em: Entwurf offen lassen. Die Map bleibt je Aufruf, der Dialog bleibt auf ollama.
-   Option 2: Nach gruenem CI mergen.
-   Unterschied: Option 2 schliesst #76, em laesst den Entwurf liegen.
-   Quelle: Issue #76, Branch `cursor/order-free-redaction-60ba`.
+Entwurf M1b mergen ist erledigt: PR #102 seit 24.11.2026 23:55 CET auf main (`52c690c`).
+PR #104 (Issue #76, auftragsfreie Redaktion) seit 25.11.2026 00:13 CET auf main (`e771dc4`).
+PR #103 (Issue #80, `valid_to` und `superseded_by` leeren) seit 25.11.2026 01:24 CET auf main (`5d1de27`).
+#105 (Issue #78) ist Entwurf gegen main, HEAD `d03211f`. Fix fuer Blocker F5 (`persist` gibt die angezeigte Deck-Antwort per Hash frei) und Soll Inbox-Limit (Status-Filter vor Limit) ist gepusht (`5d3ef3a`), danach Merge von main. Re-Review durch den Code-Pruefer ist offen. Quelle: `gh pr view` 98, 99, 100, 102, 103, 104 und 105.
 
 # CLAUDE.md
 

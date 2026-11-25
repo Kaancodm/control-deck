@@ -91,6 +91,27 @@ Kein Merge, PR bleibt Draft.
 README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
 sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.
 
+## 2026-11-24 22:59 — Builder — Steuerdateien auf Stand von main
+
+PR #98 gemergt 24.11.2026 13:44 CET (`979b89b`, mergedAt 2026-11-24T12:44:16Z, mergedBy Kaancodm). Quelle: `gh pr view 98`.
+PR #99 gemergt 24.11.2026 20:32 CET (`75318c9`, mergedAt 2026-11-24T19:32:53Z, mergedBy Kaancodm). Quelle: `gh pr view 99`.
+CLAUDE.md, COORDINATION.md, LEADERBOARD.md, WORKLOG.md, README.md, CHANGELOG.md und `docs/ETAPPEN/README.md` nachgefuehrt. Kein Produktcode, kein Merge.
+Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 85.72s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Etappe 18 Abnahme und Tag v1.0, Weitblick-Serverpruefung, Egress-Proxy, Ollama-Modelle.
+
+## 2026-11-24 23:17 — Builder — Soll zu PR #101 (STAND und Changelog)
+
+`docs/STAND.md` auf den Stand von `main` nachgezogen: #83, #73 und #32 gemergt; Live-Stack #39/#40/#44 seit 05.11. auf `main`; Weitblick und #96 bis #99 ergaenzt. Quelle: `git log` und `gh pr view`.
+CHANGELOG: `retain_extraction_mode=chunks` als Bank- oder Server-Einstellung; Zurueckgeben nur bei `reserviert` ohne `sendet`, sonst `unklar` und offen.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 83.55s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Abnahme und Tag v1.0, Weitblick-Serverpruefung, Abgleich mit Draft #100. Kein Merge.
+
+## 2026-11-24 23:27 — Builder — GO-Liste in #101 auf «alle em»
+
+`CLAUDE.md`: Liste lautet «Nichts offen». Entscheid 24.11.2026 `alle em`: Egress-Proxy bleibt aus, Ollama-Bestand bleibt. Merge-Vermerk zu #98/#99 bleibt als Info, nicht als GO-Punkt. Wortlaut an #100 angelehnt, #100 unveraendert.
+`COORDINATION.md`: Ollama- und Egress-Zeilen sowie Weitblick-Abschnitt nachgezogen. `docs/STAND.md` ebenso. README fuehrte die Punkte nicht als offen.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 83.33s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Abnahme und Tag v1.0, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja. Kein Merge.
 ## 2026-11-24 23:31 — Cursor — Issue #80 Korrektur leeren
 
 Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` leert `valid_to` und `superseded_by` nur ueber eine neue Freigabezeile. Keine Vorarbeit auf main, in Branches oder PRs.
@@ -144,3 +165,16 @@ Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: kein
 Merge-Commit von `origin/main` `e771dc4` (#104) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Stand von #102 und #104 aus main, Stand von #103 bleibt. Cursor bleibt gelb.
 Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3762 passed, 143 skipped, 1 Starlette-Warnung, 251.43s.
 Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.
+
+## 2026-11-25 01:29 — Builder — main in #101 nachziehen
+
+Merge-Commit von `origin/main` `5d1de27` in `docs/steuerdateien-stand-99`. Kein Rebase, kein Force-Push.
+#102 (`52c690c`, 24.11.2026 23:55 CET), #104 (`e771dc4`, 25.11.2026 00:13 CET) und #103 (`5d1de27`, 25.11.2026 01:24 CET) sind auf main. #100 geschlossen, nicht gemergt (Kaan em). #105 (Issue #78) offener Entwurf. GO-Liste bleibt «Nichts offen»; «Entwurf M1b mergen» als erledigt festgehalten.
+Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 86.84s.
+Offen: #105 in Arbeit, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja, Abnahme und Tag v1.0. Kein Merge von #101.
+
+## 2026-11-25 01:46 — Builder — #105-Stand und #83-Zeit in #101
+
+#105-HEAD mit `gh pr view 105` geprueft: `d03211f` (Fix `5d3ef3a`, danach Merge von main). Entwurf gegen main, Re-Review offen. In `CLAUDE.md`, `COORDINATION.md` und `docs/STAND.md` nachgezogen. #83-Mergezeit auf 20:12 CET (mergedAt 2026-11-10T19:12:00Z). STAND-Titel auf 25.11.2026.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 84.95s.
+Offen: Re-Review von #105, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja. Kein Merge von #101.

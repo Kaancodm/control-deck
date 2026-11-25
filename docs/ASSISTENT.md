@@ -242,4 +242,4 @@ bleibt eine Autorenangabe. Dieser Stand hat das Modell nicht erneut aufgerufen.
 
 Der Einheits-Chat (Kanäle, Quarantäne, Owner-Freigabe, Kontextlader) steht in
 [KANAELE.md](KANAELE.md) und [ADR 0010](DECISIONS/0010-kanaele-und-gedaechtnis.md).
-Der Live-Dialog haengt am Themen-Thread (M1b, #77): Eingang und Antwort gehen zuerst in die Quarantaene, der Prompt nur aus freigegebenen Zeilen. `persist` gibt die angezeigte Deck-Antwort frei (M2, #78). Die Owner-Zeile bleibt in der Quarantaene.
+Der Live-Dialog haengt am Themen-Thread (M1b, #77): Eingang und Antwort gehen zuerst in die Quarantaene, der Prompt nur aus freigegebenen Zeilen. `persist` ist eine Vorab-Freigabe der angezeigten Deck-Antwort ohne Datenschutz-Markierung (M2, #78); der Hash dort ist formal. Die Owner-Zeile und eine markierte Antwort bleiben in der Quarantaene.

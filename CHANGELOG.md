@@ -2,6 +2,17 @@
 
 ## Unveröffentlicht
 
+### Gedaechtnis-Inbox (Issue #78)
+
+- `/ui/memory` zeigt die Quarantaene mit Volltext, Herkunft und `privacy_hold`,
+  plus Freigabe, Korrektur und den Leser fuer taskfreie `assistant.*`- und
+  `memory.*`-Zeilen. Offene Zeilen werden zuerst gefiltert und dann gekuerzt;
+  stehen weitere dahinter, steht «weitere vorhanden».
+- `persist` ist eine Vorab-Freigabe nur der angezeigten Deck-Antwort. Der Hash
+  auf diesem Weg ist formal, aus der eben gespeicherten Zeile. Eine Antwort mit
+  `privacy_hold` bleibt in der Quarantaene, damit die Markierung sichtbar bleibt.
+  Die Owner-Zeile bleibt dort. Der alte Satz in `assistant_turns` wird weiter geschrieben.
+
 ### Auftragsfreie Redaktion fuer cloud_redacted (Issue #76)
 
 - `load_memory_context` liefert `cloud_redacted` an `claude`, `claude_code` und
@@ -18,8 +29,8 @@
   Antwort (`record_deck_reply`) zuerst in die Quarantaene.
 - `include_history` laedt `load_memory_context` statt der letzten acht Saetze.
   `unbewiesen` ist im Prompt etikettiert. `num_ctx` bleibt 4096.
-- `persist` legt weiter eine Zeile in `assistant_turns` an und gibt nur die
-  angezeigte Deck-Antwort frei, ueber den Hash der gezeigten Bytes.
+- `persist` legt weiter eine Zeile in `assistant_turns` an. Die Vorab-Freigabe
+  der angezeigten Antwort steht bei Issue #78.
 
 Die Einträge beschreiben den gestapelten Draft-Stand. Externes Review, Owner-Merge,
 Gesamt-Abnahme und Inbetriebnahme bleiben offen. Projektversion und Tags bleiben unverändert.

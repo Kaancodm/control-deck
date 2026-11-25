@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.app import create_app
 from app.api.deps import get_db
-from app.assistant.memory_dialogue import approve_displayed_reply
+from app.assistant.memory_dialogue import approve_displayed_reply, conduct_dialogue
 from app.assistant.records import AssistantTurn
 from app.memory.approval import (
     correct_fact,
@@ -26,7 +26,7 @@ from app.memory.approval import (
     propose_fact,
     shown_sha256,
 )
-from app.memory.ingest import ingest_turn, record_deck_reply
+from app.memory.ingest import IngestOutcome, ingest_turn, record_deck_reply
 from app.memory.models import AssistantMessage, MemoryApproval, MemoryFact
 from app.memory.policy import ConversationError
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
@@ -344,9 +344,37 @@ def _reply(db_session: Session, *, text: str, data_class: str = "local_only") ->
 
 
 def test_persist_approves_only_the_displayed_deck_answer(
+    ui_client: TestClient, db_session: Session
+) -> None:
+    """F5: persist pre-approves an unmarked displayed answer. The owner line stays."""
+    login(ui_client)
+    page = ui_client.get("/ui/assistant")
+    csrf = Inputs(page.text).inputs["csrf"]
+    saved = ui_client.post(
+        "/ui/assistant/talk",
+        data={
+            "csrf": csrf,
+            "message": "Wie geht es dir heute Morgen",
+            "data_class": "local_only",
+            "persist": "yes",
+        },
+        follow_redirects=True,
+    )
+    assert saved.status_code == 200
+    assert "Gespeichert, vom Owner gewählt" in saved.text
+    assert db_session.scalar(select(func.count()).select_from(AssistantTurn)) == 1
+    db_session.expire_all()
+    rows = list(db_session.scalars(select(AssistantMessage)))
+    owner = next(row for row in rows if row.role == "owner")
+    answer = next(row for row in rows if row.role == "assistant")
+    assert owner.state == "quarantined" and owner.privacy_hold is None
+    assert answer.state == "approved" and answer.privacy_hold is None
+
+
+def test_persist_leaves_a_held_answer_in_quarantine(
     ui_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """F5: persist releases the displayed answer. The owner line and the hold stay."""
+    """A marked answer is not pre-approved. The inbox still shows the hold."""
     path = tmp_path / "blocklist.txt"
     path.write_text("zucchiniplan\n", encoding="utf-8")
     monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(path))
@@ -364,14 +392,64 @@ def test_persist_approves_only_the_displayed_deck_answer(
         follow_redirects=True,
     )
     assert saved.status_code == 200
-    assert "Gespeichert, vom Owner gewählt" in saved.text
-    assert db_session.scalar(select(func.count()).select_from(AssistantTurn)) == 1
     db_session.expire_all()
     rows = list(db_session.scalars(select(AssistantMessage)))
     owner = next(row for row in rows if row.role == "owner")
     answer = next(row for row in rows if row.role == "assistant")
     assert owner.state == "quarantined" and owner.privacy_hold == "privacy_block"
-    assert answer.state == "approved" and answer.privacy_hold == "privacy_block"
+    assert answer.state == "quarantined" and answer.privacy_hold == "privacy_block"
+    assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == 0
+    inbox = ui_client.get("/ui/memory")
+    quarantine = inbox.text.split('id="quarantaene"', 1)[-1].split('id="fakten"', 1)[0]
+    assert answer.text in quarantine
+    assert "Markierte Quarantäne" in quarantine
+    assert "Datenschutz-Treffer" in quarantine
+
+
+def test_persist_path_rejects_a_wrong_hash_for_a_non_reply(
+    ui_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wrong hash on the persist release of a non-reply is ``not_found``.
+
+    ``conduct_dialogue`` is pointed at the owner line and given a digest that does
+    not match that line. The assistant-role check refuses it before the hash
+    comparison. Dropping that check lets ``decide_message`` raise
+    ``shown_bytes_mismatch`` instead.
+    """
+    login(ui_client)
+    token = ui_client.cookies[SESSION_COOKIE]
+
+    def owner_instead(
+        session: Session, *, inbound_message_id: uuid.UUID, text: str
+    ) -> IngestOutcome:
+        outcome = record_deck_reply(session, inbound_message_id=inbound_message_id, text=text)
+        assert outcome.status == "accepted"
+        return IngestOutcome(
+            status="accepted",
+            message_id=inbound_message_id,
+            thread_id=outcome.thread_id,
+            privacy_hold=outcome.privacy_hold,
+        )
+
+    monkeypatch.setattr("app.assistant.memory_dialogue.record_deck_reply", owner_instead)
+    monkeypatch.setattr("app.assistant.memory_dialogue.shown_sha256", lambda _payload: "ab" * 32)
+    before = db_session.scalar(select(func.count()).select_from(MemoryApproval))
+    with pytest.raises(ConversationError) as refused:
+        conduct_dialogue(
+            db_session,
+            message="Wie geht es dir heute Morgen",
+            data_class="local_only",
+            include_profile=False,
+            include_history=False,
+            external_thread_id="",
+            persist=True,
+            session_token=token,
+        )
+    assert refused.value.code == "not_found"
+    db_session.expire_all()
+    rows = list(db_session.scalars(select(AssistantMessage)))
+    assert rows and {row.state for row in rows} == {"quarantined"}
+    assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == before
 
 
 def test_talk_without_persist_stays_in_quarantine(

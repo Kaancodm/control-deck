@@ -516,11 +516,14 @@ starten `quarantined`. Ist `include_history` gesetzt, kommt der Prompt aus
 Prompt. Klassenfilter, `codex` und `privacy_hold` bleiben im Lader. Das
 Dialogziel ist `ollama` (Loopback oder Mock), kein Cloud-Ziel. Ohne aktiven
 Link ist der Thread leer. Die Aussen-Kennung kommt aus dem Feld, sonst `deck`.
-`num_ctx` bleibt 4096. `persist` schreibt weiter `assistant_turns` und gibt die
-angezeigte Deck-Antwort frei, ohne zweiten Klick. Der Hash ist sha256 der
-gezeigten Bytes (`memory-shown.v1`, Entscheid `approved`, ohne `mark_proven`).
-Ein falscher oder veralteter Hash gibt nichts frei. Die Owner-Zeile bleibt
-`quarantined`. `privacy_hold` bleibt gesetzt.
+`num_ctx` bleibt 4096. `persist` schreibt weiter `assistant_turns`. Das
+Kaestchen ist eine Vorab-Freigabe der angezeigten Deck-Antwort, ohne zweiten
+Klick. Der Hash auf diesem Weg ist formal: er wird aus der eben gespeicherten
+Zeile berechnet (`memory-shown.v1`, Entscheid `approved`, ohne `mark_proven`),
+nicht aus einer vom Owner erneut bestaetigten Anzeige. Ein falscher oder
+veralteter Hash gibt nichts frei. Die Owner-Zeile bleibt `quarantined`. Eine
+Antwort mit `privacy_hold` wird nicht freigegeben und bleibt in der
+Quarantaene, damit die Markierung sichtbar bleibt.
 
 ## M2, Oberflaeche
 
@@ -529,8 +532,10 @@ Markierung `privacy_hold`. Freigabe und Korrektur laufen ueber `approval.py`
 mit UI-Session und sha256 der gezeigten Bytes. Leeren von `valid_to` oder
 `superseded_by` ist `clear_fact_bounds`, ein Entscheidwechsel bleibt
 `correct_fact`: zwei Klicks, zwei Hashes. Eine abgelehnte Quelle bleibt
-`source_rejected` und schreibt nichts. `persist` gibt nur die angezeigte
-Deck-Antwort frei, ueber denselben Bytes-Hash. Die Inbox zeigt offene Zeilen
+`source_rejected` und schreibt nichts. Das Kaestchen `persist` ist die
+Vorab-Freigabe nur der angezeigten Deck-Antwort; der Hash dort ist formal,
+aus der eben gespeicherten Zeile. Eine Antwort mit `privacy_hold` bleibt in
+der Quarantaene. Die Inbox zeigt offene Zeilen
 zuerst (`quarantined` oder `proposed`) und kuerzt danach. Stehen weitere
 Zeilen dahinter, steht «weitere vorhanden». Der Plan-Code `unknown_source`
 erscheint als `unknown_account`,

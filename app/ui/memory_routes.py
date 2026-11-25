@@ -112,18 +112,46 @@ def _act(session: Session, data: FormData, token: str) -> None:
     decision = _value(data, "decision")
     proven = _value(data, "mark_proven") == "yes"
     if action == "create":
-        if kind != "thread":
-            raise UiError("invalid_form")
-        create_owner_thread(
-            session,
-            title=_value(data, "title"),
-            data_class=_class(data),
-            session_token=token,
-            shown_sha256_hex=digest,
-        )
+        _create_topic(session, data, token, kind, digest)
         return
     target = _uuid(_value(data, "target"))
-    if kind == "message" and action == "decide":
+    if kind == "message":
+        _act_message(session, token, action, target, decision, proven, digest)
+        return
+    if kind == "fact":
+        _act_fact(session, data, token, action, target, decision, proven, digest)
+        return
+    if kind == "thread":
+        _act_thread(session, token, action, target, decision, digest)
+        return
+    if kind == "link":
+        _act_link(session, token, action, target, decision, digest)
+        return
+    raise UiError("invalid_form")
+
+
+def _create_topic(session: Session, data: FormData, token: str, kind: str, digest: str) -> None:
+    if kind != "thread":
+        raise UiError("invalid_form")
+    create_owner_thread(
+        session,
+        title=_value(data, "title"),
+        data_class=_class(data),
+        session_token=token,
+        shown_sha256_hex=digest,
+    )
+
+
+def _act_message(
+    session: Session,
+    token: str,
+    action: str,
+    target: UUID,
+    decision: str,
+    proven: bool,
+    digest: str,
+) -> None:
+    if action == "decide":
         decide_message(
             session,
             target,
@@ -132,7 +160,8 @@ def _act(session: Session, data: FormData, token: str) -> None:
             shown_sha256_hex=digest,
             mark_proven=proven,
         )
-    elif kind == "message" and action == "correct":
+        return
+    if action == "correct":
         correct_message(
             session,
             target,
@@ -141,7 +170,21 @@ def _act(session: Session, data: FormData, token: str) -> None:
             shown_sha256_hex=digest,
             mark_proven=proven,
         )
-    elif kind == "fact" and action == "decide":
+        return
+    raise UiError("invalid_form")
+
+
+def _act_fact(
+    session: Session,
+    data: FormData,
+    token: str,
+    action: str,
+    target: UUID,
+    decision: str,
+    proven: bool,
+    digest: str,
+) -> None:
+    if action == "decide":
         decide_fact(
             session,
             target,
@@ -150,7 +193,8 @@ def _act(session: Session, data: FormData, token: str) -> None:
             shown_sha256_hex=digest,
             mark_proven=proven,
         )
-    elif kind == "fact" and action == "correct":
+        return
+    if action == "correct":
         correct_fact(
             session,
             target,
@@ -161,7 +205,8 @@ def _act(session: Session, data: FormData, token: str) -> None:
             valid_to=_moment(data),
             superseded_by=_optional_uuid(data, "superseded_by"),
         )
-    elif kind == "fact" and action == "clear":
+        return
+    if action == "clear":
         clear_fact_bounds(
             session,
             target,
@@ -170,7 +215,14 @@ def _act(session: Session, data: FormData, token: str) -> None:
             clear_valid_to=_value(data, "clear_valid_to") == "yes",
             clear_superseded_by=_value(data, "clear_superseded_by") == "yes",
         )
-    elif kind == "thread" and action == "decide":
+        return
+    raise UiError("invalid_form")
+
+
+def _act_thread(
+    session: Session, token: str, action: str, target: UUID, decision: str, digest: str
+) -> None:
+    if action == "decide":
         decide_thread_topic(
             session,
             target,
@@ -178,7 +230,8 @@ def _act(session: Session, data: FormData, token: str) -> None:
             session_token=token,
             shown_sha256_hex=digest,
         )
-    elif kind == "thread" and action == "correct":
+        return
+    if action == "correct":
         correct_thread_topic(
             session,
             target,
@@ -186,7 +239,14 @@ def _act(session: Session, data: FormData, token: str) -> None:
             session_token=token,
             shown_sha256_hex=digest,
         )
-    elif kind == "link" and action == "decide":
+        return
+    raise UiError("invalid_form")
+
+
+def _act_link(
+    session: Session, token: str, action: str, target: UUID, decision: str, digest: str
+) -> None:
+    if action == "decide":
         decide_thread_link(
             session,
             target,
@@ -194,7 +254,8 @@ def _act(session: Session, data: FormData, token: str) -> None:
             session_token=token,
             shown_sha256_hex=digest,
         )
-    elif kind == "link" and action == "correct":
+        return
+    if action == "correct":
         correct_thread_link(
             session,
             target,
@@ -202,8 +263,8 @@ def _act(session: Session, data: FormData, token: str) -> None:
             session_token=token,
             shown_sha256_hex=digest,
         )
-    else:
-        raise UiError("invalid_form")
+        return
+    raise UiError("invalid_form")
 
 
 def _propose(session: Session, data: FormData) -> None:

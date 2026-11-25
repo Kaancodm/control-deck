@@ -168,3 +168,9 @@ Offen: quality nach dem Push, drei Reviews. Kein Merge. Risiko: die Owner-Zeile 
 Merge-Commit von `origin/main` `5d1de27` (#103) in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. Basis von #105 wird main. F5 und die Inbox-Kappung bleiben.
 Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3784 passed, 140 skipped, 1 Starlette-Warnung, 258.63s. gitleaks 8.30.0 auf `origin/main..HEAD` mit `-m`: 14 Commits, keine Funde.
 Offen: quality nach dem Push, drei Reviews. Kein Merge. Risiko: keines aus den Konfliktdateien.
+
+## 2026-11-25 02:04 — Cursor — Issue #78 persist und Markierung
+
+`persist` gibt eine Antwort mit `privacy_hold` nicht frei; die Markierung bleibt in der Quarantaene sichtbar. Der Hash auf diesem Weg ist formal, aus der eben gespeicherten Zeile. Ein falscher Hash auf eine Nicht-Antwort bleibt `not_found`. `_act` ist in kurze Funktionen geteilt.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3786 passed, 140 skipped, 1 Starlette-Warnung, 261.01s. gitleaks 8.30.0 `protect --staged`: keine Funde.
+Offen: quality nach dem Push. Kein Merge. Risiko: die Vorab-Freigabe prueft die Bytes nicht in einem zweiten Blick.

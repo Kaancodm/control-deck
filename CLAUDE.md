@@ -17,8 +17,7 @@ Entwurf M1b mergen ist erledigt: PR #102 seit 24.11.2026 23:55 CET auf main (`52
 PR #104 (Issue #76, auftragsfreie Redaktion) seit 25.11.2026 00:13 CET auf main (`e771dc4`).
 PR #103 (Issue #80, `valid_to` und `superseded_by` leeren) seit 25.11.2026 01:24 CET auf main (`5d1de27`).
 #101 (Steuerdateien) ist mit `d900b91` auf main.
-#105 (Issue #78) ist Entwurf gegen main. Re-Review 01:51 ok (Auftrag Atik 25.11.2026 02:16).
-Nachbesserung `f7548d4`: eine Antwort mit `privacy_hold` bleibt in der Quarantaene, die Doku nennt den Hash als formale Vorab-Freigabe, die Testluecke am falschen Hash ist geschlossen, eigener CHANGELOG-Eintrag. Danach ist ein Kurz-Recheck offen.
+#105 (Issue #78) ist seit 25.11.2026 02:54 auf main (`71731c8`). Kein Entwurf, wartet nicht.
 
 # CLAUDE.md
 
@@ -205,7 +204,7 @@ See `AGENTS.md`.
 - Reference cases live in `tests/reference/cases/NNN-<slug>.yaml`; the case `id` must equal the
   file stem.
 - `uv run` uses the project `.venv`; do not install packages globally.
-- Branch naming for stage work: `stage/NN-<slug>`.
+- Branch prefixes are in `AGENTS.md` (E-056).
 
 ## References
 

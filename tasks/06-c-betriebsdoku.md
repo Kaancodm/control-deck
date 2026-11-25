@@ -3,8 +3,11 @@
 ## Etappe
 
 Ticket 6 / C: Betriebsdoku an den geprueften Code und die Owner-Entscheide anpassen.
-Builder: Cursor. Rollen, Modelle und Merge: `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12).
-Der Nachtrag 2026-11-11 (SuperGrok reviewt nur den Code; Gemini Pro nicht im Einsatz) gilt nicht mehr.
+Rollen (E-056, `AGENTS.md`): Gemini Carbon ist Denker/Planer und Entwickler. Codex Sol ist Entwickler.
+Claude Opus ist Assistenz-Entwickler und Reviewer. Cursor und SuperGrok machen kleine Fixes und Reviews.
+Der Code-Pruefer (Grok Bot) prueft; Gemini macht den Gegencheck.
+Merge (E-055): nur Atik, nach dem GO von Kaan fuer diesen PR. Kein Auto-Merge, kein Force-Push.
+Branch-Prefixe: `cursor/`, `codex/`, `gemini/<punkt>-<kurz>`.
 Status: nur geplant.
 Umsetzungsbranch: `stage/06-c-betriebsdoku`; Start erst nach gruenem B, damit A und B belegbar sind.
 
@@ -18,7 +21,7 @@ bewusst gesperrten Runnern. Die Doku behauptet keine erfolgreiche Inbetriebnahme
 
 - Reihenfolge A -> B -> C -> D; C gruen = Abnahme, CI und Review laut `AGENTS.md` ohne offene Befunde.
 - Danach erst D; Server-Schritte 1–15 fuehrt anschliessend der Owner einzeln aus, nicht der Builder.
-- Der Owner sagt einmal Ja, danach mergt nur Grok Bot. Dieser Bauauftrag aendert ausschliesslich `docs/OPERATIONS.md`.
+- Merge nur durch Atik nach dem GO von Kaan fuer diesen PR (E-055). Kein Auto-Merge, kein Force-Push. Dieser Bauauftrag aendert ausschliesslich `docs/OPERATIONS.md`.
 - Blocker 1 = (b) fuer den iPhone-Test; (c) ist Ticket A. Ohne bestaetigten Runtime-KB-Vertrag
   kein Deck-Backup/Update; vorhandene B2-Abdeckung der zentralen DB muss nachgewiesen werden.
 - Blocker 2 bleibt offen bis B2-Timername, Manager und Kollisionsentscheidung vorliegen.

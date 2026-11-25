@@ -1,11 +1,13 @@
 # Bauauftrag NN-<slug>
 
 Vorlage fuer `/plan-ticket`. Kopie als `tasks/NN-<slug>.md` ablegen. Eine Etappe = ein Auftrag =
-ein Branch `stage/NN-<slug>` = ein Pull Request. Der Owner sagt einmal Ja, danach mergt nur Grok Bot. Claude, Fable, Gemini und Cursor mergen nicht. If anything conflicts, AGENTS.md wins.
+ein Pull Request. Branch-Prefixe: `cursor/`, `codex/` oder `gemini/<punkt>-<kurz>`.
+Merge nur durch Atik nach dem GO von Kaan fuer diesen PR (E-055). Kein Auto-Merge, kein Force-Push.
+Rollen: Entscheid E-056 in `AGENTS.md`. If anything conflicts, AGENTS.md wins.
 
 ## Etappe
 
-<!-- Nummer und Name. Rollen: AGENTS.md. Nachtrag ADR 0008 vom 2026-11-12. -->
+<!-- Nummer und Name. Rollen: AGENTS.md, Entscheid E-056 vom 2026-11-25. Merge: E-055. -->
 
 ## Ziel
 

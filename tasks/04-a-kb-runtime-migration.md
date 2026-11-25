@@ -3,8 +3,11 @@
 ## Etappe
 
 Ticket 4 / A: Runtime-Ziel fuer die KB-Migration, einschliesslich Blocker 1(c).
-Builder: Cursor. Rollen, Modelle und Merge: `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12).
-Der Nachtrag 2026-11-11 (SuperGrok reviewt nur den Code; Gemini Pro nicht im Einsatz) gilt nicht mehr.
+Rollen (E-056, `AGENTS.md`): Gemini Carbon ist Denker/Planer und Entwickler. Codex Sol ist Entwickler.
+Claude Opus ist Assistenz-Entwickler und Reviewer. Cursor und SuperGrok machen kleine Fixes und Reviews.
+Der Code-Pruefer (Grok Bot) prueft; Gemini macht den Gegencheck.
+Merge (E-055): nur Atik, nach dem GO von Kaan fuer diesen PR. Kein Auto-Merge, kein Force-Push.
+Branch-Prefixe: `cursor/`, `codex/`, `gemini/<punkt>-<kurz>`.
 Status: nur geplant. Umsetzungsbranch: `stage/04-a-kb-runtime-migration`.
 Die Nummer ist eine Ticketnummer; sie ersetzt nicht die historische Etappe 4.
 
@@ -19,10 +22,10 @@ des Live-Wissensadapters. Heute verwendet `alembic_kb/env.py` immer den Test-URL
 
 - Feste Reihenfolge: Plan-PR, dann A -> B -> C -> D; keine Tagesplanung oder Parallelstarts.
 - Ein Ticket ist repo-seitig gruen, wenn seine Abnahme, CI und das Review laut `AGENTS.md` gruen sind und
-  offene Befunde erledigt sind. Erst dann beginnt das naechste Ticket. Der Owner sagt einmal Ja, danach mergt nur Grok Bot.
+  offene Befunde erledigt sind. Erst dann beginnt das naechste Ticket. Merge nur durch Atik nach dem GO von Kaan fuer diesen PR (E-055). Kein Auto-Merge, kein Force-Push.
 - Folge-PRs basieren auf dem geprueften Vorgaenger-Head oder dessen gemergtem Stand;
   keinen Merge vorwegnehmen. `TICKET_BASE` bezeichnet jeweils den dokumentierten PR-Basis-Commit.
-- Cursor baut Repo-Code; danach fuehrt der Owner Server-Schritte 1 bis 15 einzeln aus,
+- Repo-Code entsteht in diesem Ticket; danach fuehrt der Owner Server-Schritte 1 bis 15 einzeln aus,
   jeweils erst nach bestandenem Vorgaenger. Dieser Auftrag fuehrt keine Server-Schritte aus.
 - Entscheid Blocker 1: (b) fuer den iPhone-Test, (c) als dieses Ticket. Bei (b) kein Deck-Backup
   und kein `make update`; vorhandene B2-Sicherung muss die zentrale DB nachweislich abdecken.

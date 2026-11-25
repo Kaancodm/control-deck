@@ -3,8 +3,11 @@
 ## Etappe
 
 Ticket 5 / B: `deploy/ausrollen.sh` nach Abschnitt 6 des Ausroll-Reviews, mit ShellCheck in CI.
-Builder: Cursor. Rollen, Modelle und Merge: `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12).
-Der Nachtrag 2026-11-11 (SuperGrok reviewt nur den Code; Gemini Pro nicht im Einsatz) gilt nicht mehr.
+Rollen (E-056, `AGENTS.md`): Gemini Carbon ist Denker/Planer und Entwickler. Codex Sol ist Entwickler.
+Claude Opus ist Assistenz-Entwickler und Reviewer. Cursor und SuperGrok machen kleine Fixes und Reviews.
+Der Code-Pruefer (Grok Bot) prueft; Gemini macht den Gegencheck.
+Merge (E-055): nur Atik, nach dem GO von Kaan fuer diesen PR. Kein Auto-Merge, kein Force-Push.
+Branch-Prefixe: `cursor/`, `codex/`, `gemini/<punkt>-<kurz>`.
 Status: nur geplant.
 Umsetzungsbranch: `stage/05-b-ausrollen-script`; Start erst nach gruenem A.
 
@@ -18,8 +21,8 @@ Vorlage; seine Platzhalter, Echo-Funktionen und unzureichenden Fehlerpfade gelte
 ## Rahmen
 
 - Reihenfolge A -> B -> C -> D. B gruen bedeutet Abnahme + CI + Review laut `AGENTS.md` ohne offene Befunde;
-  erst dann C. Der Owner sagt einmal Ja, danach mergt nur Grok Bot. Nur der Owner fuehrt danach Server-Schritte 1–15 aus.
-- Cursor testet ausschliesslich mit Fake-Befehlen und synthetischer privater Konfiguration;
+  erst dann C. Merge nur durch Atik nach dem GO von Kaan fuer diesen PR (E-055). Kein Auto-Merge, kein Force-Push. Nur der Owner fuehrt danach Server-Schritte 1–15 aus.
+- Geprueft wird ausschliesslich mit Fake-Befehlen und synthetischer privater Konfiguration;
   kein SSH, Dienststart, Paketinstallation, Login oder Netzaufruf am Betriebsort.
 - Blocker 1(b) gilt fuer den iPhone-Test: kein Deck-Backup/Update, kein automatischer Wechsel
   nach A; Blocker 1(c) ist A. B2-Abdeckung der zentralen DB muss separat nachgewiesen sein.

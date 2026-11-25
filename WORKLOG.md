@@ -112,3 +112,63 @@ Offen: Abnahme und Tag v1.0, Weitblick-Serverpruefung, Abgleich mit Draft #100. 
 `COORDINATION.md`: Ollama- und Egress-Zeilen sowie Weitblick-Abschnitt nachgezogen. `docs/STAND.md` ebenso. README fuehrte die Punkte nicht als offen.
 Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 83.33s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
 Offen: Abnahme und Tag v1.0, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja. Kein Merge.
+## 2026-11-24 23:31 — Cursor — Issue #80 Korrektur leeren
+
+Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` leert `valid_to` und `superseded_by` nur ueber eine neue Freigabezeile. Keine Vorarbeit auf main, in Branches oder PRs.
+Check: `make lint` Exit 0 (ruff, 480 formatiert, mypy 167, check_rules). `pytest` gegen `controldeck_test`: 3748 passed, 143 skipped, 1 Starlette-Warnung, 263.35s.
+Offen: Draft-PR, drei Reviews, kein Merge. Risiko: #78 hasht den gespeicherten Entscheid; Leeren und Entscheidwechsel bleiben zwei Korrekturen.
+
+## 2026-11-24 23:31 — Cursor — M1b Dialog-Thread #77
+
+Branch `cursor/m1b-dialog-thread-f58e`. Dialog schreibt `ingest_turn` und `record_deck_reply`. Prompt aus `load_memory_context` (Ziel `ollama`). Quarantaene bleibt draussen, `num_ctx` 4096.
+Check: `make lint` Exit 0. `make test` mit Testdatenbank `controldeck_test`: 3754 passed, 143 skipped, 1 Starlette-Warnung, 266.00s.
+Offen: Entwurf, kein Merge. `persist` gibt die Antwort nicht frei (Frage zu #78 F5). Risiko: Konflikt mit #78 an der Dialog-UI, mit #76 an Lader und Doku.
+
+## 2026-11-24 23:36 — Cursor — M1b Entwurf #102
+
+Draft-PR https://github.com/Kaancodm/control-deck/pull/102 gegen main. Branch `cursor/m1b-dialog-thread-f58e`, Commit `0b8dbf3`. Kein Merge.
+Check: gitleaks 8.30.1 auf `75318c9..0b8dbf3`, keine Funde. CI beim Oeffnen noch laufend.
+Offen: fuenf Fragen im PR, darunter #78 F5. Risiko: #78 Dialog-UI, #76 Lader und Doku, #80 `approval.py` (hier unberuehrt).
+
+## 2026-11-24 23:40 — Cursor — Issue #80 CI
+
+PR #103, HEAD `8890579`. Checks: quality pass (7m6s), CodeFactor pass, GitGuardian pass.
+Leaderboard Cursor auf gruen. Kein Merge.
+Offen: drei Reviews und das Merge-GO. Risiko: keines aus diesem CI-Lauf.
+
+## 2026-11-24 23:58 — Cursor — Issue #80 Nachzug
+
+PR #103, Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` prueft die Quelle wie `correct_fact`: abgelehnte Quelle ist `source_rejected`, nichts geschrieben. Randfaelle: not_found, not_decided, veralteter Hash, zwei konkurrierende Korrekturen, Kette, abgelaufene und idle Session, Rollback nach flush. Leaderboard Cursor bleibt gelb.
+Check: `make lint` Exit 0 (ruff, 480 formatiert, mypy 167, check_rules). `pytest` gegen `controldeck_test`: 3752 passed, 143 skipped, 1 Starlette-Warnung, 248.77s.
+Offen: drei Reviews und das Merge-GO. Kein Merge. Risiko: #78 muss die Quellpruefung beim Leeren eines freigegebenen Faktums mitrechnen.
+
+## 2026-11-24 23:58 — Cursor — Auftragsfreie Redaktion #76
+
+Branch `cursor/order-free-redaction-60ba` ab `main` `52c690c`. Cloud-Ziele erhalten `cloud_redacted` nur mit Platzhalter je Aufruf. `privacy_hold`, Geheimnisse und fehlende Blockliste bleiben draussen. Dialogpfad unveraendert auf `ollama`.
+Check: `make lint` Exit 0. `make test` mit Testdatenbank `controldeck_test`: 3893 passed, 5 skipped, 1 Starlette-Warnung, 292.63s.
+Offen: Entwurf gegen main, kein Merge. Map wird nicht gespeichert. Risiko: Doku in `docs/KANAELE.md` und ADR 0010, Aenderungen dort klein.
+
+## 2026-11-25 00:02 — Cursor — Entwurf #104
+
+Draft-PR https://github.com/Kaancodm/control-deck/pull/104 gegen main. Branch `cursor/order-free-redaction-60ba`, Commit `847691c`. Kein Merge.
+Check: gitleaks 8.30.1 auf `origin/main..847691c`, keine Funde.
+Offen: CI. Empfehlung: Map je Aufruf lassen, Dialog auf `ollama` lassen.
+
+## 2026-11-25 00:07 — Cursor — Issue #80 main eingeholt
+
+Merge-Commit von `origin/main` `52c690c` (#102) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Beide Staende in Koordination, Leaderboard und Worklog. Cursor bleibt gelb.
+Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3761 passed, 143 skipped, 1 Starlette-Warnung, 249.49s.
+Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.
+
+## 2026-11-25 00:21 — Cursor — Issue #80 main #104 eingeholt
+
+Merge-Commit von `origin/main` `e771dc4` (#104) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Stand von #102 und #104 aus main, Stand von #103 bleibt. Cursor bleibt gelb.
+Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3762 passed, 143 skipped, 1 Starlette-Warnung, 251.43s.
+Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.
+
+## 2026-11-25 01:29 — Builder — main in #101 nachziehen
+
+Merge-Commit von `origin/main` `5d1de27` in `docs/steuerdateien-stand-99`. Kein Rebase, kein Force-Push.
+#102 (`52c690c`, 24.11.2026 23:55 CET), #104 (`e771dc4`, 25.11.2026 00:13 CET) und #103 (`5d1de27`, 25.11.2026 01:24 CET) sind auf main. #100 geschlossen, nicht gemergt (Kaan em). #105 (Issue #78) offener Entwurf. GO-Liste bleibt «Nichts offen»; «Entwurf M1b mergen» als erledigt festgehalten.
+Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 86.84s.
+Offen: #105 in Arbeit, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja, Abnahme und Tag v1.0. Kein Merge von #101.

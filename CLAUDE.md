@@ -8,10 +8,15 @@ Entschieden am 24.11.2026 mit `alle em`: Egress-Proxy bleibt aus. Ollama-Bestand
 Weitblick-Schritte 1 bis 4 bleiben die lesende Pruefung und wurden hier nicht ausgefuehrt.
 Schritt 5 und S-K80 bleiben ohne Ja.
 #95 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:09:12Z). Der Branch `claude/wonderful-cori-d21yd2` bleibt auf `269b0fa`.
+#100 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:55:40Z, Kaan em).
 
 Weitblick Stufe 2 ist gemergt: PR #98 seit 24.11.2026 13:44 CET auf main (`979b89b`),
-PR #99 seit 24.11.2026 20:32 CET auf main (`75318c9`). Quelle: `gh pr view 98` und
-`gh pr view 99`. Kein offener Entscheid.
+PR #99 seit 24.11.2026 20:32 CET auf main (`75318c9`).
+
+Entwurf M1b mergen ist erledigt: PR #102 seit 24.11.2026 23:55 CET auf main (`52c690c`).
+PR #104 (Issue #76, auftragsfreie Redaktion) seit 25.11.2026 00:13 CET auf main (`e771dc4`).
+PR #103 (Issue #80, `valid_to` und `superseded_by` leeren) seit 25.11.2026 01:24 CET auf main (`5d1de27`).
+#105 (Issue #78) ist offener Entwurf und in Arbeit. Quelle: `gh pr view` 98, 99, 100, 102, 103, 104 und 105.
 
 # CLAUDE.md
 

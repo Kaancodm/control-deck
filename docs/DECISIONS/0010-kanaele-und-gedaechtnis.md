@@ -98,12 +98,12 @@ Freigabezeilen anlegt.
   `load_memory_context(thread, target, data_class)` liefert nur freigegebene Zeilen.
   Der Klassenfilter (`allowed_classes()` aus `app/kb/contracts.py`) laeuft in SQL **vor**
   dem Ranking. Ziel `ollama` erhaelt alle Klassen, `claude`, `claude_code` und `grok`
-  im Stand M1 nur `cloud_ok`, `codex` nie etwas (ohne DB-Zugriff). Dass M1
-  `cloud_redacted` noch nicht an Cloud-Ziele liefert, ist eine voruebergehende
-  Abweichung von 7.3 und Plan 3.5: die Redaktion in `app/redaction/` haengt an einem
-  Auftrag und seinen `redaction_maps`, Gespraechsgedaechtnis hat keinen Auftrag. Die
-  auftragsfreie Redaktion ist Issue
-  [#76](https://github.com/Kaancodm/control-deck/issues/76). Zeilen mit
+  erhalten `cloud_ok` und redigiertes `cloud_redacted`, `codex` nie etwas (ohne
+  DB-Zugriff). Issue
+  [#76](https://github.com/Kaancodm/control-deck/issues/76) schliesst die Abweichung
+  von 7.3 und Plan 3.5: unterstuetzte Treffer werden je Aufruf lokal ersetzt, die
+  Zuordnung geht nicht an das Cloud-Ziel. Geheimnisse, nicht unterstuetzte Treffer
+  und eine fehlende Blockliste lassen die Zeile weg. Zeilen mit
   `privacy_hold` gehen nie an ein Cloud-Ziel, auch nach der Freigabe. Ein Turn mit
   `local_only` an ein Cloud-Ziel wird mit `data_class_block` abgewiesen. Ein
   `local_only`-Thread liefert einem Cloud-Ziel keinen Verlauf. Budget: Profil, dann
@@ -159,9 +159,10 @@ Freigabezeilen anlegt.
    Cloud-Klassen an und markiert nur bei einem Befund der eingebauten Muster. Andere
    Kanaele und eine unlesbare Blockliste markieren `blocklist_unavailable`. Der
    Versand an Cloud-Ziele bleibt ohne Blockliste gesperrt.
-3. **`cloud_redacted`.** M1 liefert an Cloud-Ziele nur `cloud_ok`. Das ist eine
-   voruebergehende Abweichung von 7.3 und Plan 3.5, verfolgt in Issue #76
-   (auftragsfreie Redaktion). Das Verhalten des Codes aendert sich nicht.
+3. **`cloud_redacted`.** M1 lieferte an Cloud-Ziele nur `cloud_ok`. Das war eine
+   voruebergehende Abweichung von 7.3 und Plan 3.5. Der Entscheid vom 2026-11-10
+   aenderte den Code nicht. Issue #76 schliesst die Abweichung (auftragsfreie
+   Redaktion).
 4. **Entscheide sind nicht endgueltig.** Es gibt einen freigegebenen Korrekturweg
    (`corrects_approval_id`, `correct_*`). Siehe «Unveraenderlichkeit nach dem Entscheid».
 5. **Aufteilung angenommen.** Tickets: M1b #77, M2 #78, Umstufung von `data_class`
@@ -298,25 +299,29 @@ Ohne Ticket, als Betriebsschritt beim Prod-Rollout: `TRUNCATE`-Recht der
 Anwendungsrolle entziehen.
 
 Bekannte Grenzen des Korrekturwegs: `correct_fact` kann `valid_to` und
-`superseded_by` setzen, aber nicht leeren (bewusst nicht geplant; bei Bedarf eigenes
-Ticket). Ein Nachfolger muss beim Korrigieren selbst aktuell sein; Faktum und
+`superseded_by` setzen, aber nicht leeren. `None` laesst den Wert stehen.
+Leeren geht nur ueber `clear_fact_bounds` (Issue #80): eine neue Freigabezeile,
+UI-Session und sha256 der gezeigten Bytes (`memory-shown.v1`). Status, Nachweis
+und `valid_from` bleiben; die bisherige Freigabezeile wird nicht geaendert.
+Ein Nachfolger muss beim Korrigieren selbst aktuell sein; Faktum und
 Nachfolger werden zusammen in Id-Reihenfolge gesperrt. Das schliesst Kreise aus,
 Ketten (A -> B, spaeter B -> C) bleiben moeglich. Wird ein Nachfolger widerrufen, bleibt das alte
 Faktum ausgeblendet, bis der Owner ein neues Faktum freigibt. `thread_id` einer
 angehaengten Nachricht bleibt nach dem Loesen einer Verknuepfung bestehen.
 
-- Der Live-Dialog ist in diesem Stand **nicht** umverdrahtet (`app/assistant/http.py`
-  bleibt unveraendert). `load_memory_context` ist vorhanden und getestet und traegt
-  `evidence_status`, damit ein Aufrufer `unbewiesen` beschriften kann. **M1b**
-  (Issue #77, nach dem Merge des UI-PR, vor G2) haengt den Dialog an den
-  Themen-Thread. Bis dahin gilt «Dialog nutzt Thread» nicht als erledigt. **M2**
+- Der Live-Dialog haengt am Themen-Thread (**M1b**, Issue #77).
+  `app/assistant/http.py` schreibt Eingang und Antwort in die Quarantaene und
+  laedt den Prompt ueber `load_memory_context`. `evidence_status` `unbewiesen`
+  wird im Prompt beschriftet. Das Dialogziel ist `ollama`; `codex` und
+  Cloud-Ziele werden auf diesem Pfad nicht gewaehlt. `persist` gibt die
+  Deck-Antwort nicht frei. **M2**
   (Issue #78) liefert die Oberflaeche: Quarantaene-Inbox, Freigabe- und
   Korrektur-Klicks, Anzeige von `privacy_hold`, Labels fuer die Grundcodes und
   einen Leser fuer taskfreie `assistant.*`- und `memory.*`-Zeilen. Deck-Antworten
   bleiben bis zu diesem M2-Entscheid in Quarantaene.
-- `cloud_redacted` geht im Stand M1 noch nicht an Cloud-Ziele. Das ist eine
-  voruebergehende Abweichung von 7.3 und Plan 3.5, verfolgt in Issue #76
-  (auftragsfreie Redaktion). Der Code bleibt bis dahin bei `cloud_ok`.
+- `cloud_redacted` geht an Cloud-Ziele nur nach der auftragsfreien Redaktion
+  (Issue #76). Die Abweichung von 7.3 und Plan 3.5 ist geschlossen. Die Zuordnung
+  bleibt im Aufruf. Kein Versand.
 - Ein Weg zur Umstufung von `data_class` (u. a. fuer `claude_code`-Importe, M4/N3)
   ist Issue #79.
 - `backfill_assistant_turns()` kopiert alte `assistant_turns` auf Wunsch in einen

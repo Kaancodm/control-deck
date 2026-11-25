@@ -301,7 +301,12 @@ oder `0`. `privacy_hold` ist der Code oder `none`.
 Eine Korrektur haengt nach `mark_proven` die Kopfzeilen `correction=1` und
 `corrects_approval_id=<bisherige Freigabe>` an. Beim Faktum folgen
 `valid_to` (ISO-Zeit in UTC oder `none`) und `superseded_by` (Id oder `none`),
-jeweils der Wert nach der Korrektur.
+jeweils der Wert nach der Korrektur. `clear_fact_bounds` nutzt dieselben Bytes:
+`clear_valid_to` zeigt `valid_to=none`, `clear_superseded_by` zeigt
+`superseded_by=none`. Der Hash nimmt den gespeicherten Entscheid
+(`approved` oder `rejected`) und `mark_proven=1` nur bei `bewiesen`.
+`fact_shown_bytes` ohne `corrects` lehnt ein Clear-Flag mit `invalid_fact` ab.
+Ein neuer Wert und das passende Clear-Flag zugleich ebenfalls.
 
 `decision` ist `approved` oder `rejected`, sonst `invalid_decision`. Ein zweiter
 erster Entscheid auf dasselbe `(kind, target_id)` ist `already_decided`; spaeter
@@ -315,7 +320,8 @@ aendert nur eine Korrektur den Entscheid.
 | `decide_thread_link` | `proposed` nach `active` oder `rejected`. Annahme nur auf ein Thema mit `status = active` (`thread_not_active`). `local_only` auf einem Cloud-Kanal: `local_only_cloud_link`. Optionales `target_thread_id` muss bei Ablehnung das Thema der Verknuepfung sein (`invalid_decision`). Die gezeigten Bytes gehoeren zum gewaehlten Thema. Bei Annahme haengt der Code ungemappte Nachrichten dieses Aussen-Threads an, deren Klasse das Thema aufnimmt, und zaehlt sie als `attached` |
 | `create_owner_thread` | legt sofort `active` an (`title_origin = owner`) und eine Freigabe `approved`. Der Hash deckt den getrimmten Titel |
 | `correct_message` | entschiedene Nachricht nach `approved` (mit oder ohne `mark_proven`) oder `rejected`. Text, Klasse und `privacy_hold` bleiben |
-| `correct_fact` | entschiedenes Faktum widerrufen (`rejected`), wieder annehmen (Quelle nicht `rejected`, sonst `source_rejected`), optional `valid_to` setzen (mit Zeitzone, nicht vor `valid_from`) oder `superseded_by` auf ein anderes freigegebenes, selbst nicht ersetztes Faktum (sonst `invalid_fact`). `None` laesst den Wert stehen; Leeren ist nicht moeglich; `valid_from` bleibt |
+| `correct_fact` | entschiedenes Faktum widerrufen (`rejected`), wieder annehmen (Quelle nicht `rejected`, sonst `source_rejected`), optional `valid_to` setzen (mit Zeitzone, nicht vor `valid_from`) oder `superseded_by` auf ein anderes freigegebenes, selbst nicht ersetztes Faktum (sonst `invalid_fact`). `None` laesst den Wert stehen und leert ihn nicht; `valid_from` bleibt |
+| `clear_fact_bounds` | entschiedenes Faktum: `valid_to` und/oder `superseded_by` leeren. Flags `clear_valid_to` und `clear_superseded_by`; mindestens eines wahr, sonst `invalid_fact`. Beide duerfen zusammen. Status, Nachweis und `valid_from` bleiben (`mark_proven` im Hash nur bei `bewiesen`). Ein schon leeres Feld ohne weitere Aenderung ist `no_change`. Bleibt der Entscheid `approved`, gilt dieselbe Quellpruefung wie bei `correct_fact`: fehlende oder abgelehnte Quelle ist `source_rejected`, nichts geschrieben. Ein Faktum, das `rejected` bleibt, prueft die Quelle nicht erneut. Die bisherige Freigabezeile bleibt; es kommt eine neue mit `corrects_approval_id`. Die Funktion committet nicht; der Aufrufer rollt zurueck |
 | `correct_thread_topic` | Thema `active` <-> `rejected`. Ein abgelehntes Thema liefert keinen Verlauf und mappt keine neuen Turns |
 | `correct_thread_link` | Verknuepfung loesen (`active` -> `rejected`) oder wieder aktivieren. Aktivieren nur mit aktivem Thema, passender Klasse (`local_only_cloud_link`) und ohne andere offene Verknuepfung desselben Aussen-Threads (`link_conflict`); haengt dann ungemappte Nachrichten an. `thread_id` der Verknuepfung bleibt |
 
@@ -370,7 +376,9 @@ Geschrieben werden:
 - `memory.link_approved`, `memory.link_rejected`
 - `memory.message_corrected`, `memory.fact_corrected`, `memory.topic_corrected`,
   `memory.link_corrected` (mit `decision`, `approval_id`, `corrects_approval_id`,
-  `shown_sha256`, kein Text)
+  `shown_sha256`, kein Text). `clear_fact_bounds` schreibt ebenfalls
+  `memory.fact_corrected` und setzt `cleared_valid_to` sowie
+  `cleared_superseded_by` (Boolean, was der Aufruf geleert hat)
 
 ### Audit-Schreiber
 
@@ -382,7 +390,7 @@ ergibt `invalid_audit_detail`. Beides schreibt keine Zeile. Erlaubte Schluessel:
 `reason`, `channel`, `account`, `role`, `method`, `data_class`, `kind`,
 `decision`, `evidence_status`, `message_id`, `existing_message_id`,
 `reply_for_message_id`, `thread_id`, `link_id`, `fact_id`, `approval_id`,
-`corrects_approval_id`, `privacy_hold`, `text_sha256`, `existing_text_sha256`, `shown_sha256`, `class_forced`, `thread_unmapped`,
+`corrects_approval_id`, `cleared_valid_to`, `cleared_superseded_by`, `privacy_hold`, `text_sha256`, `existing_text_sha256`, `shown_sha256`, `class_forced`, `thread_unmapped`,
 `in_reply_to_unresolved`, `inserted`, `duplicates`, `secret_rejected`,
 `attached`. Werte: `null`, Boolean, Ganzzahl von 0 bis 2^31, oder ein Token
 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$`. Nachrichtentext ist keiner dieser Werte.
@@ -400,14 +408,19 @@ Lesend, sendet nichts. Signatur: `thread_id` (darf leer sein), `target`,
 | Ziel | Klassen |
 | --- | --- |
 | `ollama` | `local_only`, `cloud_redacted`, `cloud_ok` |
-| `claude`, `claude_code`, `grok` | nur `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_redacted`, `cloud_ok` |
 | `codex` | keine |
 
-Im Stand M1 liefert der Lader `cloud_redacted` noch nicht an die drei
-Cloud-Ziele: die Redaktion in `app/redaction/` haengt an einem Auftrag und seinen
-`redaction_maps`, Gespraechsgedaechtnis hat keinen Auftrag. Das ist eine
-voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, verfolgt in Issue
-[#76](https://github.com/Kaancodm/control-deck/issues/76) (auftragsfreie Redaktion).
+Fuer `claude`, `claude_code` und `grok` ersetzt der Lader in Zeilen der Klasse
+`cloud_redacted` unterstuetzte Treffer (Mail, Telefon, IBAN, AHV, interne
+Adresse, Blockliste) durch Platzhalter. Die Zuordnung gilt nur fuer diesen
+Aufruf, bleibt im Prozess und steht nicht in `MemoryContext`. Geheimnisse und
+nicht unterstuetzte Treffer fallen weg. Ein Rest-Scan nach der Ersetzung
+verwirft die Zeile bei einem weiteren Treffer. Ohne Blockliste bleibt die
+Cloud-Ausgabe fail-closed. Zeilen mit `privacy_hold` gehen nicht an Cloud-Ziele,
+auch nicht redigiert. Die Abweichung von Entscheid 7.3 und Plan 3.5 (Issue
+[#76](https://github.com/Kaancodm/control-deck/issues/76)) ist geschlossen.
+Es gibt keinen Versand.
 
 `context_classes` schneidet `allowed_classes(data_class)` mit dieser Decke.
 `local_only` am Cloud-Ziel wirft `data_class_block`, bevor gelesen wird.
@@ -417,7 +430,8 @@ voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, verfolgt in Issue
 | `ollama` | `local_only` | alle drei |
 | `ollama` | `cloud_redacted` | `cloud_redacted`, `cloud_ok` |
 | `ollama` | `cloud_ok` | `cloud_ok` |
-| `claude`, `claude_code`, `grok` | `cloud_redacted` oder `cloud_ok` | nur `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_redacted` | `cloud_redacted`, `cloud_ok` |
+| `claude`, `claude_code`, `grok` | `cloud_ok` | nur `cloud_ok` |
 | `claude`, `claude_code`, `grok` | `local_only` | Fehler `data_class_block` |
 | `codex` | jede gueltige Klasse | leeres Tupel, kein Datenbankzugriff |
 
@@ -461,7 +475,9 @@ Zuerst das Profil, dann der Verlauf, dann die Fakten. Ein Verlaufseintrag, der
 nicht passt, beendet den Verlauf; aeltere Eintraege fallen mit. Geprueft wird
 ein Geheimnis im Text, dann nur fuer Cloud-Ziele und jede Klasse ausser
 `local_only` das Sperr-Praedikat erneut (`non_local_texts_blocked`, Blockliste;
-fehlende oder unlesbare Konfiguration sperrt, auch auf `deck_ui`), dann das Budget. Fakten werden danach einzeln weitergeprueft: ein zu
+fehlende oder unlesbare Konfiguration sperrt, auch auf `deck_ui`), dann bei
+`cloud_redacted` an einem Cloud-Ziel die auftragsfreie Ersetzung (schlaegt sie
+fehl, faellt die Zeile), dann das Budget. Fakten werden danach einzeln weitergeprueft: ein zu
 grosser, ein gesperrter oder ein Geheimnis-Fakt faellt, ein spaeterer kleinerer
 kann bleiben. Verworfene Eintraege zaehlen in `dropped` und kommen nicht in
 `items`. Der Verlauf im Ergebnis steht chronologisch. `tokens` ist die Summe
@@ -490,13 +506,21 @@ ausserhalb `local_only` setzt `privacy_hold` wie `ingest_turn` auf `deck_ui`; di
 Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
 `blocklist_unavailable`). `privacy_held` im Bericht und im Audit zaehlt markierte neue Zeilen.
 
+## M1b, Dialog am Themen-Thread
+
+Der Live-Dialog schreibt den Eingang mit `ingest_turn` (Kanal `deck_ui`, Konto
+`owner`, Methode `deck_ui`) und die Antwort mit `record_deck_reply`. Beide
+bleiben `quarantined`. Ist `include_history` gesetzt, kommt der Prompt aus
+`load_memory_context(thread, "ollama", data_class)` statt aus den letzten acht
+`assistant_turns`. Nur freigegebene Zeilen; `unbewiesen` steht sichtbar im
+Prompt. Klassenfilter, `codex` und `privacy_hold` bleiben im Lader. Das
+Dialogziel ist `ollama` (Loopback oder Mock), kein Cloud-Ziel. Ohne aktiven
+Link ist der Thread leer. Die Aussen-Kennung kommt aus dem Feld, sonst `deck`.
+`num_ctx` bleibt 4096. `persist` schreibt weiter `assistant_turns` und gibt die
+Antwort nicht frei. Die Freigabe-Oberflaeche bleibt M2.
+
 ## Nicht in diesem Stand
 
-- **M1b, offen (Issue #77).** «Dialog nutzt Thread» ist nicht erledigt. Der Live-Dialog
-  liest weiter die letzten Saetze aus `assistant_turns`. M1b haengt den Dialog
-  an den Themen-Thread, nach dem Merge des UI-PR und vor G2.
-  `app/assistant/http.py` bleibt in M1 unveraendert und ruft weder
-  `ingest_turn` noch `load_memory_context`.
 - **M2, Oberflaeche (Issue #78).** Keine Quarantaene-Inbox, keine Freigabe- und
   keine Korrektur-Klicks. M2 zeigt `privacy_hold` (`privacy_block`,
   `blocklist_unavailable`) bei der Freigabe an.
@@ -521,11 +545,6 @@ Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
   M4/N3).
 - **M5, Slack Socket Mode.** Kein Socket und kein Slack-Adapter. Der Vertrag
   dafuer und der Rueckweg stehen nur in ADR 0010.
-- **`cloud_redacted` an Cloud-Ziele (Issue #76).** Der Lader liefert an `claude`,
-  `claude_code` und `grok` im Stand M1 nur `cloud_ok`. Das ist eine
-  voruebergehende Abweichung von Entscheid 7.3 und Plan 3.5, weil die Redaktion an
-  einem Auftrag haengt. Issue #76 baut eine auftragsfreie Redaktion; bis dahin
-  bleibt der Code bei `cloud_ok`.
 
 ## Nachtrag Review-Runde 3
 

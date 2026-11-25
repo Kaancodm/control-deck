@@ -2,8 +2,8 @@
 
 ## Aktueller Stand (24.11.2026)
 
-Quelle: `git log` und `gh pr view` am 24.11.2026, Zeiten Europe/Zurich.
-`main` steht auf `75318c9` (#99).
+Quelle: `git log` und `gh pr view` am 24.11. und 25.11.2026, Zeiten Europe/Zurich.
+`main` steht auf `5d1de27` (#103).
 
 - Etappe 17 ist seit 03.11.2026 18:25 CET auf `main` (PR #32, `d118e0d`).
 - Der Ollama-Live-Stack ist seit 05.11.2026 auf `main`, darunter #39
@@ -24,6 +24,13 @@ Quelle: `git log` und `gh pr view` am 24.11.2026, Zeiten Europe/Zurich.
   bleibt. In der GO-Liste steht «Nichts offen». Weitblick-Schritte 1 bis 4 sind
   die lesende Pruefung und wurden hier nicht ausgefuehrt; Schritt 5 und S-K80
   bleiben ohne Ja.
+- PR #102 (M1b, Issue #77) ist seit 24.11.2026 23:55 CET auf `main` (`52c690c`).
+  Der GO-Punkt «Entwurf M1b mergen» ist erledigt. PR #104 (Issue #76) ist seit
+  25.11.2026 00:13 CET auf `main` (`e771dc4`). PR #103 (Issue #80) ist seit
+  25.11.2026 01:24 CET auf `main` (`5d1de27`).
+- #100 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:55:40Z, Kaan em).
+  #105 (Issue #78) ist offener Entwurf und in Arbeit. #101 ist der einzige
+  offene Doku-PR.
 - Gesamt-Abnahme, Inbetriebnahme und Tag `v1.0` bleiben offen. Zu Etappe 18 liegt
   der Lasttest #48 auf `main`.
 

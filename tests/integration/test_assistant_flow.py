@@ -22,7 +22,17 @@ from app.assistant.errors import AssistantError
 from app.assistant.records import AssistantProfileVersion, AssistantTurn
 from app.db.models import Task
 from app.db.state_machine import TaskState
+from app.memory import context as memory_context
+from app.memory.ingest import ingest_turn, record_deck_reply
+from app.memory.models import AssistantMessage
 from app.ui.chat import SimulatedChat
+from tests.integration.test_channel_memory import (
+    _accept_link,
+    _approve_message,
+    _owner_session,
+    _owner_thread,
+    _turn,
+)
 
 PASSWORD = "synthetic-ui-owner-password"
 
@@ -447,3 +457,121 @@ def test_opt_in_loopback_stores_dialogue_without_creating_a_task(
         select(AssistantTurn.reply_origin).order_by(AssistantTurn.created_at.desc())
     )
     assert origin == "ollama_loopback"
+
+
+def test_dialogue_prompt_uses_the_approved_thread_and_skips_quarantine(
+    ui_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M1b: the loopback prompt sees approved thread rows, never quarantine, at num_ctx 4096."""
+    token = _owner_session(db_session)
+    thread = _owner_thread(db_session, token, "Dialogthema", "local_only")
+    external = "deck-topic"
+    approved = ingest_turn(
+        db_session,
+        _turn(external_thread_id=external, text="Bitte merke THREADTOKEN im Verlauf."),
+    )
+    assert approved.link_id is not None and approved.message_id is not None
+    _accept_link(db_session, token, approved.link_id, thread)
+    _approve_message(db_session, token, approved.message_id)
+    stored_reply = record_deck_reply(
+        db_session, inbound_message_id=approved.message_id, text="Notiert als REPLYTOKEN."
+    )
+    assert stored_reply.message_id is not None
+    _approve_message(db_session, token, stored_reply.message_id)
+    held = ingest_turn(
+        db_session,
+        _turn(external_thread_id=external, text="QUARANTOKEN bleibt unsichtbar."),
+    )
+    assert held.status == "accepted"
+    db_session.commit()
+
+    seen: dict[str, object] = {}
+    real_load = memory_context.load_memory_context
+
+    def spy(session: Session, **kwargs: object) -> object:
+        seen["target"] = kwargs.get("target")
+        seen["thread_id"] = kwargs.get("thread_id")
+        seen["data_class"] = kwargs.get("data_class")
+        return real_load(session, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("app.assistant.memory_dialogue.load_memory_context", spy)
+    captured: list[bytes] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length)
+            captured.append(raw)
+            body = json.loads(raw)
+            line = (
+                json.dumps(
+                    {
+                        "model": body["model"],
+                        "message": {"role": "assistant", "content": "FIXTURE_REPLY_7"},
+                        "done": True,
+                        "done_reason": "stop",
+                    }
+                ).encode()
+                + b"\n"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Content-Length", str(len(line)))
+            self.end_headers()
+            self.wfile.write(line)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread_http = threading.Thread(target=server.serve_forever, daemon=True)
+    thread_http.start()
+    try:
+        home = login(ui_client)
+        parsed = Inputs(home.text)
+        port = server.server_address[1]
+        monkeypatch.setenv("DECK_ASSISTANT_OLLAMA", "1")
+        monkeypatch.setenv("DECK_OLLAMA_URL", f"http://127.0.0.1:{port}")
+        monkeypatch.setenv("DECK_ASSISTANT_OLLAMA_MODEL", "fixture:localtest")
+        page = Inputs(ui_client.get("/ui/assistant").text)
+        shown = ui_client.post(
+            "/ui/assistant/talk",
+            data={
+                "csrf": page.csrf,
+                "message": "Wie geht es dir heute Morgen",
+                "data_class": "local_only",
+                "include_history": "yes",
+                "external_thread_id": external,
+            },
+            follow_redirects=True,
+        )
+    finally:
+        server.shutdown()
+    assert shown.status_code == 200
+    assert parsed.csrf
+    payload = json.loads(captured[0])
+    prompt = json.dumps(payload["messages"], ensure_ascii=False)
+    assert "THREADTOKEN" in prompt and "REPLYTOKEN" in prompt
+    assert "[unbewiesen]" in prompt
+    assert "QUARANTOKEN" not in prompt
+    assert payload["options"]["num_ctx"] == 4096
+    assert seen == {
+        "target": "ollama",
+        "thread_id": thread.id,
+        "data_class": "local_only",
+    }
+    db_session.expire_all()
+    fresh = db_session.scalars(
+        select(AssistantMessage).where(AssistantMessage.text == "Wie geht es dir heute Morgen")
+    ).one()
+    assert fresh.state == "quarantined"
+    assert fresh.source_channel == "deck_ui" and fresh.method == "deck_ui"
+    assert fresh.thread_id == thread.id
+    answer = db_session.scalar(
+        select(AssistantMessage).where(AssistantMessage.reply_for_message_id == fresh.id)
+    )
+    assert answer is not None
+    assert answer.text == "FIXTURE_REPLY_7"
+    assert answer.state == "quarantined" and answer.method == "deck_ui"
+    assert db_session.scalar(select(func.count()).select_from(AssistantTurn)) == 0
+    assert db_session.scalar(select(func.count()).select_from(Task)) == 0

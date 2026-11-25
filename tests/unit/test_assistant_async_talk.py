@@ -81,13 +81,14 @@ def test_start_dialogue_turn_finishes_and_snapshot() -> None:
             profile_written=False,
         )
 
-    with patch("app.assistant.async_turns.reply_to_owner", side_effect=fake_reply):
+    with patch("app.assistant.async_turns.conduct_dialogue", side_effect=fake_reply):
         turn_id = start_dialogue_turn(
             _fake_session_factory(),
             message="Hallo",
             data_class="local_only",
-            profile_notes=None,
-            history=(),
+            include_profile=False,
+            include_history=False,
+            external_thread_id="deck",
             persist=False,
         )
         async_turns._run_turn(
@@ -123,13 +124,14 @@ def test_stream_sse_events_receives_chunks_without_hanging(
             profile_written=False,
         )
 
-    with patch("app.assistant.async_turns.reply_to_owner", side_effect=slow_reply):
+    with patch("app.assistant.async_turns.conduct_dialogue", side_effect=slow_reply):
         turn_id = start_dialogue_turn(
             _fake_session_factory(),
             message="Hallo",
             data_class="local_only",
-            profile_notes=None,
-            history=(),
+            include_profile=False,
+            include_history=False,
+            external_thread_id="deck",
             persist=False,
         )
 
@@ -158,13 +160,14 @@ def test_unexpected_exception_marks_turn_error(monkeypatch: pytest.MonkeyPatch) 
     def boom(*_args: object, **_kwargs: object) -> DialogueReply:
         raise RuntimeError("synthetic")
 
-    with patch("app.assistant.async_turns.reply_to_owner", side_effect=boom):
+    with patch("app.assistant.async_turns.conduct_dialogue", side_effect=boom):
         turn_id = start_dialogue_turn(
             _fake_session_factory(),
             message="x",
             data_class="local_only",
-            profile_notes=None,
-            history=(),
+            include_profile=False,
+            include_history=False,
+            external_thread_id="deck",
             persist=False,
         )
         async_turns._run_turn(async_turns._work_queue.get())
@@ -187,8 +190,9 @@ def test_queue_full_rejects_new_turn(monkeypatch: pytest.MonkeyPatch) -> None:
             _fake_session_factory(),
             message="x",
             data_class="local_only",
-            profile_notes=None,
-            history=(),
+            include_profile=False,
+            include_history=False,
+            external_thread_id="deck",
             persist=False,
         )
     assert refused.value.code == async_turns._QUEUE_FULL_CODE

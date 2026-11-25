@@ -2,7 +2,9 @@
 
 A decision is not final: ``correct_*`` appends a new approval row whose
 ``corrects_approval_id`` names the current one, and only that lets the database
-trigger change a frozen decision. Every decision takes the raw UI session cookie.
+trigger change a frozen decision. ``clear_fact_bounds`` is that same path for
+emptying ``valid_to`` or ``superseded_by``. ``None`` on ``correct_fact`` keeps
+the stored value and does not clear it. Every decision takes the raw UI session cookie.
 The digest is derived with ``token_digest`` inside ``get_ui_session`` (owner,
 idle timeout, password fingerprint). The approval row stores a non-reversible
 approver reference, not the session token hash. A bearer token, a channel, or a model
@@ -109,8 +111,21 @@ def fact_shown_bytes(
     corrects: uuid.UUID | None = None,
     valid_to: datetime | None = None,
     superseded_by: uuid.UUID | None = None,
+    clear_valid_to: bool = False,
+    clear_superseded_by: bool = False,
 ) -> bytes:
-    """Fact bytes. A correction also shows the resulting ``valid_to`` and ``superseded_by``."""
+    """Fact bytes. A correction also shows the resulting ``valid_to`` and ``superseded_by``.
+
+    ``None`` keeps the stored bound. ``clear_valid_to`` or ``clear_superseded_by``
+    shows ``none`` instead, and only on a correction (``corrects`` set). A new
+    value together with the matching clear flag is ``invalid_fact``.
+    """
+    if (clear_valid_to or clear_superseded_by) and corrects is None:
+        raise ConversationError("invalid_fact")
+    if (clear_valid_to and valid_to is not None) or (
+        clear_superseded_by and superseded_by is not None
+    ):
+        raise ConversationError("invalid_fact")
     body = "\n".join((fact.original_sentence, fact.subject, fact.predicate, fact.object))
     fields: tuple[tuple[str, str], ...] = (
         ("kind", "fact"),
@@ -122,8 +137,12 @@ def fact_shown_bytes(
         ("mark_proven", _flag(mark_proven)),
     )
     if corrects is not None:
-        resolved_valid_to = valid_to if valid_to is not None else fact.valid_to
-        resolved_successor = superseded_by if superseded_by is not None else fact.superseded_by
+        resolved_valid_to = None if clear_valid_to else fact.valid_to
+        if valid_to is not None:
+            resolved_valid_to = valid_to
+        resolved_successor = None if clear_superseded_by else fact.superseded_by
+        if superseded_by is not None:
+            resolved_successor = superseded_by
         fields = (
             *fields,
             *_correction(corrects),
@@ -569,8 +588,10 @@ def correct_fact(
     """Owner corrects an earlier fact decision: revoke, re-approve, close or supersede.
 
     ``valid_to`` and ``superseded_by`` are set only when given; ``None`` keeps the
-    current value. ``valid_from`` and the content never change. A successor must be
-    another approved fact. Re-approval needs a source message that is not rejected.
+    current value and does not clear it. Emptying either column is
+    :func:`clear_fact_bounds`. ``valid_from`` and the content never change. A
+    successor must be another approved fact. Re-approval needs a source message
+    that is not rejected.
     """
     checked = _check_decision(decision)
     approver_ref = require_owner_session(session, session_token)
@@ -629,42 +650,171 @@ def correct_fact(
         shown_sha256_hex,
     )
     if checked == "approved":
-        source = session.scalar(
-            select(AssistantMessage)
-            .where(AssistantMessage.id == fact.source_message_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if source is None or source.state == "rejected":
-            raise ConversationError("source_rejected")
+        _require_live_fact_source(session, fact)
+    return _store_fact_correction(
+        session,
+        fact,
+        previous=previous,
+        decision=checked,
+        shown=shown,
+        approver_ref=approver_ref,
+        status=status,
+        evidence=evidence,
+        valid_to=new_valid_to,
+        superseded_by=new_successor,
+    )
+
+
+def _require_live_fact_source(session: Session, fact: MemoryFact) -> None:
+    """An approved fact correction needs a source message that is not rejected."""
+    source = session.scalar(
+        select(AssistantMessage)
+        .where(AssistantMessage.id == fact.source_message_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if source is None or source.state == "rejected":
+        raise ConversationError("source_rejected")
+
+
+def _store_fact_correction(
+    session: Session,
+    fact: MemoryFact,
+    *,
+    previous: uuid.UUID,
+    decision: Decision,
+    shown: str,
+    approver_ref: str,
+    status: str,
+    evidence: str,
+    valid_to: datetime | None,
+    superseded_by: uuid.UUID | None,
+    clear_flags: tuple[bool, bool] | None = None,
+) -> MemoryFact:
+    """Append one fact correction and point the fact at it. Does not commit."""
     approval = _approval(
         session,
         kind="fact",
         target_id=fact.id,
-        decision=checked,
+        decision=decision,
         shown=shown,
         approver_ref=approver_ref,
         corrects=previous,
     )
     fact.approval_id = approval.id
     fact.status, fact.evidence_status = status, evidence
-    fact.valid_to = new_valid_to
-    fact.superseded_by = new_successor
+    fact.valid_to = valid_to
+    fact.superseded_by = superseded_by
     session.flush()
-    _audit(
-        "fact_corrected",
-        {
-            "fact_id": str(fact.id),
-            "approval_id": str(approval.id),
-            "corrects_approval_id": str(previous),
-            "decision": checked,
-            "shown_sha256": shown,
-            "evidence_status": fact.evidence_status,
-            "privacy_hold": fact.privacy_hold,
-        },
-        session,
-    )
+    detail: dict[str, object] = {
+        "fact_id": str(fact.id),
+        "approval_id": str(approval.id),
+        "corrects_approval_id": str(previous),
+        "decision": decision,
+        "shown_sha256": shown,
+        "evidence_status": fact.evidence_status,
+        "privacy_hold": fact.privacy_hold,
+    }
+    if clear_flags is not None:
+        detail["cleared_valid_to"] = clear_flags[0]
+        detail["cleared_superseded_by"] = clear_flags[1]
+    _audit("fact_corrected", detail, session)
     return fact
+
+
+def _kept_decision(status: str, evidence_status: str) -> tuple[Decision, bool]:
+    """Decision and ``mark_proven`` that reproduce the stored outcome."""
+    if status == "approved":
+        return "approved", evidence_status == "bewiesen"
+    if status == "rejected":
+        return "rejected", False
+    raise ConversationError("not_decided")
+
+
+def clear_fact_bounds(
+    session: Session,
+    fact_id: uuid.UUID,
+    *,
+    session_token: str,
+    shown_sha256_hex: str,
+    clear_valid_to: bool = False,
+    clear_superseded_by: bool = False,
+) -> MemoryFact:
+    """Owner clears ``valid_to`` and/or ``superseded_by`` on a decided fact.
+
+    Appends one approval row with ``corrects_approval_id`` set to the current
+    approval, points the fact at that row, and empties the named columns.
+    Existing approval rows are not updated. Status, evidence, ``valid_from``
+    and the text stay. The database trigger allows the column change only
+    because of the new row.
+
+    At least one flag must be true, otherwise ``invalid_fact``. A flag for a
+    column that is already empty, with nothing else to clear, is ``no_change``
+    and writes nothing. Both flags may be set in one call. ``None`` on
+    :func:`correct_fact` is not a clear and does not call this function.
+
+    Shown bytes for the hash are :func:`fact_shown_bytes` with the stored
+    decision (``approved`` or ``rejected``), ``mark_proven`` true only when
+    evidence is ``bewiesen``, ``corrects`` equal to the current approval id,
+    and the same flags. This function does not take a new decision. A missing
+    or unknown owner session is ``owner_session_required``. A missing or
+    different hash is ``shown_bytes_mismatch``. Neither writes a row.
+
+    While the stored decision stays ``approved``, the source message is locked
+    the same way as :func:`correct_fact`. A missing or rejected source is
+    ``source_rejected`` and writes nothing. A fact that stays ``rejected``
+    does not re-check the source.
+
+    Does not commit. The caller rolls back the transaction when this call
+    raises, and after a successful call if the caller abandons it. A rollback
+    removes the flushed approval row and restores the fact columns.
+
+    Audit event ``memory.fact_corrected`` carries ``cleared_valid_to`` and
+    ``cleared_superseded_by`` as booleans, plus the correction ids. No fact text.
+    """
+    approver_ref = require_owner_session(session, session_token)
+    if not clear_valid_to and not clear_superseded_by:
+        raise ConversationError("invalid_fact")
+    fact = session.scalar(
+        select(MemoryFact)
+        .where(MemoryFact.id == fact_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if fact is None:
+        raise ConversationError("not_found")
+    previous = _decided(fact.approval_id, pending=fact.status == "proposed")
+    decision, mark_proven = _kept_decision(fact.status, fact.evidence_status)
+    new_valid_to = None if clear_valid_to else fact.valid_to
+    new_successor = None if clear_superseded_by else fact.superseded_by
+    if (new_valid_to, new_successor) == (fact.valid_to, fact.superseded_by):
+        raise ConversationError("no_change")
+    shown = _check_shown(
+        fact_shown_bytes(
+            fact,
+            decision=decision,
+            mark_proven=mark_proven,
+            corrects=previous,
+            clear_valid_to=clear_valid_to,
+            clear_superseded_by=clear_superseded_by,
+        ),
+        shown_sha256_hex,
+    )
+    if decision == "approved":
+        _require_live_fact_source(session, fact)
+    return _store_fact_correction(
+        session,
+        fact,
+        previous=previous,
+        decision=decision,
+        shown=shown,
+        approver_ref=approver_ref,
+        status=fact.status,
+        evidence=fact.evidence_status,
+        valid_to=new_valid_to,
+        superseded_by=new_successor,
+        clear_flags=(clear_valid_to, clear_superseded_by),
+    )
 
 
 def _clean_title(title: str) -> str:
@@ -1016,6 +1166,7 @@ def correct_thread_link(
 
 
 __all__ = [
+    "clear_fact_bounds",
     "correct_fact",
     "correct_message",
     "correct_thread_link",

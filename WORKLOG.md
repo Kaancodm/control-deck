@@ -91,6 +91,12 @@ Kein Merge, PR bleibt Draft.
 README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
 sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.
 
+## 2026-11-24 23:31 — Cursor — Issue #80 Korrektur leeren
+
+Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` leert `valid_to` und `superseded_by` nur ueber eine neue Freigabezeile. Keine Vorarbeit auf main, in Branches oder PRs.
+Check: `make lint` Exit 0 (ruff, 480 formatiert, mypy 167, check_rules). `pytest` gegen `controldeck_test`: 3748 passed, 143 skipped, 1 Starlette-Warnung, 263.35s.
+Offen: Draft-PR, drei Reviews, kein Merge. Risiko: #78 hasht den gespeicherten Entscheid; Leeren und Entscheidwechsel bleiben zwei Korrekturen.
+
 ## 2026-11-24 23:31 — Cursor — M1b Dialog-Thread #77
 
 Branch `cursor/m1b-dialog-thread-f58e`. Dialog schreibt `ingest_turn` und `record_deck_reply`. Prompt aus `load_memory_context` (Ziel `ollama`). Quarantaene bleibt draussen, `num_ctx` 4096.
@@ -103,6 +109,18 @@ Draft-PR https://github.com/Kaancodm/control-deck/pull/102 gegen main. Branch `c
 Check: gitleaks 8.30.1 auf `75318c9..0b8dbf3`, keine Funde. CI beim Oeffnen noch laufend.
 Offen: fuenf Fragen im PR, darunter #78 F5. Risiko: #78 Dialog-UI, #76 Lader und Doku, #80 `approval.py` (hier unberuehrt).
 
+## 2026-11-24 23:40 — Cursor — Issue #80 CI
+
+PR #103, HEAD `8890579`. Checks: quality pass (7m6s), CodeFactor pass, GitGuardian pass.
+Leaderboard Cursor auf gruen. Kein Merge.
+Offen: drei Reviews und das Merge-GO. Risiko: keines aus diesem CI-Lauf.
+
+## 2026-11-24 23:58 — Cursor — Issue #80 Nachzug
+
+PR #103, Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` prueft die Quelle wie `correct_fact`: abgelehnte Quelle ist `source_rejected`, nichts geschrieben. Randfaelle: not_found, not_decided, veralteter Hash, zwei konkurrierende Korrekturen, Kette, abgelaufene und idle Session, Rollback nach flush. Leaderboard Cursor bleibt gelb.
+Check: `make lint` Exit 0 (ruff, 480 formatiert, mypy 167, check_rules). `pytest` gegen `controldeck_test`: 3752 passed, 143 skipped, 1 Starlette-Warnung, 248.77s.
+Offen: drei Reviews und das Merge-GO. Kein Merge. Risiko: #78 muss die Quellpruefung beim Leeren eines freigegebenen Faktums mitrechnen.
+
 ## 2026-11-24 23:58 — Cursor — Auftragsfreie Redaktion #76
 
 Branch `cursor/order-free-redaction-60ba` ab `main` `52c690c`. Cloud-Ziele erhalten `cloud_redacted` nur mit Platzhalter je Aufruf. `privacy_hold`, Geheimnisse und fehlende Blockliste bleiben draussen. Dialogpfad unveraendert auf `ollama`.
@@ -114,3 +132,15 @@ Offen: Entwurf gegen main, kein Merge. Map wird nicht gespeichert. Risiko: Doku 
 Draft-PR https://github.com/Kaancodm/control-deck/pull/104 gegen main. Branch `cursor/order-free-redaction-60ba`, Commit `847691c`. Kein Merge.
 Check: gitleaks 8.30.1 auf `origin/main..847691c`, keine Funde.
 Offen: CI. Empfehlung: Map je Aufruf lassen, Dialog auf `ollama` lassen.
+
+## 2026-11-25 00:07 — Cursor — Issue #80 main eingeholt
+
+Merge-Commit von `origin/main` `52c690c` (#102) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Beide Staende in Koordination, Leaderboard und Worklog. Cursor bleibt gelb.
+Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3761 passed, 143 skipped, 1 Starlette-Warnung, 249.49s.
+Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.
+
+## 2026-11-25 00:21 — Cursor — Issue #80 main #104 eingeholt
+
+Merge-Commit von `origin/main` `e771dc4` (#104) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Stand von #102 und #104 aus main, Stand von #103 bleibt. Cursor bleibt gelb.
+Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3762 passed, 143 skipped, 1 Starlette-Warnung, 251.43s.
+Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.

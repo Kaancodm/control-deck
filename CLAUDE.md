@@ -16,7 +16,7 @@ PR #99 seit 24.11.2026 20:32 CET auf main (`75318c9`).
 Entwurf M1b mergen ist erledigt: PR #102 seit 24.11.2026 23:55 CET auf main (`52c690c`).
 PR #104 (Issue #76, auftragsfreie Redaktion) seit 25.11.2026 00:13 CET auf main (`e771dc4`).
 PR #103 (Issue #80, `valid_to` und `superseded_by` leeren) seit 25.11.2026 01:24 CET auf main (`5d1de27`).
-#105 (Issue #78) ist offener Entwurf und in Arbeit. Quelle: `gh pr view` 98, 99, 100, 102, 103, 104 und 105.
+#105 (Issue #78) ist Entwurf gegen main, HEAD `d03211f`. Fix fuer Blocker F5 (`persist` gibt die angezeigte Deck-Antwort per Hash frei) und Soll Inbox-Limit (Status-Filter vor Limit) ist gepusht (`5d3ef3a`), danach Merge von main. Re-Review durch den Code-Pruefer ist offen. Quelle: `gh pr view` 98, 99, 100, 102, 103, 104 und 105.
 
 # CLAUDE.md
 

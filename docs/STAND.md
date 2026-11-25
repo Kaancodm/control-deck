@@ -1,6 +1,6 @@
 # Stand des Repositorys
 
-## Aktueller Stand (24.11.2026)
+## Aktueller Stand (25.11.2026)
 
 Quelle: `git log` und `gh pr view` am 24.11. und 25.11.2026, Zeiten Europe/Zurich.
 `main` steht auf `5d1de27` (#103).
@@ -12,7 +12,7 @@ Quelle: `git log` und `gh pr view` am 24.11. und 25.11.2026, Zeiten Europe/Zuric
   gilt nicht mehr. Canary, Live-Referenzmodus und ein Serverlauf bleiben offen.
 - Die UI-Angleichung an das Command-Center ist seit 10.11.2026 15:49 CET auf
   `main` (PR #73, `92aadd3`).
-- Das echte lokale Embedding der Wissens-DB ist seit 10.11.2026 20:11 CET auf
+- Das echte lokale Embedding der Wissens-DB ist seit 10.11.2026 20:12 CET auf
   `main` (PR #83, `a3f97fc`). Runtime-Migration und Profil-Aktivierung bleiben
   beim Owner.
 - Weitblick Stufe 1 ist seit 23.11.2026 19:13 CET auf `main` (PR #96, `8d5f9e0`).
@@ -29,8 +29,10 @@ Quelle: `git log` und `gh pr view` am 24.11. und 25.11.2026, Zeiten Europe/Zuric
   25.11.2026 00:13 CET auf `main` (`e771dc4`). PR #103 (Issue #80) ist seit
   25.11.2026 01:24 CET auf `main` (`5d1de27`).
 - #100 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:55:40Z, Kaan em).
-  #105 (Issue #78) ist offener Entwurf und in Arbeit. #101 ist der einzige
-  offene Doku-PR.
+  #105 (Issue #78) ist Entwurf gegen main, HEAD `d03211f`. Fix fuer Blocker F5
+  (`persist` gibt die angezeigte Deck-Antwort per Hash frei) und Soll Inbox-Limit
+  (Status-Filter vor Limit) ist gepusht (`5d3ef3a`), danach Merge von main;
+  Re-Review durch den Code-Pruefer ist offen. #101 ist der einzige offene Doku-PR.
 - Gesamt-Abnahme, Inbetriebnahme und Tag `v1.0` bleiben offen. Zu Etappe 18 liegt
   der Lasttest #48 auf `main`.
 
@@ -39,7 +41,7 @@ stehen; wo sie dem Stand oben widersprechen, gilt dieser Abschnitt.
 
 ## Nachtrag 2026-11-10: Wissens-DB mit echtem Embedding (#83, gemergt)
 
-PR #83 (`feat/kb-real-embedding`, gemergt 10.11.2026 20:11 CET, `a3f97fc`) stellt die Wissens-DB auf ein lokales Ollama-Embedding mit
+PR #83 (`feat/kb-real-embedding`, gemergt 10.11.2026 20:12 CET, `a3f97fc`) stellt die Wissens-DB auf ein lokales Ollama-Embedding mit
 1024 Dimensionen um (`kb_0002`, `OllamaEmbeddings`, Profil `runtime`, ADR 0011). Der Fake bleibt
 Standard, `disabled` bleibt das Standardprofil. Vor dem ersten `/api/embed` prüft der Adapter
 `/api/show` für `<modell>:local` und weist `remote_host`, `remote_model` sowie Cloud-Kennungen

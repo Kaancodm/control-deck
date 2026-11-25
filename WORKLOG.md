@@ -172,3 +172,9 @@ Merge-Commit von `origin/main` `5d1de27` in `docs/steuerdateien-stand-99`. Kein 
 #102 (`52c690c`, 24.11.2026 23:55 CET), #104 (`e771dc4`, 25.11.2026 00:13 CET) und #103 (`5d1de27`, 25.11.2026 01:24 CET) sind auf main. #100 geschlossen, nicht gemergt (Kaan em). #105 (Issue #78) offener Entwurf. GO-Liste bleibt «Nichts offen»; «Entwurf M1b mergen» als erledigt festgehalten.
 Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 86.84s.
 Offen: #105 in Arbeit, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja, Abnahme und Tag v1.0. Kein Merge von #101.
+
+## 2026-11-25 01:46 — Builder — #105-Stand und #83-Zeit in #101
+
+#105-HEAD mit `gh pr view 105` geprueft: `d03211f` (Fix `5d3ef3a`, danach Merge von main). Entwurf gegen main, Re-Review offen. In `CLAUDE.md`, `COORDINATION.md` und `docs/STAND.md` nachgezogen. #83-Mergezeit auf 20:12 CET (mergedAt 2026-11-10T19:12:00Z). STAND-Titel auf 25.11.2026.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 84.95s.
+Offen: Re-Review von #105, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja. Kein Merge von #101.

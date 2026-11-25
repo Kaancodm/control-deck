@@ -91,6 +91,27 @@ Kein Merge, PR bleibt Draft.
 README: Versuchslimit 3, aufgegeben, Zuruecksetzen. Tests fuer Mid-Run-401/403,
 sonstige Fehler als Versuch, Exit-Codes, Budget-Reset. Kein Merge, PR Draft.
 
+## 2026-11-24 22:59 — Builder — Steuerdateien auf Stand von main
+
+PR #98 gemergt 24.11.2026 13:44 CET (`979b89b`, mergedAt 2026-11-24T12:44:16Z, mergedBy Kaancodm). Quelle: `gh pr view 98`.
+PR #99 gemergt 24.11.2026 20:32 CET (`75318c9`, mergedAt 2026-11-24T19:32:53Z, mergedBy Kaancodm). Quelle: `gh pr view 99`.
+CLAUDE.md, COORDINATION.md, LEADERBOARD.md, WORKLOG.md, README.md, CHANGELOG.md und `docs/ETAPPEN/README.md` nachgefuehrt. Kein Produktcode, kein Merge.
+Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 85.72s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Etappe 18 Abnahme und Tag v1.0, Weitblick-Serverpruefung, Egress-Proxy, Ollama-Modelle.
+
+## 2026-11-24 23:17 — Builder — Soll zu PR #101 (STAND und Changelog)
+
+`docs/STAND.md` auf den Stand von `main` nachgezogen: #83, #73 und #32 gemergt; Live-Stack #39/#40/#44 seit 05.11. auf `main`; Weitblick und #96 bis #99 ergaenzt. Quelle: `git log` und `gh pr view`.
+CHANGELOG: `retain_extraction_mode=chunks` als Bank- oder Server-Einstellung; Zurueckgeben nur bei `reserviert` ohne `sendet`, sonst `unklar` und offen.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 83.55s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Abnahme und Tag v1.0, Weitblick-Serverpruefung, Abgleich mit Draft #100. Kein Merge.
+
+## 2026-11-24 23:27 — Builder — GO-Liste in #101 auf «alle em»
+
+`CLAUDE.md`: Liste lautet «Nichts offen». Entscheid 24.11.2026 `alle em`: Egress-Proxy bleibt aus, Ollama-Bestand bleibt. Merge-Vermerk zu #98/#99 bleibt als Info, nicht als GO-Punkt. Wortlaut an #100 angelehnt, #100 unveraendert.
+`COORDINATION.md`: Ollama- und Egress-Zeilen sowie Weitblick-Abschnitt nachgezogen. `docs/STAND.md` ebenso. README fuehrte die Punkte nicht als offen.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2806 passed, 1082 skipped, 1 Starlette-Warnung, 83.33s. gitleaks auf dem Diff: keine Funde. `git diff --check` Exit 0.
+Offen: Abnahme und Tag v1.0, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja. Kein Merge.
 ## 2026-11-24 23:31 — Cursor — Issue #80 Korrektur leeren
 
 Branch `cursor/80-korrektur-leeren-0407`. `clear_fact_bounds` leert `valid_to` und `superseded_by` nur ueber eine neue Freigabezeile. Keine Vorarbeit auf main, in Branches oder PRs.
@@ -163,14 +184,33 @@ Offen: Entwurf, quality nach dem Push, drei Reviews. Kein Merge. Risiko: Freigab
 Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3784 passed, 140 skipped, 1 Starlette-Warnung, 256.63s. gitleaks 8.30.0 auf `origin/cursor/80-korrektur-leeren-0407..HEAD` mit `-m`: 5 Commits, keine Funde.
 Offen: quality nach dem Push, drei Reviews. Kein Merge. Risiko: die Owner-Zeile bleibt in der Quarantaene.
 
+## 2026-11-25 01:29 — Builder — main in #101 nachziehen
+
+Merge-Commit von `origin/main` `5d1de27` in `docs/steuerdateien-stand-99`. Kein Rebase, kein Force-Push.
+#102 (`52c690c`, 24.11.2026 23:55 CET), #104 (`e771dc4`, 25.11.2026 00:13 CET) und #103 (`5d1de27`, 25.11.2026 01:24 CET) sind auf main. #100 geschlossen, nicht gemergt (Kaan em). #105 (Issue #78) offener Entwurf. GO-Liste bleibt «Nichts offen»; «Entwurf M1b mergen» als erledigt festgehalten.
+Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 86.84s.
+Offen: #105 in Arbeit, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja, Abnahme und Tag v1.0. Kein Merge von #101.
+
 ## 2026-11-25 01:30 — Cursor — Issue #78 main eingeholt
 
 Merge-Commit von `origin/main` `5d1de27` (#103) in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. Basis von #105 wird main. F5 und die Inbox-Kappung bleiben.
 Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3784 passed, 140 skipped, 1 Starlette-Warnung, 258.63s. gitleaks 8.30.0 auf `origin/main..HEAD` mit `-m`: 14 Commits, keine Funde.
 Offen: quality nach dem Push, drei Reviews. Kein Merge. Risiko: keines aus den Konfliktdateien.
 
+## 2026-11-25 01:46 — Builder — #105-Stand und #83-Zeit in #101
+
+#105-HEAD mit `gh pr view 105` geprueft: `d03211f` (Fix `5d3ef3a`, danach Merge von main). Entwurf gegen main, Re-Review offen. In `CLAUDE.md`, `COORDINATION.md` und `docs/STAND.md` nachgezogen. #83-Mergezeit auf 20:12 CET (mergedAt 2026-11-10T19:12:00Z). STAND-Titel auf 25.11.2026.
+Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 84.95s.
+Offen: Re-Review von #105, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja. Kein Merge von #101.
+
 ## 2026-11-25 02:04 — Cursor — Issue #78 persist und Markierung
 
 `persist` gibt eine Antwort mit `privacy_hold` nicht frei; die Markierung bleibt in der Quarantaene sichtbar. Der Hash auf diesem Weg ist formal, aus der eben gespeicherten Zeile. Ein falscher Hash auf eine Nicht-Antwort bleibt `not_found`. `_act` ist in kurze Funktionen geteilt.
 Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3786 passed, 140 skipped, 1 Starlette-Warnung, 261.01s. gitleaks 8.30.0 `protect --staged`: keine Funde.
 Offen: quality nach dem Push. Kein Merge. Risiko: die Vorab-Freigabe prueft die Bytes nicht in einem zweiten Blick.
+
+## 2026-11-25 02:23 — Cursor — Issue #78 main #101 eingeholt
+
+Merge-Commit von `origin/main` `d900b91` (#101) in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. Beide Staende in Changelog, Koordination, Leaderboard und Worklog. #105: Re-Review 01:51 ok (Auftrag Atik 25.11.2026 02:16), Nachbesserung `f7548d4`, Kurz-Recheck offen.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3786 passed, 140 skipped, 1 Starlette-Warnung, 260.09s. gitleaks 8.30.0 `protect --staged`: keine Funde.
+Offen: gitleaks auf `origin/main..HEAD` nach dem Commit, danach quality, CodeFactor und GitGuardian. Kurz-Recheck. Kein Merge. Risiko: keines aus den Konfliktdateien.

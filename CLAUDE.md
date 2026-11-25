@@ -2,29 +2,23 @@
 
 Antwort: `N. em` oder `N. 2`. Pflege: siehe `AGENTS.md`.
 
-1. Egress-Proxy (E2) starten
-   em: Aus lassen.
-   Option 2: Start freigeben.
-   Unterschied: Option 2 startet den Proxy, em laesst ihn aus.
-   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+Nichts offen.
 
-2. Ollama-Modelle aufraeumen
-   em: Nichts loeschen.
-   Option 2: Aufraeumen freigeben.
-   Unterschied: Option 2 darf Modelle entfernen, em laesst den Bestand.
-   Quelle: `COORDINATION.md`, Owner 11.11.2026, Angabe, unproven.
+Entschieden am 24.11.2026 mit `alle em`: Egress-Proxy bleibt aus. Ollama-Bestand bleibt.
+Weitblick-Schritte 1 bis 4 bleiben die lesende Pruefung und wurden hier nicht ausgefuehrt.
+Schritt 5 und S-K80 bleiben ohne Ja.
+#95 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:09:12Z). Der Branch `claude/wonderful-cori-d21yd2` bleibt auf `269b0fa`.
+#100 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:55:40Z, Kaan em).
 
-3. Weitblick Stufe 2 zur Serverpruefung freigeben
-   em: Branch veroeffentlichen, Draft-PR, Atik prueft laut `weitblick/SERVERPRUEFUNG.md`.
-   Option 2: Branch lokal lassen, bis F4 (Fundstellen-Pfade in der Bank) entschieden ist.
-   Unterschied: em startet S-K80 und Vertragspruefung jetzt, Option 2 wartet auf F4.
-   Quelle: Auftrag Kaan 24.11.2026, lokaler Branch `feat/weitblick-stufe2`, nicht gepusht.
+Weitblick Stufe 2 ist gemergt: PR #98 seit 24.11.2026 13:44 CET auf main (`979b89b`),
+PR #99 seit 24.11.2026 20:32 CET auf main (`75318c9`).
 
-4. Deck-Gedaechtnis Entwurf (Issue #78, PR #105)
-   em: Entwurf lassen, bis Security, Codequalitaet und Plan-Passung geprueft sind.
-   Option 2: Reviews jetzt anfordern.
-   Unterschied: Option 2 startet die drei Reviews sofort, em laesst den Entwurf liegen.
-   Quelle: Auftrag 24.11.2026, PR #105, unproven bis Review.
+Entwurf M1b mergen ist erledigt: PR #102 seit 24.11.2026 23:55 CET auf main (`52c690c`).
+PR #104 (Issue #76, auftragsfreie Redaktion) seit 25.11.2026 00:13 CET auf main (`e771dc4`).
+PR #103 (Issue #80, `valid_to` und `superseded_by` leeren) seit 25.11.2026 01:24 CET auf main (`5d1de27`).
+#101 (Steuerdateien) ist mit `d900b91` auf main.
+#105 (Issue #78) ist Entwurf gegen main. Re-Review 01:51 ok (Auftrag Atik 25.11.2026 02:16).
+Nachbesserung `f7548d4`: eine Antwort mit `privacy_hold` bleibt in der Quarantaene, die Doku nennt den Hash als formale Vorab-Freigabe, die Testluecke am falschen Hash ist geschlossen, eigener CHANGELOG-Eintrag. Danach ist ein Kurz-Recheck offen.
 
 # CLAUDE.md
 

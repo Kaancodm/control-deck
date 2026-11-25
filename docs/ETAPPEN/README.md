@@ -1,6 +1,6 @@
 # Etappen-Spezifikationen (Control Deck)
 
-Stand: 03.11.2026. Vorab-Spezifikationen fuer Builder-Agents (Cursor), damit die aufwaendigen
+Stand: 24.11.2026. Vorab-Spezifikationen fuer Builder-Agents (Cursor), damit die aufwaendigen
 Etappen ohne Rueckfragen gebaut werden koennen. Quelle der Etappenliste ist **Plan v1.1**
 (Drive-Dokument "VON: Claude | Control Deck Plan v1.1 Architektur und 18 Etappen | 2026-11-03").
 Die Architektur v0 ist veraltet und wird nicht verwendet.
@@ -24,21 +24,21 @@ der aktuelle Rollenstand. Der aktuelle Ablauf steht oben und in `AGENTS.md`.
 | 1 | Grundgeruest, Schema v1, Validator | gemergt (PR #1, #3) | Codex | – |
 | 2 | Referenz-Testset-Runner | gemergt (PR #2) | Claude | – |
 | 3 | DB-Schema, Migrationen, Zustandsautomat, Events | gemergt (PR #4) | Codex | – |
-| 4 | API: create, get, list, cancel, approve, dry-run, health | **PR #5 offen** | Claude | – |
-| 5 | Datenschranke: Scanner, Blockliste, Anhang-Extraktion | offen | Codex | Vertrag unten |
-| 6 | Pseudonymisierung und Rueckabbildung | offen | Claude | [06](06-pseudonymisierung.md) |
-| 7 | Router, Regeln, Tagesbudget, Dry-run | offen | Codex | Vertrag unten |
-| 8 | Runner-Rahmen: Lease, Heartbeat, Sweep, Not-Aus, runs/-Ablage | offen | Claude | Vertrag unten |
-| 9 | Lane Ollama und erster E2E | offen | Codex | [09](09-ollama-lane-e2e.md) |
-| 10 | Fehlerpfad: Retry, Backoff, Fallback, Dead-Letter, Abbruch | umgesetzt, externes Review offen | extern, Owner bestimmt | [10-fehlerpfade.md](10-fehlerpfade.md) |
-| 11 | Themebare Oberflaeche und lokaler Chat | umgesetzt, externes Review offen | extern, Owner bestimmt | [11](11-ui.md) |
-| 12 | Reinraum-Image und Lane Claude | offen | Claude | [12](12-reinraum-lane-claude.md) |
-| 13 | Lane Codex | offen | Codex | [13](13-lane-codex.md) |
-| 14 | Wissens-DB-Anbindung | offen | Claude | [14](14-wissens-db-anbindung.md) |
-| 15 | Login, Tailnet-Bindung, Haertung | offen | Codex | [15](15-login-tailnet-haertung.md) |
-| 16 | Betrieb: systemd, Backup, Aufbewahrung, Restore-Probe | offen | Claude | [16](16-betrieb.md) |
-| 17 | Audit-Ansicht, Worker-Gesundheit, Login-Ablauf-Warnung | offen | Codex | [17](17-audit-worker-gesundheit.md) |
-| 18 | Abnahme-Lauf 1.0, SECURITY-Checkliste, Tag v1.0 | offen | Claude | [18](18-abnahme-1-0.md) |
+| 4 | API: create, get, list, cancel, approve, dry-run, health | gemergt (PR #5) | Claude | – |
+| 5 | Datenschranke: Scanner, Blockliste, Anhang-Extraktion | gemergt (PR #19) | Codex | Vertrag unten |
+| 6 | Pseudonymisierung und Rueckabbildung | gemergt (PR #21) | Claude | [06](06-pseudonymisierung.md) |
+| 7 | Router, Regeln, Tagesbudget, Dry-run | gemergt (PR #22) | Codex | Vertrag unten |
+| 8 | Runner-Rahmen: Lease, Heartbeat, Sweep, Not-Aus, runs/-Ablage | gemergt (PR #23) | Claude | Vertrag unten |
+| 9 | Lane Ollama und erster E2E | gemergt (PR #24) | Codex | [09](09-ollama-lane-e2e.md) |
+| 10 | Fehlerpfad: Retry, Backoff, Fallback, Dead-Letter, Abbruch | gemergt (PR #25) | extern, Owner bestimmt | [10-fehlerpfade.md](10-fehlerpfade.md) |
+| 11 | Themebare Oberflaeche und lokaler Chat | gemergt (PR #26) | extern, Owner bestimmt | [11](11-ui.md) |
+| 12 | Reinraum-Image und Lane Claude | gemergt (PR #27) | Claude | [12](12-reinraum-lane-claude.md) |
+| 13 | Lane Codex | gemergt (PR #28) | Codex | [13](13-lane-codex.md) |
+| 14 | Wissens-DB-Anbindung | gemergt (PR #29) | Claude | [14](14-wissens-db-anbindung.md) |
+| 15 | Login, Tailnet-Bindung, Haertung | gemergt (PR #30) | Codex | [15](15-login-tailnet-haertung.md) |
+| 16 | Betrieb: systemd, Backup, Aufbewahrung, Restore-Probe | gemergt (PR #31) | Claude | [16](16-betrieb.md) |
+| 17 | Audit-Ansicht, Worker-Gesundheit, Login-Ablauf-Warnung | gemergt (PR #32) | Codex | [17](17-audit-worker-gesundheit.md) |
+| 18 | Abnahme-Lauf 1.0, SECURITY-Checkliste, Tag v1.0 | Teilstand gemergt (Lasttest #48); kein Tag v1.0 | Claude | [18](18-abnahme-1-0.md) |
 | 19, 20 | optional: Lane Cursor, n8n-Webhook, Lane Grok | nicht geplant | – | – |
 
 Die Specs 06, 09 und 11 sind detailliert. Die Specs 12 bis 18 sind kompakter und aus Plan v1.1

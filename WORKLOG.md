@@ -212,5 +212,5 @@ Offen: quality nach dem Push. Kein Merge. Risiko: die Vorab-Freigabe prueft die 
 ## 2026-11-25 02:23 — Cursor — Issue #78 main #101 eingeholt
 
 Merge-Commit von `origin/main` `d900b91` (#101) in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. Beide Staende in Changelog, Koordination, Leaderboard und Worklog. #105: Re-Review 01:51 ok (Auftrag Atik 25.11.2026 02:16), Nachbesserung `f7548d4`, Kurz-Recheck offen.
-Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3786 passed, 140 skipped, 1 Starlette-Warnung, 260.09s. gitleaks 8.30.0 `protect --staged`: keine Funde.
-Offen: gitleaks auf `origin/main..HEAD` nach dem Commit, danach quality, CodeFactor und GitGuardian. Kurz-Recheck. Kein Merge. Risiko: keines aus den Konfliktdateien.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3786 passed, 140 skipped, 1 Starlette-Warnung, 260.09s. gitleaks 8.30.0 auf `origin/main..0c354d1`: 11 Commits, keine Funde.
+Offen: quality, CodeFactor und GitGuardian nach dem Push. Kurz-Recheck. Kein Merge. Risiko: keines aus den Konfliktdateien.

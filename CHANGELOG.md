@@ -4,7 +4,18 @@
 
 Kein Versionstag im Repository (kein `v1.0`). Die folgenden Eintraege liegen auf `main`,
 soweit ein PR genannt und gemergt ist. Gesamt-Abnahme, Inbetriebnahme und Owner-GO fuer
-Runtime-Rollouts bleiben offen.
+Runtime-Rollouts bleiben offen. Der Eintrag zu Issue #78 beschreibt den offenen Entwurf #105.
+
+### Gedaechtnis-Inbox (Issue #78, Entwurf #105)
+
+- `/ui/memory` zeigt die Quarantaene mit Volltext, Herkunft und `privacy_hold`,
+  plus Freigabe, Korrektur und den Leser fuer taskfreie `assistant.*`- und
+  `memory.*`-Zeilen. Offene Zeilen werden zuerst gefiltert und dann gekuerzt;
+  stehen weitere dahinter, steht «weitere vorhanden».
+- `persist` ist eine Vorab-Freigabe nur der angezeigten Deck-Antwort. Der Hash
+  auf diesem Weg ist formal, aus der eben gespeicherten Zeile. Eine Antwort mit
+  `privacy_hold` bleibt in der Quarantaene, damit die Markierung sichtbar bleibt.
+  Die Owner-Zeile bleibt dort. Der alte Satz in `assistant_turns` wird weiter geschrieben.
 
 ### `valid_to` und `superseded_by` leeren (#103, Issue #80)
 
@@ -27,10 +38,11 @@ Runtime-Rollouts bleiben offen.
 
 - Merge 24.11.2026 23:55 CET, `52c690c`.
 - Der Live-Dialog schreibt den Eingang (`ingest_turn`, Kanal `deck_ui`) und die
-  Antwort (`record_deck_reply`) in die Quarantaene. Beide bleiben unfreigegeben.
+  Antwort (`record_deck_reply`) zuerst in die Quarantaene.
 - `include_history` laedt `load_memory_context` statt der letzten acht Saetze.
   `unbewiesen` ist im Prompt etikettiert. `num_ctx` bleibt 4096.
-- `persist` legt weiter eine Zeile in `assistant_turns` an und gibt nichts frei.
+- `persist` legt weiter eine Zeile in `assistant_turns` an. Die Vorab-Freigabe
+  der angezeigten Antwort steht bei Issue #78.
 
 ### Weitblick Stufe 2 und Haertung (#98, #99)
 

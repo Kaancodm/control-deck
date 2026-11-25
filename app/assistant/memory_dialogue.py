@@ -1,9 +1,13 @@
 """Live dialogue on the topic thread (M1b).
 
 The deck UI writes the owner line with ``ingest_turn`` and the answer with
-``record_deck_reply``. Both stay quarantined. When history is requested, the
-prompt comes from ``load_memory_context`` for target ``ollama`` only. This path
-never selects ``codex`` or a cloud target; those filters stay inside the loader.
+``record_deck_reply``. Both start quarantined. ``persist`` is a pre-approval of
+the displayed deck answer. The hash on that path is formal: sha256 of the row
+just saved. A reply with ``privacy_hold`` is not approved, so the mark stays
+visible in quarantine. The owner line always stays quarantined. When history
+is requested, the prompt comes from ``load_memory_context`` for target
+``ollama`` only. This path never selects ``codex`` or a cloud target; those
+filters stay inside the loader.
 """
 
 from __future__ import annotations
@@ -24,9 +28,10 @@ from app.assistant.dialogue import (
 )
 from app.assistant.errors import AssistantError
 from app.assistant.text import MESSAGE_MAX, bounded, require_data_class
+from app.memory.approval import decide_message, message_shown_bytes, shown_sha256
 from app.memory.context import MemoryContext, load_memory_context
 from app.memory.ingest import IngestOutcome, ingest_turn, record_deck_reply
-from app.memory.models import AssistantThread, ThreadLink
+from app.memory.models import AssistantMessage, AssistantThread, ThreadLink
 from app.memory.policy import ConversationError, class_admits
 
 # Local loopback or the mock. Cloud targets and codex are not chosen here.
@@ -111,8 +116,9 @@ def conduct_dialogue(
     external_thread_id: str,
     persist: bool,
     on_chunk: Callable[[str], None] | None = None,
+    session_token: str | None = None,
 ) -> DialogueReply:
-    """Answer, then store the exchange in quarantine. ``persist`` still writes the legacy row."""
+    """Answer and store the exchange. ``persist`` pre-approves an unmarked reply."""
     external = normalize_external_thread_id(external_thread_id)
     checked = require_data_class(data_class)
     cleaned = bounded(message, limit=MESSAGE_MAX)
@@ -147,10 +153,54 @@ def conduct_dialogue(
         reply_outcome = record_deck_reply(session, inbound_message_id=inbound_id, text=reply.answer)
     except ConversationError as exc:
         raise _as_assistant_error(exc.code) from None
-    _require_accepted(reply_outcome)
+    reply_id = _require_accepted(reply_outcome)
     if persist:
+        displayed = session.get(AssistantMessage, reply_id)
+        if displayed is None:
+            raise ConversationError("not_found")
+        # A hold stays visible in quarantine. The inbox click can still approve it.
+        if displayed.privacy_hold is None:
+            if session_token is None:
+                raise ConversationError("owner_session_required")
+            approve_displayed_reply(
+                session,
+                displayed.id,
+                session_token=session_token,
+                shown_sha256_hex=shown_sha256(
+                    message_shown_bytes(displayed, decision="approved", mark_proven=False)
+                ),
+            )
         return store_turn(session, reply, owner_text=cleaned)
     return reply
+
+
+def approve_displayed_reply(
+    session: Session,
+    message_id: uuid.UUID,
+    *,
+    session_token: str,
+    shown_sha256_hex: str,
+) -> AssistantMessage:
+    """Approve one displayed assistant reply. A wrong or stale hash writes nothing.
+
+    The hash is sha256 of :func:`message_shown_bytes` for ``approved`` without
+    ``mark_proven``. On the persist path that digest is computed from the row
+    just saved, then :func:`decide_message` checks the same bytes again. A row
+    that is not an assistant reply is ``not_found`` before that check.
+    ``privacy_hold`` is not cleared; the caller skips this function when a hold
+    is set.
+    """
+    message = session.get(AssistantMessage, message_id)
+    if message is None or message.role != "assistant":
+        raise ConversationError("not_found")
+    return decide_message(
+        session,
+        message.id,
+        decision="approved",
+        session_token=session_token,
+        shown_sha256_hex=shown_sha256_hex,
+        mark_proven=False,
+    )
 
 
 def _ensure_thread_admits(session: Session, thread_id: uuid.UUID | None, data_class: str) -> None:

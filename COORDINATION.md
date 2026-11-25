@@ -34,10 +34,11 @@ Regeln: siehe `AGENTS.md`.
 | Weitblick Stufe 2 | Builder | `feat/weitblick-stufe2` | #98 | erledigt (gemergt, 979b89b, mergedAt 2026-11-24T12:44:16Z, mergedBy Kaancodm) | 24.11.2026 |
 | Weitblick Stufe 2 Haertung | Builder | `feat/weitblick-stufe2-haertung` | #99 | erledigt (gemergt, 75318c9, mergedAt 2026-11-24T19:32:53Z, mergedBy Kaancodm) | 24.11.2026 |
 | Stand nach `alle em` | Grok Bot | `cursor/stand-docs-07b0` | #100 | geschlossen, nicht gemergt (closedAt 2026-11-24T22:55:40Z, Kaan em) | 25.11.2026 |
+| Steuerdateien auf Stand von main | Builder | `docs/steuerdateien-stand-99` | #101 | erledigt (gemergt, d900b91) | 25.11.2026 |
 | M1b Dialog-Thread #77 | Cursor Cloud Agent | `cursor/m1b-dialog-thread-f58e` | #102 | erledigt (gemergt, 52c690c, mergedAt 2026-11-24T22:55:31Z, mergedBy Kaancodm) | 25.11.2026 |
 | Auftragsfreie Redaktion #76 | Cursor Cloud Agent | `cursor/order-free-redaction-60ba` | #104 | erledigt (gemergt, e771dc4, mergedAt 2026-11-24T23:13:40Z, mergedBy Kaancodm) | 25.11.2026 |
 | Issue #80 valid_to und superseded_by leeren | Cursor Cloud Agent | `cursor/80-korrektur-leeren-0407` | #103 | erledigt (gemergt, 5d1de27, mergedAt 2026-11-25T00:24:01Z, mergedBy Kaancodm) | 25.11.2026 |
-| Gedaechtnis-Inbox #78 | Cursor Cloud Agent | `cursor/78-deck-gedaechtnis-a1b0` | #105 | Entwurf gegen main, Fix gepusht (`5d3ef3a`), HEAD `d03211f`, Re-Review offen | 25.11.2026 |
+| Gedaechtnis-Inbox #78 | Cursor Cloud Agent | `cursor/78-deck-gedaechtnis-a1b0` | #105 | Entwurf gegen main, Re-Review 01:51 ok, Nachbesserung `f7548d4`, Kurz-Recheck offen, nicht gemergt | 25.11.2026 |
 
 ## deck-server
 

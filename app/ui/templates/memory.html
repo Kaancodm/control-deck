@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% block title %}Gedächtnis · Control Deck{% endblock %}
+{% block crumb %}Gedächtnis{% endblock %}
+{% block content %}
+<h1>Gedächtnis</h1>
+<p>Quarantäne zeigt den vollen Text. Jeder Klick prüft die gezeigten Bytes und die Owner-Sitzung. Leeren und ein Entscheidwechsel sind zwei Korrekturen.</p>
+<p>Plan-Code <code>unknown_source</code>: Unbekanntes Konto, Konto inaktiv, Umschlag ungültig. <code>deck_ui</code> darf jede Datenklasse wählen, auch ohne Blockliste.</p>
+
+{% if confirm is defined and confirm %}
+<section class="panel" aria-label="Bestätigung">
+  <h2>Bestätigung</h2>
+  <p>Diese Bytes werden mit dem Klick freigegeben. Ein anderer Wert braucht eine neue Vorschau.</p>
+  <pre class="shown-bytes">{{ confirm.shown }}</pre>
+  <form action="/ui/memory/act" method="post" class="inline-form">
+    {% include 'partials/csrf.html' %}
+    <input type="hidden" name="kind" value="{{ confirm.kind }}">
+    <input type="hidden" name="action" value="{{ confirm.action }}">
+    <input type="hidden" name="shown_sha256" value="{{ confirm.digest }}">
+    {% if confirm.kind == 'thread' %}
+    <input type="hidden" name="title" value="{{ confirm.title }}">
+    <input type="hidden" name="data_class" value="{{ confirm.data_class }}">
+    <button>Thema anlegen</button>
+    {% else %}
+    <input type="hidden" name="target" value="{{ confirm.target }}">
+    <input type="hidden" name="decision" value="{{ confirm.decision }}">
+    {% if confirm.mark_proven %}<input type="hidden" name="mark_proven" value="yes">{% endif %}
+    <input type="hidden" name="valid_to" value="{{ confirm.valid_to }}">
+    <input type="hidden" name="superseded_by" value="{{ confirm.superseded_by }}">
+    <button>Korrektur speichern</button>
+    {% endif %}
+  </form>
+</section>
+{% endif %}
+
+{% macro show_card(card) %}
+<article class="panel{% if card.hold_code %} memory-hold{% endif %}" id="{{ card.anchor }}">
+  <h3>{{ card.heading }}</h3>
+  {% if card.hold_label %}<p class="hold-label">Markierte Quarantäne: {{ card.hold_label }}</p>{% endif %}
+  <ul class="chip-row">{% for label, value in card.chips %}<li class="chip"><span>{{ label }}</span> {{ value }}</li>{% endfor %}</ul>
+  {% if card.valid_to %}<p>Gilt bis {{ card.valid_to }}</p>{% endif %}
+  {% if card.superseded_by %}<p>Nachfolger {{ card.superseded_by }}</p>{% endif %}
+  <pre>{{ card.text }}</pre>
+  <div class="memory-actions">
+    {% for action in card.actions %}
+    <form action="/ui/memory/act" method="post" class="inline-form">
+      {% include 'partials/csrf.html' %}
+      <input type="hidden" name="kind" value="{{ action.kind }}">
+      <input type="hidden" name="action" value="{{ action.action }}">
+      <input type="hidden" name="target" value="{{ action.target }}">
+      <input type="hidden" name="decision" value="{{ action.decision }}">
+      {% if action.mark_proven %}<input type="hidden" name="mark_proven" value="yes">{% endif %}
+      {% if action.clear_valid_to %}<input type="hidden" name="clear_valid_to" value="yes">{% endif %}
+      {% if action.clear_superseded_by %}<input type="hidden" name="clear_superseded_by" value="yes">{% endif %}
+      <input type="hidden" name="shown_sha256" value="{{ action.digest }}">
+      <pre class="shown-bytes">{{ action.shown }}</pre>
+      <button class="quiet">{{ action.label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% if card.propose %}
+  <details>
+    <summary>Faktum vorschlagen</summary>
+    <form action="/ui/memory/propose" method="post" class="form-stack">
+      {% include 'partials/csrf.html' %}
+      <input type="hidden" name="source_message_id" value="{{ card.source_id }}">
+      <label for="sentence-{{ card.anchor }}">Satz</label>
+      <textarea id="sentence-{{ card.anchor }}" name="original_sentence" required maxlength="4000" rows="2"></textarea>
+      <label for="subject-{{ card.anchor }}">Subjekt</label>
+      <input id="subject-{{ card.anchor }}" name="subject" required maxlength="200">
+      <label for="predicate-{{ card.anchor }}">Prädikat</label>
+      <input id="predicate-{{ card.anchor }}" name="predicate" required maxlength="200">
+      <label for="object-{{ card.anchor }}">Objekt</label>
+      <input id="object-{{ card.anchor }}" name="object" required maxlength="1000">
+      <button class="quiet">Faktum speichern</button>
+    </form>
+  </details>
+  {% endif %}
+  {% if card.bounds %}
+  <details>
+    <summary>Neue Grenze</summary>
+    <p>Setzt <code>valid_to</code> oder den Nachfolger. Leeren ist der Knopf darüber, ein eigener Aufruf.</p>
+    <form action="/ui/memory/preview" method="post" class="form-stack">
+      {% include 'partials/csrf.html' %}
+      <input type="hidden" name="kind" value="fact">
+      <input type="hidden" name="target" value="{{ card.source_id }}">
+      <label for="decision-{{ card.anchor }}">Entscheid</label>
+      <select id="decision-{{ card.anchor }}" name="decision">
+        <option value="approved">Freigegeben</option>
+        <option value="rejected">Abgelehnt</option>
+      </select>
+      <label class="check"><input type="checkbox" name="mark_proven" value="yes"> Als bewiesen</label>
+      <label for="until-{{ card.anchor }}">Gilt bis, ISO-Zeit mit Zeitzone</label>
+      <input id="until-{{ card.anchor }}" name="valid_to" value="{{ card.valid_to }}" placeholder="2026-01-02T00:00:00Z">
+      <label for="next-{{ card.anchor }}">Nachfolger</label>
+      <input id="next-{{ card.anchor }}" name="superseded_by" value="">
+      <button class="quiet">Vorschau der Grenze</button>
+    </form>
+  </details>
+  {% endif %}
+</article>
+{% endmacro %}
+
+<section id="quarantaene" aria-label="Quarantäne">
+  <h2>Quarantäne</h2>
+  {% for card in desk.quarantine %}{{ show_card(card) }}{% else %}<p>Keine Zeile in der Quarantäne.</p>{% endfor %}
+  {% if desk.quarantine_more %}<p>weitere vorhanden</p>{% endif %}
+</section>
+
+<section id="fakten" aria-label="Vorgeschlagene Fakten">
+  <h2>Vorgeschlagene Fakten</h2>
+  {% for card in desk.facts %}{{ show_card(card) }}{% else %}<p>Keine vorgeschlagenen Fakten.</p>{% endfor %}
+  {% if desk.facts_more %}<p>weitere vorhanden</p>{% endif %}
+</section>
+
+<section id="themen" aria-label="Vorgeschlagene Themen">
+  <h2>Vorgeschlagene Themen</h2>
+  {% for card in desk.topics %}{{ show_card(card) }}{% else %}<p>Keine vorgeschlagenen Themen.</p>{% endfor %}
+  {% if desk.topics_more %}<p>weitere vorhanden</p>{% endif %}
+  <article class="panel">
+    <h3>Eigenes Thema</h3>
+    <form action="/ui/memory/preview" method="post" class="form-stack">
+      {% include 'partials/csrf.html' %}
+      <input type="hidden" name="kind" value="thread">
+      <label for="topic-title">Titel</label>
+      <input id="topic-title" name="title" required maxlength="200">
+      <label for="topic-class">Datenklasse</label>
+      <select id="topic-class" name="data_class">
+        {% for value, label in data_class_labels.items() %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="quiet">Vorschau des Themas</button>
+    </form>
+  </article>
+</section>
+
+<section id="verknuepfungen" aria-label="Vorgeschlagene Verknüpfungen">
+  <h2>Vorgeschlagene Verknüpfungen</h2>
+  {% for card in desk.links %}{{ show_card(card) }}{% else %}<p>Keine vorgeschlagenen Verknüpfungen.</p>{% endfor %}
+  {% if desk.links_more %}<p>weitere vorhanden</p>{% endif %}
+</section>
+
+<section id="korrektur" aria-label="Korrektur">
+  <h2>Korrektur</h2>
+  <p>Ein Entscheidwechsel lässt <code>valid_to</code> und den Nachfolger stehen. Leeren ist ein zweiter Klick.</p>
+  {% for card in desk.corrections %}{{ show_card(card) }}{% else %}<p>Nichts zu korrigieren.</p>{% endfor %}
+</section>
+{% endblock %}

@@ -160,11 +160,29 @@ Merge-Commit von `origin/main` `52c690c` (#102) in `cursor/80-korrektur-leeren-0
 Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3761 passed, 143 skipped, 1 Starlette-Warnung, 249.49s.
 Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.
 
+## 2026-11-25 00:10 — Cursor — Issue #78 Gedaechtnis-Inbox
+
+Branch `cursor/78-deck-gedaechtnis-a1b0`, Entwurf PR #105, Basis `cursor/80-korrektur-leeren-0407`, gestapelt auf #103. `/ui/memory`. Vertrag von `clear_fact_bounds` unveraendert. `persist` gibt die Deck-Antwort nicht frei; die Freigabe sitzt in der Inbox.
+Check: `make lint` Exit 0. `pytest` 3769 passed, 140 skipped, 252.06s. gitleaks 8.30.0 keine Funde.
+Offen: Entwurf bis Security, Codequalitaet und Plan-Passung. Kein Merge.
+
 ## 2026-11-25 00:21 — Cursor — Issue #80 main #104 eingeholt
 
 Merge-Commit von `origin/main` `e771dc4` (#104) in `cursor/80-korrektur-leeren-0407`. Kein Rebase, kein Force-Push. Stand von #102 und #104 aus main, Stand von #103 bleibt. Cursor bleibt gelb.
 Check: `make lint` Exit 0 (ruff, 482 formatiert, mypy 168, check_rules). `pytest` gegen `controldeck_test`: 3762 passed, 143 skipped, 1 Starlette-Warnung, 251.43s.
 Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: keines aus den Konfliktdateien.
+
+## 2026-11-25 00:39 — Cursor — Issue #78 Basis nachgezogen
+
+Merge-Commit von `origin/cursor/80-korrektur-leeren-0407` `f39b0d0` in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. `clear_fact_bounds` unveraendert. `source_rejected` bleibt ein UI-Code und schreibt nichts. `persist` gibt die Deck-Antwort nicht frei.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3780 passed, 140 skipped, 1 Starlette-Warnung, 264.06s. gitleaks 8.30.0 auf `origin/cursor/80-korrektur-leeren-0407..HEAD` mit `-m`: 4 Commits, keine Funde.
+Offen: Entwurf, quality nach dem Push, drei Reviews. Kein Merge. Risiko: Freigabe nur ueber `/ui/memory`.
+
+## 2026-11-25 01:14 — Cursor — Issue #78 F5 und Inbox
+
+`persist` gibt nur die angezeigte Deck-Antwort frei, ueber sha256 der gezeigten Bytes. Ein falscher oder veralteter Hash schreibt nichts. Ohne `persist` bleibt der Tausch in Quarantaene. `privacy_hold` bleibt gesetzt. Die Inbox filtert `quarantined` und `proposed`, bevor sie auf 30 kuerzt, und zeigt «weitere vorhanden».
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3784 passed, 140 skipped, 1 Starlette-Warnung, 256.63s. gitleaks 8.30.0 auf `origin/cursor/80-korrektur-leeren-0407..HEAD` mit `-m`: 5 Commits, keine Funde.
+Offen: quality nach dem Push, drei Reviews. Kein Merge. Risiko: die Owner-Zeile bleibt in der Quarantaene.
 
 ## 2026-11-25 01:29 — Builder — main in #101 nachziehen
 
@@ -173,8 +191,32 @@ Merge-Commit von `origin/main` `5d1de27` in `docs/steuerdateien-stand-99`. Kein 
 Check: `uv run ruff check --no-cache .`, `ruff format --check`, `mypy app/`, `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 86.84s.
 Offen: #105 in Arbeit, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja, Abnahme und Tag v1.0. Kein Merge von #101.
 
+## 2026-11-25 01:30 — Cursor — Issue #78 main eingeholt
+
+Merge-Commit von `origin/main` `5d1de27` (#103) in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. Basis von #105 wird main. F5 und die Inbox-Kappung bleiben.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3784 passed, 140 skipped, 1 Starlette-Warnung, 258.63s. gitleaks 8.30.0 auf `origin/main..HEAD` mit `-m`: 14 Commits, keine Funde.
+Offen: quality nach dem Push, drei Reviews. Kein Merge. Risiko: keines aus den Konfliktdateien.
+
 ## 2026-11-25 01:46 — Builder — #105-Stand und #83-Zeit in #101
 
 #105-HEAD mit `gh pr view 105` geprueft: `d03211f` (Fix `5d3ef3a`, danach Merge von main). Entwurf gegen main, Re-Review offen. In `CLAUDE.md`, `COORDINATION.md` und `docs/STAND.md` nachgezogen. #83-Mergezeit auf 20:12 CET (mergedAt 2026-11-10T19:12:00Z). STAND-Titel auf 25.11.2026.
 Check: ruff, format, mypy und `scripts/check_rules.py` Exit 0. `uv run pytest`: 2815 passed, 1090 skipped, 1 Starlette-Warnung, 84.95s.
 Offen: Re-Review von #105, Weitblick-Schritte 1 bis 4 nicht ausgefuehrt, Schritt 5 und S-K80 ohne Ja. Kein Merge von #101.
+
+## 2026-11-25 02:04 — Cursor — Issue #78 persist und Markierung
+
+`persist` gibt eine Antwort mit `privacy_hold` nicht frei; die Markierung bleibt in der Quarantaene sichtbar. Der Hash auf diesem Weg ist formal, aus der eben gespeicherten Zeile. Ein falscher Hash auf eine Nicht-Antwort bleibt `not_found`. `_act` ist in kurze Funktionen geteilt.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3786 passed, 140 skipped, 1 Starlette-Warnung, 261.01s. gitleaks 8.30.0 `protect --staged`: keine Funde.
+Offen: quality nach dem Push. Kein Merge. Risiko: die Vorab-Freigabe prueft die Bytes nicht in einem zweiten Blick.
+
+## 2026-11-25 02:23 — Cursor — Issue #78 main #101 eingeholt
+
+Merge-Commit von `origin/main` `d900b91` (#101) in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. Beide Staende in Changelog, Koordination, Leaderboard und Worklog. #105: Re-Review 01:51 ok (Auftrag Atik 25.11.2026 02:16), Nachbesserung `f7548d4`, Kurz-Recheck offen.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3786 passed, 140 skipped, 1 Starlette-Warnung, 260.09s. gitleaks 8.30.0 auf `origin/main..0c354d1`: 11 Commits, keine Funde.
+Offen: quality, CodeFactor und GitGuardian nach dem Push. Kurz-Recheck. Kein Merge. Risiko: keines aus den Konfliktdateien.
+
+## 2026-11-25 02:35 — Cursor — Issue #78 CI nach main #101
+
+Geprueft auf `78dab07`. quality pass, 7m28s, Lauf 45525590936. CodeFactor pass. GitGuardian pass. `mergeable` MERGEABLE, Entwurf bleibt.
+Check: `gh pr checks 105`.
+Offen: Kurz-Recheck. Kein Merge. Risiko: keines aus diesem Lauf.

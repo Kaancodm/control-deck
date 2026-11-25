@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import re
 import threading
 import time
 import uuid
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.assistant.dialogue import DialogueReply
 from app.assistant.errors import MODEL_BUSY_CODE, MODEL_BUSY_TEXT, AssistantError
 from app.assistant.memory_dialogue import conduct_dialogue
+from app.memory.policy import ConversationError
 
 _log = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ _MAX_FINISHED = 64
 _MAX_QUEUED = 16
 _TURN_TTL_S = 600.0
 _QUEUE_FULL_CODE = "assistant_model_unavailable"
+_SAFE_CODE = re.compile(r"^[a-z][a-z0-9_]{0,48}\Z")
 
 
 @dataclass
@@ -57,6 +60,7 @@ class _DialogueWorkItem:
     include_history: bool
     external_thread_id: str
     persist: bool
+    session_token: str | None = field(default=None, repr=False)
 
 
 def _ensure_worker() -> None:
@@ -156,6 +160,7 @@ def start_dialogue_turn(
     include_history: bool,
     external_thread_id: str,
     persist: bool,
+    session_token: str | None = None,
 ) -> str:
     turn_id = str(uuid.uuid4())
     job = DialogueTurnJob(turn_id=turn_id)
@@ -179,6 +184,7 @@ def start_dialogue_turn(
             include_history=include_history,
             external_thread_id=external_thread_id,
             persist=persist,
+            session_token=session_token,
         )
     )
     return turn_id
@@ -208,6 +214,7 @@ def _run_turn(item: _DialogueWorkItem) -> None:
             external_thread_id=item.external_thread_id,
             persist=item.persist,
             on_chunk=on_chunk,
+            session_token=item.session_token,
         )
         # Quarantine rows are written even when the legacy persist flag is off.
         session.commit()
@@ -221,6 +228,12 @@ def _run_turn(item: _DialogueWorkItem) -> None:
         session.rollback()
         with _cond:
             _set_job_error(job, exc.code)
+            _notify_all()
+    except ConversationError as exc:
+        session.rollback()
+        code = exc.code if _SAFE_CODE.fullmatch(exc.code) else "assistant_input"
+        with _cond:
+            _set_job_error(job, code)
             _notify_all()
     except Exception:
         session.rollback()

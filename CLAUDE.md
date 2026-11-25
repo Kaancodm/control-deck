@@ -16,7 +16,9 @@ PR #99 seit 24.11.2026 20:32 CET auf main (`75318c9`).
 Entwurf M1b mergen ist erledigt: PR #102 seit 24.11.2026 23:55 CET auf main (`52c690c`).
 PR #104 (Issue #76, auftragsfreie Redaktion) seit 25.11.2026 00:13 CET auf main (`e771dc4`).
 PR #103 (Issue #80, `valid_to` und `superseded_by` leeren) seit 25.11.2026 01:24 CET auf main (`5d1de27`).
-#105 (Issue #78) ist Entwurf gegen main, HEAD `d03211f`. Fix fuer Blocker F5 (`persist` gibt die angezeigte Deck-Antwort per Hash frei) und Soll Inbox-Limit (Status-Filter vor Limit) ist gepusht (`5d3ef3a`), danach Merge von main. Re-Review durch den Code-Pruefer ist offen. Quelle: `gh pr view` 98, 99, 100, 102, 103, 104 und 105.
+#101 (Steuerdateien) ist mit `d900b91` auf main.
+#105 (Issue #78) ist Entwurf gegen main. Re-Review 01:51 ok (Auftrag Atik 25.11.2026 02:16).
+Nachbesserung `f7548d4`: eine Antwort mit `privacy_hold` bleibt in der Quarantaene, die Doku nennt den Hash als formale Vorab-Freigabe, die Testluecke am falschen Hash ist geschlossen, eigener CHANGELOG-Eintrag. Danach ist ein Kurz-Recheck offen.
 
 # CLAUDE.md
 

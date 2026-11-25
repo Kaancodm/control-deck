@@ -15,6 +15,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from app.core.schemas import ErrorCode, Worker
 from app.db.state_machine import TaskState, TaskTransition
+from app.memory.reasons import CONVERSATION_REASONS, HOLD_CODES
 
 TASK_EVENT_TYPES = frozenset(
     {f"task.{trigger.value}" for trigger in TaskTransition}
@@ -60,13 +61,30 @@ _COUNT_KEYS = frozenset(
     {"tasks", "files", "maps", "snapshots", "backups", "bytes", "rows", "sessions"}
 )
 _DIGEST = re.compile(r"[a-f0-9]{64}\Z")
+_CONVERSATION_EVENT = re.compile(r"^(assistant|memory)\.[a-z][a-z0-9_]{0,48}\Z")
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
+_REF_KEYS = frozenset(
+    {
+        "message_id",
+        "existing_message_id",
+        "reply_for_message_id",
+        "fact_id",
+        "thread_id",
+        "link_id",
+        "approval_id",
+        "corrects_approval_id",
+    }
+)
+_DIGEST_KEYS = frozenset({"text_sha256", "shown_sha256", "existing_text_sha256"})
+_DECISIONS = frozenset({"approved", "rejected"})
+_EVIDENCE = frozenset({"unbewiesen", "bewiesen", "abgelehnt"})
 
 
 class AuditFilter(BaseModel):
     """Bound a single read/export page; dates are inclusive lower/exclusive upper."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    source: Literal["all", "task", "operation", "auth"] = "all"
+    source: Literal["all", "task", "operation", "auth", "conversation"] = "all"
     event_type: str | None = None
     actor: Literal["system", "operator", "runner"] | None = None
     lane: Worker | None = None
@@ -84,7 +102,11 @@ class AuditFilter(BaseModel):
             | {f"operation.{value}" for value in OPERATION_TYPES}
         )
         if self.event_type is not None and self.event_type not in allowed:
-            raise ValueError("Unknown audit event type")
+            conversation = self.source == "conversation" and _CONVERSATION_EVENT.fullmatch(
+                self.event_type
+            )
+            if not conversation:
+                raise ValueError("Unknown audit event type")
         if self.since is not None and self.until is not None and self.since >= self.until:
             raise ValueError("Audit interval must be increasing")
         return self
@@ -94,7 +116,7 @@ class AuditItem(BaseModel):
     """A deliberately small projection; never serialize ORM records directly."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    source: Literal["task", "operation", "auth"]
+    source: Literal["task", "operation", "auth", "conversation"]
     id: int | UUID
     created_at: datetime
     event_type: str
@@ -110,6 +132,13 @@ class AuditItem(BaseModel):
     error_code: ErrorCode | None = None
     payload_sha256: str | None = None
     counts: dict[str, int] = Field(default_factory=dict)
+    privacy_hold: str | None = None
+    decision: str | None = None
+    evidence_status: str | None = None
+    refs: dict[str, str] = Field(default_factory=dict)
+    digests: dict[str, str] = Field(default_factory=dict)
+    cleared_valid_to: bool = False
+    cleared_superseded_by: bool = False
 
 
 class AuditPage(BaseModel):
@@ -127,7 +156,7 @@ def _member(value: object, allowed: frozenset[str]) -> str | None:
 def project_record(record: Mapping[str, object]) -> AuditItem:
     """Drop unknown actor/type/reason values instead of rendering database text."""
     source = record["source"]
-    if source not in ("task", "operation", "auth"):
+    if source not in ("task", "operation", "auth", "conversation"):
         raise ValueError("Unknown audit record source")
     detail = record.get("detail")
     detail = detail if isinstance(detail, dict) else {}
@@ -137,7 +166,6 @@ def project_record(record: Mapping[str, object]) -> AuditItem:
         if isinstance(worker, str) and worker in {item.value for item in Worker}
         else None
     )
-    reason = _member(detail.get("reason"), _SAFE_REASONS)
     error = _member(detail.get("error_code") or detail.get("code"), frozenset(ErrorCode))
     digest = detail.get("payload_sha256") or detail.get("sha256")
     digest = digest if isinstance(digest, str) and _DIGEST.fullmatch(digest) else None
@@ -152,7 +180,42 @@ def project_record(record: Mapping[str, object]) -> AuditItem:
     allowed_types = (
         TASK_EVENT_TYPES | AUTH_EVENT_TYPES | {f"operation.{value}" for value in OPERATION_TYPES}
     )
-    event_type = _member(event_type, allowed_types) or "unknown"
+    if source == "conversation":
+        event_type = (
+            event_type
+            if isinstance(event_type, str) and _CONVERSATION_EVENT.fullmatch(event_type)
+            else "unknown"
+        )
+    else:
+        event_type = _member(event_type, allowed_types) or "unknown"
+    hold = detail.get("privacy_hold") if source == "conversation" else None
+    hold = hold if isinstance(hold, str) and hold in HOLD_CODES else None
+    decision = detail.get("decision") if source == "conversation" else None
+    decision = decision if isinstance(decision, str) and decision in _DECISIONS else None
+    evidence = detail.get("evidence_status") if source == "conversation" else None
+    evidence = evidence if isinstance(evidence, str) and evidence in _EVIDENCE else None
+    refs = (
+        {
+            key: value
+            for key, value in detail.items()
+            if key in _REF_KEYS and isinstance(value, str) and _UUID.fullmatch(value)
+        }
+        if source == "conversation"
+        else {}
+    )
+    digests = (
+        {
+            key: value
+            for key, value in detail.items()
+            if key in _DIGEST_KEYS and isinstance(value, str) and _DIGEST.fullmatch(value)
+        }
+        if source == "conversation"
+        else {}
+    )
+    reason_codes = _SAFE_REASONS | (
+        CONVERSATION_REASONS if source == "conversation" else frozenset()
+    )
+    reason = _member(detail.get("reason"), reason_codes)
     attempt = record.get("attempt")
     attempt = attempt if type(attempt) is int and 0 <= attempt <= 5 else None
     return AuditItem.model_validate(
@@ -173,6 +236,15 @@ def project_record(record: Mapping[str, object]) -> AuditItem:
             "error_code": error,
             "payload_sha256": digest,
             "counts": counts,
+            "privacy_hold": hold,
+            "decision": decision,
+            "evidence_status": evidence,
+            "refs": refs,
+            "digests": digests,
+            "cleared_valid_to": source == "conversation" and detail.get("cleared_valid_to") is True,
+            "cleared_superseded_by": (
+                source == "conversation" and detail.get("cleared_superseded_by") is True
+            ),
         }
     )
 
@@ -209,6 +281,13 @@ def audit_csv(items: Iterable[AuditItem]) -> str:
         "error_code",
         "payload_sha256",
         "counts",
+        "privacy_hold",
+        "decision",
+        "evidence_status",
+        "refs",
+        "digests",
+        "cleared_valid_to",
+        "cleared_superseded_by",
     )
     writer.writerow(columns)
     for index, item in enumerate(items):
@@ -216,5 +295,9 @@ def audit_csv(items: Iterable[AuditItem]) -> str:
             raise ValueError("Audit export is limited to one page")
         data = item.model_dump(mode="json")
         data["counts"] = json.dumps(item.counts, sort_keys=True)
+        data["refs"] = json.dumps(item.refs, sort_keys=True)
+        data["digests"] = json.dumps(item.digests, sort_keys=True)
+        data["cleared_valid_to"] = "true" if item.cleared_valid_to else ""
+        data["cleared_superseded_by"] = "true" if item.cleared_superseded_by else ""
         writer.writerow(csv_cell(data[name]) for name in columns)
     return buffer.getvalue()

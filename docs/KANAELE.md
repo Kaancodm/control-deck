@@ -510,31 +510,40 @@ Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
 
 Der Live-Dialog schreibt den Eingang mit `ingest_turn` (Kanal `deck_ui`, Konto
 `owner`, Methode `deck_ui`) und die Antwort mit `record_deck_reply`. Beide
-bleiben `quarantined`. Ist `include_history` gesetzt, kommt der Prompt aus
+starten `quarantined`. Ist `include_history` gesetzt, kommt der Prompt aus
 `load_memory_context(thread, "ollama", data_class)` statt aus den letzten acht
 `assistant_turns`. Nur freigegebene Zeilen; `unbewiesen` steht sichtbar im
 Prompt. Klassenfilter, `codex` und `privacy_hold` bleiben im Lader. Das
 Dialogziel ist `ollama` (Loopback oder Mock), kein Cloud-Ziel. Ohne aktiven
 Link ist der Thread leer. Die Aussen-Kennung kommt aus dem Feld, sonst `deck`.
-`num_ctx` bleibt 4096. `persist` schreibt weiter `assistant_turns` und gibt die
-Antwort nicht frei. Die Freigabe-Oberflaeche bleibt M2.
+`num_ctx` bleibt 4096. `persist` schreibt weiter `assistant_turns`. Das
+Kaestchen ist eine Vorab-Freigabe der angezeigten Deck-Antwort, ohne zweiten
+Klick. Der Hash auf diesem Weg ist formal: er wird aus der eben gespeicherten
+Zeile berechnet (`memory-shown.v1`, Entscheid `approved`, ohne `mark_proven`),
+nicht aus einer vom Owner erneut bestaetigten Anzeige. Ein falscher oder
+veralteter Hash gibt nichts frei. Die Owner-Zeile bleibt `quarantined`. Eine
+Antwort mit `privacy_hold` wird nicht freigegeben und bleibt in der
+Quarantaene, damit die Markierung sichtbar bleibt.
+
+## M2, Oberflaeche
+
+`/ui/memory` zeigt die Quarantaene mit Volltext, Herkunfts-Chips und der
+Markierung `privacy_hold`. Freigabe und Korrektur laufen ueber `approval.py`
+mit UI-Session und sha256 der gezeigten Bytes. Leeren von `valid_to` oder
+`superseded_by` ist `clear_fact_bounds`, ein Entscheidwechsel bleibt
+`correct_fact`: zwei Klicks, zwei Hashes. Eine abgelehnte Quelle bleibt
+`source_rejected` und schreibt nichts. Das Kaestchen `persist` ist die
+Vorab-Freigabe nur der angezeigten Deck-Antwort; der Hash dort ist formal,
+aus der eben gespeicherten Zeile. Eine Antwort mit `privacy_hold` bleibt in
+der Quarantaene. Die Inbox zeigt offene Zeilen
+zuerst (`quarantined` oder `proposed`) und kuerzt danach. Stehen weitere
+Zeilen dahinter, steht «weitere vorhanden». Der Plan-Code `unknown_source`
+erscheint als `unknown_account`,
+`account_inactive` oder `invalid_envelope`. Die Quelle `conversation` im
+Audit liest taskfreie `assistant.*`- und `memory.*`-Zeilen. `all` blendet
+sie weiter aus. Der Verlauf sortiert nach `seq`, nicht nach `occurred_at`.
 
 ## Nicht in diesem Stand
-
-- **M2, Oberflaeche (Issue #78).** Keine Quarantaene-Inbox, keine Freigabe- und
-  keine Korrektur-Klicks. M2 zeigt `privacy_hold` (`privacy_block`,
-  `blocklist_unavailable`) bei der Freigabe an.
-  Deck-Antworten bleiben `quarantined`, bis M2 entscheidet, ob `persist` sie
-  mit abdeckt oder ein zweiter Klick gilt. Der Plan-Code `unknown_source`
-  erscheint in der UI als `unknown_account`, `account_inactive` oder
-  `invalid_envelope`. Weitere M1-Codes fuer dieselben Labels:
-  `thread_class_block`, `duplicate_body_mismatch`,
-  `secret_rejected`, `data_class_block`, `invalid_method`,
-  `reply_path_required`, `reply_channel`, `reply_target_rejected`,
-  `invalid_reply`, `source_rejected`, `not_decided`, `no_change`,
-  `already_corrected`, `link_conflict`. Die Audit-Auswahl blendet taskfreie
-  Zeilen aus; M2 braucht einen Leser fuer `assistant.*` und `memory.*`.
-  Der Verlauf sortiert nach `seq`, nicht nach `occurred_at`.
 - **M3, Adapter n8n und Kanal `grok`.** Kein Eingang, kein HMAC, kein Versand.
 - **M4, Import-Parser.** `import_file` ist ein Wert im Umschlag. Es gibt keinen
   Parser, der eine Exportdatei in `channel_turn.v1` schreibt. Konten legt der

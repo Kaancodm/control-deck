@@ -15,6 +15,7 @@ from starlette.responses import RedirectResponse, Response
 
 from app.assistant.errors import MODEL_BUSY_CODE, MODEL_BUSY_TEXT
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE, token_digest
+from app.ui.memory_labels import decision_text, digest_label, hold_text, reason_text, ref_label
 
 TEMPLATES = Jinja2Templates(directory=Path(__file__).with_name("templates"))
 STATUS_LABELS = {
@@ -226,6 +227,57 @@ ERROR_MESSAGES: dict[str, tuple[str, str]] = {
         "Der Dienst ist vorübergehend nicht verfügbar.",
         "Kurz warten und neu laden.",
     ),
+    "unknown_account": ("Das Konto ist unbekannt.", "Nur ein angelegtes Konto kann schreiben."),
+    "account_inactive": ("Das Konto ist inaktiv.", "Erst aktivieren, dann erneut senden."),
+    "invalid_envelope": ("Der Umschlag ist ungültig.", "Kanal, Zeit und Herkunft prüfen."),
+    "data_class_block": ("Diese Datenklasse ist hier gesperrt.", "Eine erlaubte Klasse wählen."),
+    "secret_rejected": ("Ein Geheimnis wurde erkannt.", "Nichts wurde gespeichert."),
+    "shown_bytes_mismatch": (
+        "Die Anzeige hat sich geändert.",
+        "Die Seite neu laden und erneut klicken.",
+    ),
+    "owner_session_required": ("Die Owner-Sitzung fehlt.", "Neu anmelden."),
+    "no_change": ("Diese Korrektur ändert nichts.", "Einen anderen Entscheid wählen."),
+    "already_decided": ("Der Entscheid steht schon.", "Die Korrektur verwenden."),
+    "already_corrected": (
+        "Diese Freigabe wurde schon korrigiert.",
+        "Die aktuelle Zeile verwenden.",
+    ),
+    "not_decided": ("Es gibt noch keinen Entscheid.", "Zuerst freigeben oder ablehnen."),
+    "not_found": ("Der Eintrag fehlt.", "Die Seite neu laden."),
+    "invalid_fact": ("Das Faktum ist ungültig.", "Felder und Zeiten prüfen."),
+    "invalid_decision": ("Der Entscheid ist ungültig.", "Freigeben oder ablehnen."),
+    "source_rejected": (
+        "Die Quellnachricht ist abgelehnt.",
+        "Zuerst die Nachricht korrigieren.",
+    ),
+    "invalid_title": ("Der Titel ist ungültig.", "1 bis 200 Zeichen, ohne Geheimnis."),
+    "invalid_data_class": (
+        "Die Datenklasse fehlt oder ist unbekannt.",
+        "Eine der drei Klassen wählen.",
+    ),
+    "thread_not_active": ("Das Thema ist nicht aktiv.", "Zuerst das Thema freigeben."),
+    "link_conflict": (
+        "Für diesen Faden gibt es schon eine Verknüpfung.",
+        "Die andere zuerst lösen.",
+    ),
+    "duplicate": ("Diese Zeile gibt es schon.", "Nichts Neues wurde gespeichert."),
+    "duplicate_body_mismatch": (
+        "Dieselbe Herkunft hat einen anderen Text.",
+        "Nichts wurde überschrieben.",
+    ),
+    "invalid_method": ("Die Methode passt nicht zum Kanal.", "deck_ui nur auf dem Deck."),
+    "reply_path_required": (
+        "Die Deck-Antwort hat einen eigenen Weg.",
+        "Nicht als normalen Turn senden.",
+    ),
+    "reply_channel": ("Auf diesem Kanal gibt es keine Deck-Antwort.", "Nur Deck und Slack."),
+    "reply_target_rejected": (
+        "Die Zielnachricht ist abgelehnt.",
+        "Zuerst die Nachricht korrigieren.",
+    ),
+    "reply_target_missing": ("Die Zielnachricht fehlt.", "Die Seite neu laden."),
+    "invalid_reply": ("Die Antwort ist leer oder zu lang.", "Text prüfen."),
 }
 # Fixed landing page after login and for /ui. There is deliberately no ``next`` parameter.
 HOME_PATH = "/ui/overview"
@@ -255,6 +307,7 @@ NAV_ITEMS: tuple[NavItem, ...] = (
     NavItem("messages", "Meldungen", MESSAGES_HREF, "bell", "control", "Meldungen"),
     NavItem("open", "Offene Punkte", HOME_PATH + "#offen", "list", "control", "Offen"),
     NavItem("chat", "Lokaler Chat", "/ui/chat", "chat", "control"),
+    NavItem("memory", "Gedächtnis", "/ui/memory", "inbox", "control"),
     NavItem("audit", "Audit", "/ui/audit", "shield", "control"),
 )
 _NAV_PREFIXES = tuple(
@@ -276,6 +329,11 @@ def nav_key(path: str) -> str:
 
 
 TEMPLATES.env.globals["nav_items"] = NAV_ITEMS
+TEMPLATES.env.globals["reason_text"] = reason_text
+TEMPLATES.env.globals["hold_text"] = hold_text
+TEMPLATES.env.globals["decision_text"] = decision_text
+TEMPLATES.env.globals["ref_label"] = ref_label
+TEMPLATES.env.globals["digest_label"] = digest_label
 TEMPLATES.env.globals["home_path"] = HOME_PATH
 TEMPLATES.env.globals["status_labels"] = STATUS_LABELS
 TEMPLATES.env.globals["data_class_labels"] = DATA_CLASS_LABELS

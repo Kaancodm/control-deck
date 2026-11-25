@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import cast as type_cast
 
 from sqlalchemy import (
     BigInteger,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     column,
     func,
     literal,
+    or_,
     select,
     table,
     true,
@@ -40,8 +42,50 @@ _OPERATIONS = table(
 )
 
 
+def _conversation_rows() -> Select[Any]:
+    """Taskless assistant and memory rows. They stay out of the task union."""
+    return type_cast(
+        Select[Any],
+        select(
+            literal("conversation").label("source"),
+            cast(Event.id, Text).label("id"),
+            Event.id.label("sort_id"),
+            Event.created_at,
+            Event.event_type,
+            Event.task_id,
+            cast(literal(None), UUID(as_uuid=True)).label("operation_id"),
+            Event.actor,
+            Event.attempt,
+            cast(Event.from_status, Text).label("from_status"),
+            cast(Event.to_status, Text).label("to_status"),
+            cast(literal(None), Text).label("phase"),
+            Event.detail,
+            cast(literal(None), Text).label("lane"),
+        ).where(
+            Event.task_id.is_(None),
+            or_(Event.event_type.like("assistant.%"), Event.event_type.like("memory.%")),
+        ),
+    )
+
+
 def audit_selection(filters: AuditFilter) -> Select[Any]:
     """Build a parameterized selection; source and identifiers are never SQL text."""
+    if filters.source == "conversation":
+        combined = _conversation_rows().subquery()
+        statement = select(combined)
+        if filters.event_type is not None:
+            statement = statement.where(combined.c.event_type == filters.event_type)
+        if filters.actor is not None:
+            statement = statement.where(combined.c.actor == filters.actor)
+        if filters.lane is not None:
+            statement = statement.where(combined.c.lane == filters.lane.value)
+        if filters.task_id is not None:
+            statement = statement.where(combined.c.task_id == filters.task_id)
+        if filters.since is not None:
+            statement = statement.where(combined.c.created_at >= filters.since)
+        if filters.until is not None:
+            statement = statement.where(combined.c.created_at < filters.until)
+        return statement
     tasks = select(
         literal("task").label("source"),
         cast(Event.id, Text).label("id"),

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 
 from app.memory.approval import (
     fact_shown_bytes,
@@ -60,60 +61,112 @@ class MemoryDesk:
     topics: tuple[DeskCard, ...]
     links: tuple[DeskCard, ...]
     corrections: tuple[DeskCard, ...]
+    quarantine_more: bool = False
+    facts_more: bool = False
+    topics_more: bool = False
+    links_more: bool = False
+
+
+def _open_rows[RowT](session: Session, statement: Select[RowT]) -> tuple[list[RowT], bool]:
+    """Filter is already in ``statement``. Read one past the cap so the page can say more exist."""
+    found = list(session.scalars(statement.limit(_LIMIT + 1)))
+    return found[:_LIMIT], len(found) > _LIMIT
 
 
 def load_desk(session: Session) -> MemoryDesk:
-    """Read the inbox. Callers own the transaction; this function does not write."""
-    messages = list(
-        session.scalars(select(AssistantMessage).order_by(AssistantMessage.seq.desc()).limit(80))
+    """Read the inbox. Open rows are filtered before the cap. This function does not write."""
+    messages, quarantine_more = _open_rows(
+        session,
+        select(AssistantMessage)
+        .where(AssistantMessage.state == "quarantined")
+        .order_by(AssistantMessage.seq.desc()),
     )
-    facts = list(
+    proposed_fact_rows, facts_more = _open_rows(
+        session,
+        select(MemoryFact)
+        .where(MemoryFact.status == "proposed")
+        .order_by(MemoryFact.source_date.desc()),
+    )
+    topic_rows, topics_more = _open_rows(
+        session,
+        select(AssistantThread)
+        .where(AssistantThread.status == "proposed")
+        .order_by(AssistantThread.created_at.desc()),
+    )
+    link_rows, links_more = _open_rows(
+        session,
+        select(ThreadLink)
+        .where(ThreadLink.state == "proposed")
+        .order_by(ThreadLink.created_at.desc()),
+    )
+    decided_messages = list(
         session.scalars(
-            select(MemoryFact).order_by(MemoryFact.source_date.desc()).limit(_LIMIT * 2)
+            select(AssistantMessage)
+            .where(AssistantMessage.state.in_(("approved", "rejected")))
+            .order_by(AssistantMessage.seq.desc())
+            .limit(_LIMIT)
         )
     )
-    threads = {
-        row.id: row
-        for row in session.scalars(
-            select(AssistantThread).order_by(AssistantThread.created_at.desc()).limit(80)
+    decided_facts = list(
+        session.scalars(
+            select(MemoryFact)
+            .where(MemoryFact.status.in_(("approved", "rejected")))
+            .order_by(MemoryFact.source_date.desc())
+            .limit(_LIMIT)
         )
-    }
-    links = list(
-        session.scalars(select(ThreadLink).order_by(ThreadLink.created_at.desc()).limit(80))
     )
-    quarantine = tuple(_message_card(row) for row in messages if row.state == "quarantined")[
-        :_LIMIT
-    ]
-    proposed_facts = tuple(_fact_card(row) for row in facts if row.status == "proposed")[:_LIMIT]
-    proposed_topics = tuple(
-        _thread_card(row) for row in threads.values() if row.status == "proposed"
-    )[:_LIMIT]
+    decided_topics = list(
+        session.scalars(
+            select(AssistantThread)
+            .where(AssistantThread.status.in_(("active", "rejected")))
+            .order_by(AssistantThread.created_at.desc())
+            .limit(_LIMIT)
+        )
+    )
+    decided_links = list(
+        session.scalars(
+            select(ThreadLink)
+            .where(ThreadLink.state.in_(("active", "rejected")))
+            .order_by(ThreadLink.created_at.desc())
+            .limit(_LIMIT)
+        )
+    )
+    thread_ids = {row.thread_id for row in (*link_rows, *decided_links)}
+    threads = (
+        {
+            row.id: row
+            for row in session.scalars(
+                select(AssistantThread).where(AssistantThread.id.in_(thread_ids))
+            )
+        }
+        if thread_ids
+        else {}
+    )
     proposed_links = tuple(
         card
-        for row in links
-        if row.state == "proposed" and (card := _link_card(row, threads.get(row.thread_id)))
-    )[:_LIMIT]
+        for row in link_rows
+        if (card := _link_card(row, threads.get(row.thread_id))) is not None
+    )
     corrections = (
-        tuple(_message_card(row) for row in messages if row.state in {"approved", "rejected"})[
-            :_LIMIT
-        ]
-        + tuple(_fact_card(row) for row in facts if row.status in {"approved", "rejected"})[:_LIMIT]
-        + tuple(
-            _thread_card(row) for row in threads.values() if row.status in {"active", "rejected"}
-        )[:_LIMIT]
+        tuple(_message_card(row) for row in decided_messages)
+        + tuple(_fact_card(row) for row in decided_facts)
+        + tuple(_thread_card(row) for row in decided_topics)
         + tuple(
             card
-            for row in links
-            if row.state in {"active", "rejected"}
-            and (card := _link_card(row, threads.get(row.thread_id)))
-        )[:_LIMIT]
+            for row in decided_links
+            if (card := _link_card(row, threads.get(row.thread_id))) is not None
+        )
     )
     return MemoryDesk(
-        quarantine=quarantine,
-        facts=proposed_facts,
-        topics=proposed_topics,
+        quarantine=tuple(_message_card(row) for row in messages),
+        facts=tuple(_fact_card(row) for row in proposed_fact_rows),
+        topics=tuple(_thread_card(row) for row in topic_rows),
         links=proposed_links,
         corrections=corrections,
+        quarantine_more=quarantine_more,
+        facts_more=facts_more,
+        topics_more=topics_more,
+        links_more=links_more,
     )
 
 

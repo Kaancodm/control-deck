@@ -314,7 +314,10 @@ angehaengten Nachricht bleibt nach dem Loesen einer Verknuepfung bestehen.
   laedt den Prompt ueber `load_memory_context`. `evidence_status` `unbewiesen`
   wird im Prompt beschriftet. Das Dialogziel ist `ollama`; `codex` und
   Cloud-Ziele werden auf diesem Pfad nicht gewaehlt. `persist` gibt die
-  Deck-Antwort nicht frei. **M2**
+  angezeigte Deck-Antwort frei, ohne zweiten Klick (Owner-Entscheid 10.11.,
+  F5). Der Hash deckt genau die gezeigten Bytes. Ein falscher oder veralteter
+  Hash schreibt nichts. Die Owner-Zeile bleibt in Quarantaene. `privacy_hold`
+  bleibt gesetzt. **M2**
   (Issue #78) ist die Oberflaeche `/ui/memory`: Quarantaene-Inbox, Freigabe- und
   Korrektur-Klicks, Anzeige von `privacy_hold`, Labels fuer die Grundcodes und
   ein Leser fuer taskfreie `assistant.*`- und `memory.*`-Zeilen (Audit-Quelle

@@ -60,6 +60,7 @@ class _DialogueWorkItem:
     include_history: bool
     external_thread_id: str
     persist: bool
+    session_token: str | None = field(default=None, repr=False)
 
 
 def _ensure_worker() -> None:
@@ -159,6 +160,7 @@ def start_dialogue_turn(
     include_history: bool,
     external_thread_id: str,
     persist: bool,
+    session_token: str | None = None,
 ) -> str:
     turn_id = str(uuid.uuid4())
     job = DialogueTurnJob(turn_id=turn_id)
@@ -182,6 +184,7 @@ def start_dialogue_turn(
             include_history=include_history,
             external_thread_id=external_thread_id,
             persist=persist,
+            session_token=session_token,
         )
     )
     return turn_id
@@ -211,6 +214,7 @@ def _run_turn(item: _DialogueWorkItem) -> None:
             external_thread_id=item.external_thread_id,
             persist=item.persist,
             on_chunk=on_chunk,
+            session_token=item.session_token,
         )
         # Quarantine rows are written even when the legacy persist flag is off.
         session.commit()

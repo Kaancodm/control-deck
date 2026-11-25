@@ -510,14 +510,17 @@ Antwort erbt die Markierung der Owner-Zeile (`privacy_block` vor
 
 Der Live-Dialog schreibt den Eingang mit `ingest_turn` (Kanal `deck_ui`, Konto
 `owner`, Methode `deck_ui`) und die Antwort mit `record_deck_reply`. Beide
-bleiben `quarantined`. Ist `include_history` gesetzt, kommt der Prompt aus
+starten `quarantined`. Ist `include_history` gesetzt, kommt der Prompt aus
 `load_memory_context(thread, "ollama", data_class)` statt aus den letzten acht
 `assistant_turns`. Nur freigegebene Zeilen; `unbewiesen` steht sichtbar im
 Prompt. Klassenfilter, `codex` und `privacy_hold` bleiben im Lader. Das
 Dialogziel ist `ollama` (Loopback oder Mock), kein Cloud-Ziel. Ohne aktiven
 Link ist der Thread leer. Die Aussen-Kennung kommt aus dem Feld, sonst `deck`.
 `num_ctx` bleibt 4096. `persist` schreibt weiter `assistant_turns` und gibt die
-Antwort nicht frei. Die Freigabe sitzt in `/ui/memory`.
+angezeigte Deck-Antwort frei, ohne zweiten Klick. Der Hash ist sha256 der
+gezeigten Bytes (`memory-shown.v1`, Entscheid `approved`, ohne `mark_proven`).
+Ein falscher oder veralteter Hash gibt nichts frei. Die Owner-Zeile bleibt
+`quarantined`. `privacy_hold` bleibt gesetzt.
 
 ## M2, Oberflaeche
 
@@ -526,8 +529,11 @@ Markierung `privacy_hold`. Freigabe und Korrektur laufen ueber `approval.py`
 mit UI-Session und sha256 der gezeigten Bytes. Leeren von `valid_to` oder
 `superseded_by` ist `clear_fact_bounds`, ein Entscheidwechsel bleibt
 `correct_fact`: zwei Klicks, zwei Hashes. Eine abgelehnte Quelle bleibt
-`source_rejected` und schreibt nichts. `persist` gibt die Deck-Antwort nicht
-frei. Der Plan-Code `unknown_source` erscheint als `unknown_account`,
+`source_rejected` und schreibt nichts. `persist` gibt nur die angezeigte
+Deck-Antwort frei, ueber denselben Bytes-Hash. Die Inbox zeigt offene Zeilen
+zuerst (`quarantined` oder `proposed`) und kuerzt danach. Stehen weitere
+Zeilen dahinter, steht «weitere vorhanden». Der Plan-Code `unknown_source`
+erscheint als `unknown_account`,
 `account_inactive` oder `invalid_envelope`. Die Quelle `conversation` im
 Audit liest taskfreie `assistant.*`- und `memory.*`-Zeilen. `all` blendet
 sie weiter aus. Der Verlauf sortiert nach `seq`, nicht nach `occurred_at`.

@@ -156,3 +156,9 @@ Offen: quality auf #103, drei Reviews, Merge-GO. Kein Merge des PR. Risiko: kein
 Merge-Commit von `origin/cursor/80-korrektur-leeren-0407` `f39b0d0` in `cursor/78-deck-gedaechtnis-a1b0`. Kein Rebase, kein Force-Push. `clear_fact_bounds` unveraendert. `source_rejected` bleibt ein UI-Code und schreibt nichts. `persist` gibt die Deck-Antwort nicht frei.
 Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3780 passed, 140 skipped, 1 Starlette-Warnung, 264.06s. gitleaks 8.30.0 auf `origin/cursor/80-korrektur-leeren-0407..HEAD` mit `-m`: 4 Commits, keine Funde.
 Offen: Entwurf, quality nach dem Push, drei Reviews. Kein Merge. Risiko: Freigabe nur ueber `/ui/memory`.
+
+## 2026-11-25 01:14 — Cursor — Issue #78 F5 und Inbox
+
+`persist` gibt nur die angezeigte Deck-Antwort frei, ueber sha256 der gezeigten Bytes. Ein falscher oder veralteter Hash schreibt nichts. Ohne `persist` bleibt der Tausch in Quarantaene. `privacy_hold` bleibt gesetzt. Die Inbox filtert `quarantined` und `proposed`, bevor sie auf 30 kuerzt, und zeigt «weitere vorhanden».
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `pytest` gegen `controldeck_test`: 3784 passed, 140 skipped, 1 Starlette-Warnung, 256.63s. gitleaks 8.30.0 auf `origin/cursor/80-korrektur-leeren-0407..HEAD` mit `-m`: 5 Commits, keine Funde.
+Offen: quality nach dem Push, drei Reviews. Kein Merge. Risiko: die Owner-Zeile bleibt in der Quarantaene.

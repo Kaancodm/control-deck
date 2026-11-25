@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.app import create_app
 from app.api.deps import get_db
+from app.assistant.memory_dialogue import approve_displayed_reply
 from app.assistant.records import AssistantTurn
 from app.memory.approval import (
     correct_fact,
@@ -25,8 +26,9 @@ from app.memory.approval import (
     propose_fact,
     shown_sha256,
 )
-from app.memory.ingest import ingest_turn
+from app.memory.ingest import ingest_turn, record_deck_reply
 from app.memory.models import AssistantMessage, MemoryApproval, MemoryFact
+from app.memory.policy import ConversationError
 from app.ui.auth import CSRF_COOKIE, SESSION_COOKIE
 
 PASSWORD = "synthetic-ui-owner-password"
@@ -331,10 +333,23 @@ def test_clear_of_an_approved_fact_rejects_a_rejected_source(
     assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == before
 
 
-def test_persist_keeps_the_deck_exchange_in_quarantine(
-    ui_client: TestClient, db_session: Session
+def _reply(db_session: Session, *, text: str, data_class: str = "local_only") -> AssistantMessage:
+    outcome = ingest_turn(db_session, _turn(text=text, data_class=data_class))
+    assert outcome.message_id is not None
+    stored = record_deck_reply(db_session, inbound_message_id=outcome.message_id, text=text)
+    assert stored.message_id is not None
+    message = db_session.get(AssistantMessage, stored.message_id)
+    assert message is not None
+    return message
+
+
+def test_persist_approves_only_the_displayed_deck_answer(
+    ui_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """M1b stores the exchange. The persist box writes the legacy row and does not approve."""
+    """F5: persist releases the displayed answer. The owner line and the hold stay."""
+    path = tmp_path / "blocklist.txt"
+    path.write_text("zucchiniplan\n", encoding="utf-8")
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(path))
     login(ui_client)
     page = ui_client.get("/ui/assistant")
     csrf = Inputs(page.text).inputs["csrf"]
@@ -342,8 +357,8 @@ def test_persist_keeps_the_deck_exchange_in_quarantine(
         "/ui/assistant/talk",
         data={
             "csrf": csrf,
-            "message": "Wie geht es dir heute Morgen",
-            "data_class": "local_only",
+            "message": "Wie geht es dir heute Morgen zucchiniplan",
+            "data_class": "cloud_ok",
             "persist": "yes",
         },
         follow_redirects=True,
@@ -351,9 +366,104 @@ def test_persist_keeps_the_deck_exchange_in_quarantine(
     assert saved.status_code == 200
     assert "Gespeichert, vom Owner gewählt" in saved.text
     assert db_session.scalar(select(func.count()).select_from(AssistantTurn)) == 1
+    db_session.expire_all()
+    rows = list(db_session.scalars(select(AssistantMessage)))
+    owner = next(row for row in rows if row.role == "owner")
+    answer = next(row for row in rows if row.role == "assistant")
+    assert owner.state == "quarantined" and owner.privacy_hold == "privacy_block"
+    assert answer.state == "approved" and answer.privacy_hold == "privacy_block"
+
+
+def test_talk_without_persist_stays_in_quarantine(
+    ui_client: TestClient, db_session: Session
+) -> None:
+    login(ui_client)
+    page = ui_client.get("/ui/assistant")
+    csrf = Inputs(page.text).inputs["csrf"]
+    shown = ui_client.post(
+        "/ui/assistant/talk",
+        data={
+            "csrf": csrf,
+            "message": "Wie geht es dir heute Morgen",
+            "data_class": "local_only",
+        },
+        follow_redirects=True,
+    )
+    assert shown.status_code == 200
+    assert db_session.scalar(select(func.count()).select_from(AssistantTurn)) == 0
+    db_session.expire_all()
     rows = list(db_session.scalars(select(AssistantMessage)))
     assert {row.role for row in rows} == {"owner", "assistant"}
     assert {row.state for row in rows} == {"quarantined"}
+
+
+def test_wrong_or_stale_hash_does_not_release_the_displayed_answer(
+    ui_client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    path = tmp_path / "blocklist.txt"
+    path.write_text("zucchiniplan\n", encoding="utf-8")
+    monkeypatch.setenv("DECK_BLOCKLIST_PATH", str(path))
+    login(ui_client)
+    token = ui_client.cookies[SESSION_COOKIE]
+    message = _reply(db_session, text="Deck answer about zucchiniplan.", data_class="cloud_ok")
+    db_session.flush()
+    assert message.privacy_hold == "privacy_block" and message.state == "quarantined"
+    before = db_session.scalar(select(func.count()).select_from(MemoryApproval))
+    stale = shown_sha256(message_shown_bytes(message, decision="approved", mark_proven=True))
+    for digest in ("ab" * 32, stale):
+        with pytest.raises(ConversationError) as refused:
+            approve_displayed_reply(
+                db_session,
+                message.id,
+                session_token=token,
+                shown_sha256_hex=digest,
+            )
+        assert refused.value.code == "shown_bytes_mismatch"
+    db_session.expire_all()
+    stored = db_session.get(AssistantMessage, message.id)
+    assert stored is not None
+    assert stored.state == "quarantined" and stored.privacy_hold == "privacy_block"
+    assert db_session.scalar(select(func.count()).select_from(MemoryApproval)) == before
+
+
+def test_old_quarantine_row_stays_visible_behind_newer_approvals(
+    ui_client: TestClient, db_session: Session
+) -> None:
+    login(ui_client)
+    token = ui_client.cookies[SESSION_COOKIE]
+    old = ingest_turn(db_session, _turn(text="OLDQUARANTINE stays visible."))
+    assert old.message_id is not None
+    for index in range(80):
+        outcome = ingest_turn(
+            db_session, _turn(text=f"Approved newer line {index}.", data_class="local_only")
+        )
+        assert outcome.message_id is not None
+        message = db_session.get(AssistantMessage, outcome.message_id)
+        assert message is not None
+        decide_message(
+            db_session,
+            message.id,
+            decision="approved",
+            session_token=token,
+            shown_sha256_hex=shown_sha256(message_shown_bytes(message, decision="approved")),
+        )
+    db_session.flush()
+    page = ui_client.get("/ui/memory")
+    quarantine = page.text.split('id="quarantaene"', 1)[-1].split('id="fakten"', 1)[0]
+    assert "OLDQUARANTINE stays visible." in quarantine
+    assert "Approved newer line 0." not in quarantine
+
+
+def test_quarantine_cap_reports_more_open_rows(ui_client: TestClient, db_session: Session) -> None:
+    login(ui_client)
+    for index in range(31):
+        ingest_turn(db_session, _turn(text=f"Open line {index}."))
+    db_session.flush()
+    page = ui_client.get("/ui/memory")
+    quarantine = page.text.split('id="quarantaene"', 1)[-1].split('id="fakten"', 1)[0]
+    assert "weitere vorhanden" in quarantine
+    assert "Open line 30." in quarantine
+    assert "Open line 0." not in quarantine
 
 
 def test_conversation_audit_is_separate_from_all(

@@ -103,16 +103,19 @@
 <section id="quarantaene" aria-label="Quarantäne">
   <h2>Quarantäne</h2>
   {% for card in desk.quarantine %}{{ show_card(card) }}{% else %}<p>Keine Zeile in der Quarantäne.</p>{% endfor %}
+  {% if desk.quarantine_more %}<p>weitere vorhanden</p>{% endif %}
 </section>
 
 <section id="fakten" aria-label="Vorgeschlagene Fakten">
   <h2>Vorgeschlagene Fakten</h2>
   {% for card in desk.facts %}{{ show_card(card) }}{% else %}<p>Keine vorgeschlagenen Fakten.</p>{% endfor %}
+  {% if desk.facts_more %}<p>weitere vorhanden</p>{% endif %}
 </section>
 
 <section id="themen" aria-label="Vorgeschlagene Themen">
   <h2>Vorgeschlagene Themen</h2>
   {% for card in desk.topics %}{{ show_card(card) }}{% else %}<p>Keine vorgeschlagenen Themen.</p>{% endfor %}
+  {% if desk.topics_more %}<p>weitere vorhanden</p>{% endif %}
   <article class="panel">
     <h3>Eigenes Thema</h3>
     <form action="/ui/memory/preview" method="post" class="form-stack">
@@ -134,6 +137,7 @@
 <section id="verknuepfungen" aria-label="Vorgeschlagene Verknüpfungen">
   <h2>Vorgeschlagene Verknüpfungen</h2>
   {% for card in desk.links %}{{ show_card(card) }}{% else %}<p>Keine vorgeschlagenen Verknüpfungen.</p>{% endfor %}
+  {% if desk.links_more %}<p>weitere vorhanden</p>{% endif %}
 </section>
 
 <section id="korrektur" aria-label="Korrektur">

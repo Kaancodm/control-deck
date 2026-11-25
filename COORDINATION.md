@@ -31,7 +31,7 @@ Regeln: siehe `AGENTS.md`.
 | M1b Dialog-Thread #77 | Cursor Cloud Agent | `cursor/m1b-dialog-thread-f58e` | #102 | erledigt (gemergt, 52c690c) | 24.11.2026 |
 | Auftragsfreie Redaktion #76 | Cursor Cloud Agent | `cursor/order-free-redaction-60ba` | #104 | Entwurf gegen main, kein Merge | 25.11.2026 |
 | Issue #80 valid_to und superseded_by leeren | Cursor Cloud Agent | `cursor/80-korrektur-leeren-0407` | #103 | Entwurf, Nachzug, Reviews und GO offen, nicht gemergt | 24.11.2026 |
-| Issue #78 Deck-Gedaechtnis | Cursor Cloud Agent | `cursor/78-deck-gedaechtnis-a1b0` | #105 | Entwurf, Basis f39b0d0 nachgezogen, gestapelt auf #103, nicht gemergt | 25.11.2026 |
+| Issue #78 Deck-Gedaechtnis | Cursor Cloud Agent | `cursor/78-deck-gedaechtnis-a1b0` | #105 | Entwurf, F5 und Inbox-Kappung, gestapelt auf #103, nicht gemergt | 25.11.2026 |
 
 ## deck-server
 

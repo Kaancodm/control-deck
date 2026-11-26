@@ -3,8 +3,11 @@
 ## Etappe
 
 Ticket 7 / D: Abschnitt Inbetriebnahme mit T1–T17 als leerer PASS/FAIL-Vorlage.
-Builder: Cursor. Rollen, Modelle und Merge: `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12).
-Der Nachtrag 2026-11-11 (SuperGrok reviewt nur den Code; Gemini Pro nicht im Einsatz) gilt nicht mehr.
+Rollen (E-056, `AGENTS.md`): Gemini Carbon ist Denker/Planer und Entwickler. Codex Sol ist Entwickler.
+Claude Opus ist Assistenz-Entwickler und Reviewer. Cursor und SuperGrok machen kleine Fixes und Reviews.
+Der Code-Pruefer (Grok Bot) prueft; Gemini macht den Gegencheck.
+Merge (E-055): nur Atik, nach dem GO von Kaan fuer diesen PR. Kein Auto-Merge, kein Force-Push.
+Branch-Prefixe: `cursor/`, `codex/`, `gemini/<punkt>-<kurz>`.
 Status: nur geplant.
 Umsetzungsbranch: `stage/07-d-inbetriebnahme-checkliste`; Start erst nach gruenem C.
 
@@ -18,7 +21,7 @@ spaetere Live-/Restore-Abnahme. Kein Feld behauptet einen bereits ausgefuehrten 
 
 - Reihenfolge A -> B -> C -> D; D gruen = Vorlagenpruefung, CI und Review laut `AGENTS.md` ohne offene Befunde.
 - Erst danach Server-Schritte 1–15 durch den Owner, jeden einzeln und erst nach gruenem
-  Vorgaenger; Eingriffe brauchen dessen jeweiliges GO. Der Owner sagt einmal Ja, danach mergt nur Grok Bot.
+  Vorgaenger; Eingriffe brauchen dessen jeweiliges GO. Merge nur durch Atik nach dem GO von Kaan fuer diesen PR (E-055). Kein Auto-Merge, kein Force-Push.
 - Gruene D-Vorlage bedeutet keine gruene Inbetriebnahme. Blocker 2 sperrt den Ausrollpfad
   weiter, bis B2-Timername/Manager bekannt und die Kollision entschieden sind.
 - Blocker 1 = (b) fuer den iPhone-Test, (c) in A; Blocker 3 = Variante A mit HTTPS/fester Origin.

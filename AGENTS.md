@@ -8,7 +8,7 @@ These rules apply to all automated contributors. If anything conflicts, AGENTS.m
 - Lead bots read `AGENTS.md`, `CLAUDE.md`, and `COORDINATION.md` before every run.
 - Every agent and every lead bot updates `Wartet auf dein GO` at the top of `CLAUDE.md` at the end of each job. The owner reads that list in `CLAUDE.md`. If nothing needs a GO, write `Nichts offen.`
 - Each item there is numbered, in German (de-CH, no Eszett), at most five lines, with `em` (the recommendation), `Option 2`, and the biggest difference in one sentence. The owner replies `N. em` or `N. 2`.
-- Lead bots update `LEADERBOARD.md` at each checkpoint. One row each for Grok Bot, Kaan, Engineering Lead, Claude/Fable, Gemini, and Cursor: time in Europe/Zurich, result, status `gruen`, `gelb`, or `rot`, and a link.
+- Lead bots update `LEADERBOARD.md` at each checkpoint. One row each for Grok Bot, Kaan, Engineering Lead, Claude Opus, Gemini Carbon, Codex Sol, Cursor, and SuperGrok: time in Europe/Zurich, result, status `gruen`, `gelb`, or `rot`, and a link.
 - No phase is done without a `WORKLOG.md` entry. The log is append-only. Each entry has the Europe/Zurich time, who, the job or phase, what changed, the check command and result, and what is open or at risk. At most about five lines.
 - Before any job, every AI checks `LEADERBOARD.md`, `WORKLOG.md`, and open PRs, proposes one short numbered block for model, effort, context handling, and a collision (each with `em`, `Option 2`, and the biggest difference), and waits for Grok Bot (Atik). No work starts before that OK.
 
@@ -35,31 +35,37 @@ is working on what. It does not override this file. The checkpoint above still a
 
 ## Roles
 
-- **Claude plans.** The planning model is Fable via `/advisor`.
-- **Cursor builds.**
-- **Claude builds** only a complex job, and only when that job's brief explicitly says so.
-  The build model is Opus 5.5 at medium effort.
-- **Gemini Pro** is Lead Full-Stack Developer and pair-programming partner, steered by Grok Bot.
-  Gemini Pro has no merge rights and is not security head.
-- **Codex** is not used.
-- **Grok Bot** coordinates. Grok Bot is the only merger.
-- **Kaan** is the collector (Sammler). Kaan represents the owner towards all AIs and is steered by Grok Bot (Atik).
-- **Engineering Lead** coordinates the pull-request loop (open PRs, CI, review follow-up). Engineering Lead does not write code and has no merge rights.
-- **Hermes** is the local agent on the deck server. It uses local Ollama only and holds no keys.
+Entscheid E-056 (Auftrag von Kaan via Atik, 25.11.2026). Quelle: dieser Auftrag.
+Methode: festgehaltener Entscheid. Status: proven als Ablauf in dieser Datei.
+Er ersetzt die Rollen aus dem Nachtrag vom 2026-11-12.
+
+- **Gemini Carbon** ist Denker/Planer und Entwickler.
+- **Codex Sol** ist Entwickler. Das ist die Entwicklerrolle, keine neue Produkt-Lane.
+- **Claude Opus** ist Assistenz-Entwickler und Reviewer.
+- **Cursor** und **SuperGrok** machen kleine Fixes und Reviews.
+- **Grok Bot** ist der Code-Pruefer. **Gemini Carbon** macht den Gegencheck.
+- **Kaan** gibt das GO fuer jeden Pull Request (E-055). Nur **Atik** mergt, und nur
+  nach diesem GO. Kein Auto-Merge. Kein Force-Push.
+- Branch-Prefixe: `cursor/`, `codex/` und `gemini/<punkt>-<kurz>`.
+- **Kaan** ist der Sammler. Er vertritt den Owner gegenueber allen AIs und wird von Grok Bot (Atik) gesteuert.
+- **Engineering Lead** koordiniert den Pull-Request-Lauf (offene PRs, CI, Review-Nachzug). Engineering Lead schreibt keinen Code und mergt nicht.
+- **Hermes** ist der lokale Agent auf dem Deck-Server. Er nutzt nur lokales Ollama und haelt keine Keys.
 
 ## Quality
 
 - Run `make lint` and `make test` before marking work complete.
 - Add or update tests when changing validation, schemas, or core behavior.
-- Only **Grok Bot** merges, and only after the owner says yes once. Claude, Fable, Gemini, and Cursor never merge.
+- Nur **Atik** mergt, und nur nachdem **Kaan** das GO fuer diesen Pull Request gegeben hat (E-055). Kein Auto-Merge. Kein Force-Push.
 
 ## Workflow
 
-1. The owner gives the goal in one sentence.
-2. Claude plans with `/advisor` (Fable) and writes a short build ticket with a check command.
-3. Cursor builds in a branch. The check command must pass.
-4. Claude builds that ticket only when the brief explicitly says the job is complex, using Opus 5.5 at medium effort. Gemini Pro may pair-program on the build, steered by Grok Bot, without merge rights and without being security head.
-5. The owner says yes once. Then Grok Bot merges.
+1. Der Owner gibt das Ziel in einem Satz.
+2. Gemini Carbon plant und kann entwickeln. Der Auftrag nennt einen Pruefbefehl. Ein Gemini-Branch nutzt `gemini/<punkt>-<kurz>`.
+3. Codex Sol entwickelt auf einem Branch mit Prefix `codex/`. Der Pruefbefehl muss bestehen.
+4. Claude Opus assistiert beim Bau und reviewt.
+5. Cursor und SuperGrok uebernehmen kleine Fixes und Reviews. Cursor nutzt einen Branch mit Prefix `cursor/`.
+6. Grok Bot, der Code-Pruefer, prueft die Aenderung. Gemini Carbon macht den Gegencheck.
+7. Kaan gibt das GO fuer diesen Pull Request (E-055). Nur Atik mergt. Kein Auto-Merge. Kein Force-Push.
 
 ## Reporting
 
@@ -68,4 +74,5 @@ Every end-of-job report states what was done, what was checked (the command plus
 Open items are numbered. Each item has `em` (the recommendation), `option 2`, and the biggest difference in one sentence. The owner replies `N. em` or `N. 2`.
 
 Follow Architecture Decision Records in `docs/DECISIONS/` when making structural choices.
-The review rotation in ADR 0008, and the role split in its amendment dated 2026-11-11, are superseded by the amendment dated 2026-11-12.
+Entscheid E-056 (25.11.2026) ersetzt die Review-Rotation in ADR 0008 und die
+Rollenteilung in den Nachtraegen vom 2026-11-11 und 2026-11-12. Der Merge folgt E-055.

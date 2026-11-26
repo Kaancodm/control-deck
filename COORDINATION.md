@@ -38,7 +38,7 @@ Regeln: siehe `AGENTS.md`.
 | M1b Dialog-Thread #77 | Cursor Cloud Agent | `cursor/m1b-dialog-thread-f58e` | #102 | erledigt (gemergt, 52c690c, mergedAt 2026-11-24T22:55:31Z, mergedBy Kaancodm) | 25.11.2026 |
 | Auftragsfreie Redaktion #76 | Cursor Cloud Agent | `cursor/order-free-redaction-60ba` | #104 | erledigt (gemergt, e771dc4, mergedAt 2026-11-24T23:13:40Z, mergedBy Kaancodm) | 25.11.2026 |
 | Issue #80 valid_to und superseded_by leeren | Cursor Cloud Agent | `cursor/80-korrektur-leeren-0407` | #103 | erledigt (gemergt, 5d1de27, mergedAt 2026-11-25T00:24:01Z, mergedBy Kaancodm) | 25.11.2026 |
-| Gedaechtnis-Inbox #78 | Cursor Cloud Agent | `cursor/78-deck-gedaechtnis-a1b0` | #105 | Entwurf gegen main, Re-Review 01:51 ok, Nachbesserung `f7548d4`, Kurz-Recheck offen, nicht gemergt | 25.11.2026 |
+| Gedaechtnis-Inbox #78 | Cursor Cloud Agent | `cursor/78-deck-gedaechtnis-a1b0` | #105 | erledigt (gemergt, 71731c8, 25.11.2026 02:54), kein Entwurf, wartet nicht | 25.11.2026 |
 
 ## deck-server
 

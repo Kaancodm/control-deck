@@ -3,7 +3,7 @@
 ## Aktueller Stand (25.11.2026)
 
 Quelle: `git log` und `gh pr view` am 24.11. und 25.11.2026, Zeiten Europe/Zurich.
-`main` steht auf `d900b91` (#101).
+`main` steht auf `71731c8` (#105, gemergt 25.11.2026 02:54).
 
 - Etappe 17 ist seit 03.11.2026 18:25 CET auf `main` (PR #32, `d118e0d`).
 - Der Ollama-Live-Stack ist seit 05.11.2026 auf `main`, darunter #39
@@ -29,11 +29,8 @@ Quelle: `git log` und `gh pr view` am 24.11. und 25.11.2026, Zeiten Europe/Zuric
   25.11.2026 00:13 CET auf `main` (`e771dc4`). PR #103 (Issue #80) ist seit
   25.11.2026 01:24 CET auf `main` (`5d1de27`).
 - #100 ist geschlossen, nicht gemergt (closedAt 2026-11-24T22:55:40Z, Kaan em).
-  #105 (Issue #78) ist Entwurf gegen main. Re-Review 01:51 ok (Auftrag Atik
-  25.11.2026 02:16). Nachbesserung `f7548d4`: eine Antwort mit `privacy_hold`
-  bleibt in der Quarantaene, die Doku nennt den Hash als formale Vorab-Freigabe,
-  die Testluecke am falschen Hash ist geschlossen, eigener CHANGELOG-Eintrag.
-  Danach ist ein Kurz-Recheck offen. #101 ist mit `d900b91` auf main.
+  #105 (Issue #78) ist seit 25.11.2026 02:54 auf `main` (`71731c8`). Kein Entwurf,
+  wartet nicht. #101 ist mit `d900b91` auf main.
 - Gesamt-Abnahme, Inbetriebnahme und Tag `v1.0` bleiben offen. Zu Etappe 18 liegt
   der Lasttest #48 auf `main`.
 

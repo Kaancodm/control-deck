@@ -7,8 +7,10 @@ Checkpoint der Lead-Bots. Regeln: siehe `AGENTS.md`. Zeiten: Europe/Zurich.
 | Grok Bot | — | kein Checkpoint in diesem Lauf | gelb | — |
 | Kaan | — | kein eigener Checkpoint in diesem Lauf | gelb | — |
 | Engineering Lead | — | Rolle in `AGENTS.md` (`6a6be1b`); kein Checkpoint in diesem Lauf | gelb | — |
-| Claude/Fable | — | kein Checkpoint in diesem Lauf | gelb | — |
-| Gemini | — | kein Checkpoint in diesem Lauf | gelb | — |
-| Cursor | 2026-11-25 02:35 | Issue #78: main `d900b91` eingeholt. quality, CodeFactor und GitGuardian gruen | gelb | https://github.com/Kaancodm/control-deck/pull/105 |
+| Claude Opus | — | kein Checkpoint in diesem Lauf | gelb | — |
+| Gemini Carbon | — | kein Checkpoint in diesem Lauf | gelb | — |
+| Codex Sol | — | kein Checkpoint in diesem Lauf | gelb | — |
+| Cursor | 2026-11-25 11:44 | Rollen E-056 in den Steuerdateien. #105 ist auf main `71731c8` (25.11.2026 02:54), kein Entwurf | gelb | — |
+| SuperGrok | — | kein Checkpoint in diesem Lauf | gelb | — |
 
-Stand 25.11.2026: #102 (`52c690c`), #104 (`e771dc4`), #103 (`5d1de27`) und #101 (`d900b91`) sind auf main. #100 ist geschlossen, nicht gemergt (Kaan em). #105 (Issue #78) ist offener Entwurf: Re-Review 01:51 ok, Nachbesserung `f7548d4`, Kurz-Recheck offen. Die GO-Liste lautet «Nichts offen». Der Cursor-Checkpoint 02:23 (Merge von main) ist durch die Zeile 02:35 abgeloest.
+Stand 25.11.2026: #102 (`52c690c`), #104 (`e771dc4`), #103 (`5d1de27`), #101 (`d900b91`) und #105 (`71731c8`, 02:54) sind auf main. #105 ist kein Entwurf und wartet nicht. #100 ist geschlossen, nicht gemergt (Kaan em). Die GO-Liste lautet «Nichts offen».

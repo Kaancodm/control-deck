@@ -3,29 +3,27 @@
 ## Etappe
 
 Ticket 8: Live-Profil fuer die Lane `claude` (Nachfolge von Etappe 12, die nur die Simulation
-gebaut hat). Vier Teile A bis D. Jeder Teil ist eine eigene Builder-Session, ein Branch
-`stage/08x-<slug>` und ein Draft-PR gegen `main`. Teil B beginnt erst, wenn Teil A gemergt ist,
-und so weiter. Planer: Claude. Builder: Cursor. Status: Teil A ist gemergt (PR #88, siehe
+gebaut hat). Vier Teile A bis D. Jeder Teil ist eine eigene Session, ein Branch
+und ein PR gegen `main`. Teil B beginnt erst, wenn Teil A gemergt ist,
+und so weiter. Status: Teil A ist gemergt (PR #88, siehe
 `COORDINATION.md`); die Owner-Entscheide E1 bis E6 liegen vor.
 
-Nachtrag 2026-11-12: Die Modell- und Review-Saetze vom 2026-11-11 (Cursor mit Opus; SuperGrok
-reviewt nur den Code; Gemini Pro nicht im Einsatz) gelten nicht mehr. Aktuell steht der Ablauf
-in `AGENTS.md` (ADR 0008, Nachtrag 2026-11-12). If anything conflicts, AGENTS.md wins. Claude
-plant mit `/advisor` (Fable). Cursor baut. Claude baut nur komplexe Auftraege, wenn der Auftrag
-das ausdruecklich sagt (Opus 5.5, Effort medium). Gemini Pro ist Lead Full-Stack Developer und
-Pair-Programming-Partner, gesteuert von Grok Bot, ohne Merge-Recht und nicht Security-Head.
-Nur Grok Bot mergt, und nur nach dem einmaligen Ja des Owners.
+Nachtrag 2026-11-25, Entscheid E-056: Die Saetze vom 2026-11-11 und der Ablauf vom
+2026-11-12 gelten nicht mehr. Massgebend ist `AGENTS.md`. Gemini Carbon ist Denker/Planer
+und Entwickler. Codex Sol ist Entwickler. Claude Opus ist Assistenz-Entwickler und Reviewer.
+Cursor und SuperGrok machen kleine Fixes und Reviews. Der Code-Pruefer (Grok Bot) prueft;
+Gemini macht den Gegencheck. Merge nur durch Atik nach dem GO von Kaan fuer diesen PR (E-055).
+Kein Auto-Merge, kein Force-Push. Branch-Prefixe: `cursor/`, `codex/`, `gemini/<punkt>-<kurz>`.
 
-Abweichung von der Vorlage, bewusst: ein Dokument fuer vier PRs statt vier Dateien. Der Planer
-bleibt Claude. Der Builder bleibt Cursor, ausser der Auftrag sagt ausdruecklich, dass Claude
-den komplexen Bau uebernimmt.
+Abweichung von der Vorlage, bewusst: ein Dokument fuer vier PRs statt vier Dateien.
+Wer plant und wer entwickelt, steht in `AGENTS.md` (E-056).
 
 Herkunft der Vorgaben:
 
 | Aussage | Quelle, Datum, Methode | Status |
 |---------|------------------------|--------|
 | GO fuer den Claude-Live-Schalter | Owner, 2026-11-11, Owner-Aussage in der Planungssitzung | unproven by repo |
-| Codex ist nicht mehr im Team | Owner, 2026-11-11, Owner-Aussage | unproven by repo |
+| Codex ist nicht mehr im Team | Owner, 2026-11-11, Owner-Aussage | historisch; E-056 (25.11.2026) setzt Codex Sol als Entwickler |
 | Benutzerkonten am Betriebsort bleiben unveraendert | Owner, 2026-11-11, Owner-Aussage | unproven by repo |
 | E1 bis E6: «Ja zu allen» | Owner, 2026-11-11, Owner-Aussage in der Planungssitzung | unproven by repo |
 | Codestellen unter «Ausgangslage» | Repo, 2026-11-11, Dateien gelesen, zweifach gegengeprueft | proven |
@@ -397,6 +395,7 @@ keine dieser Fragen neu.
 | E6 | `REVIEW.md` bekommt die enge Ausnahme aus Schritt 2? | Ja. Ohne sie kann kein Review von Teil B ohne Befund enden. |
 
 Nachtrag 2026-11-11, Historie: ADR 0008 bekam einen Nachtrag; Review war dort SuperGrok
-(nur Code). Nachtrag 2026-11-12: dieser Review-Satz und der Satz, Gemini Pro sei nicht im
-Einsatz, sind ersetzt. Massgebend ist `AGENTS.md`. Nur Grok Bot mergt. Dieser Bauauftrag
+(nur Code). Nachtrag 2026-11-12 ersetzte diesen Satz. Entscheid E-056 vom 25.11.2026
+ersetzt die Rollen erneut. Massgebend ist `AGENTS.md`. Merge nur durch Atik nach dem GO
+von Kaan fuer diesen PR (E-055). Kein Auto-Merge, kein Force-Push. Dieser Bauauftrag
 aendert `AGENTS.md` und ADR 0008 weiterhin nicht.

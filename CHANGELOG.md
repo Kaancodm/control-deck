@@ -4,10 +4,11 @@
 
 Kein Versionstag im Repository (kein `v1.0`). Die folgenden Eintraege liegen auf `main`,
 soweit ein PR genannt und gemergt ist. Gesamt-Abnahme, Inbetriebnahme und Owner-GO fuer
-Runtime-Rollouts bleiben offen. Der Eintrag zu Issue #78 beschreibt den offenen Entwurf #105.
+Runtime-Rollouts bleiben offen. PR #105 (Issue #78) ist seit 25.11.2026 02:54 auf `main` (`71731c8`). Kein Entwurf.
 
-### Gedaechtnis-Inbox (Issue #78, Entwurf #105)
+### Gedaechtnis-Inbox (Issue #78, #105)
 
+- Merge 25.11.2026 02:54, `71731c8`. Kein Entwurf, wartet nicht.
 - `/ui/memory` zeigt die Quarantaene mit Volltext, Herkunft und `privacy_hold`,
   plus Freigabe, Korrektur und den Leser fuer taskfreie `assistant.*`- und
   `memory.*`-Zeilen. Offene Zeilen werden zuerst gefiltert und dann gekuerzt;

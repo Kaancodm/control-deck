@@ -220,3 +220,9 @@ Offen: quality, CodeFactor und GitGuardian nach dem Push. Kurz-Recheck. Kein Mer
 Geprueft auf `78dab07`. quality pass, 7m28s, Lauf 45525590936. CodeFactor pass. GitGuardian pass. `mergeable` MERGEABLE, Entwurf bleibt.
 Check: `gh pr checks 105`.
 Offen: Kurz-Recheck. Kein Merge. Risiko: keines aus diesem Lauf.
+
+## 2026-11-25 11:44 — Cursor — Rollen E-056
+
+`AGENTS.md`, Koepfe von `tasks/*.md` und `tasks/TEMPLATE.md` auf E-056. Merge nur durch Atik nach dem GO von Kaan (E-055). #105 als gemergt 25.11.2026 02:54 (`71731c8`) in `docs/STAND.md`, `COORDINATION.md`, der GO-Liste und `CHANGELOG.md`.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `make test`: 2822 passed, 1104 skipped, 1 Starlette-Warnung, 81.73s. Keine Testdatenbank gesetzt.
+Offen: Merge dieses PR nur durch Atik nach dem GO von Kaan. Kein Auto-Merge, kein Force-Push. Risiko: aeltere Rollensaetze ausserhalb dieser Dateien bleiben stehen; `AGENTS.md` gilt.

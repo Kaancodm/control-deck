@@ -232,3 +232,9 @@ Offen: Merge dieses PR nur durch Atik nach dem GO von Kaan. Kein Auto-Merge, kei
 Branch `cursor/e056-rollen-rest` ab main `15f10a2`. In tasks 04 bis 08 heissen die Umsetzungsbranches `codex/` statt `stage/`. HANDOFF, REVIEW, Prompts, ADR 0008, ARCHITECTURE und ETAPPEN/README folgen E-056.
 Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `make test`: 2822 passed, 1104 skipped, 1 Starlette-Warnung, 82.10s. Keine Testdatenbank gesetzt.
 Offen: Merge nur durch Atik nach dem GO von Kaan. Kein Auto-Merge, kein Force-Push. Kein CHANGELOG-Eintrag.
+
+## 2026-11-26 03:19 — Cursor — Nachzug PR #108
+
+Teil A in `tasks/08` nennt wieder den historischen Branch `stage/08a-claude-live-decision`. UI-Plan auf E-055. Kopf von ADR 0008 zeigt auf den Nachtrag E-056.
+Check: `make lint` Exit 0 (ruff, 490 formatiert, mypy 172, check_rules). `make test`: 2822 passed, 1104 skipped, 1 Starlette-Warnung, 82.43s.
+Offen: Merge nur durch Atik nach dem GO von Kaan. Kein Auto-Merge, kein Force-Push.

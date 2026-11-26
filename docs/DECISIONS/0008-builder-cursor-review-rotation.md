@@ -1,6 +1,6 @@
 # ADR 0008: Builder Cursor, Review durch anderen Anbieter
 
-Aktueller Ablauf: Nachtrag vom 2026-11-12 am Ende dieser Datei. If anything conflicts, AGENTS.md wins. Der Text bis zu diesem Nachtrag ist Historie.
+Aktueller Ablauf: Nachtrag E-056 vom 2026-11-25 am Ende dieser Datei. If anything conflicts, AGENTS.md wins. Der Text bis zu diesem Nachtrag ist Historie.
 
 ## Kontext
 
@@ -43,11 +43,14 @@ Quelle: Owner-Vorgabe vom 2026-11-12. Methode: Auftrag zu dieser Doku-Aenderung.
 Status: `proven` als festgehaltener Ablauf in diesem Nachtrag. Der Entscheid oben und der
 Nachtrag vom 2026-11-11 bleiben als Historie stehen. Dieser Nachtrag ersetzt davon die
 Saetze «Codex und Gemini Pro sind nicht mehr im Einsatz», «SuperGrok reviewt nur den Code»
-und «Andere Agenten und Bots, einschliesslich Fable, mergen nicht», soweit sie vom folgenden
-Ablauf abweichen. If anything conflicts, AGENTS.md wins.
+und «Andere Agenten und Bots, einschliesslich Fable, mergen nicht». Der Ablauf dieses
+Nachtrags ist durch den Nachtrag E-056 ersetzt. If anything conflicts, AGENTS.md wins.
 
-Die Rollensaetze dieses Nachtrags gelten seit Entscheid E-056 (25.11.2026) nicht mehr.
-Wortlaut wie `AGENTS.md`:
+## Nachtrag (2026-11-25, E-056)
+
+Quelle: Auftrag von Kaan via Atik, 25.11.2026. Methode: festgehaltener Entscheid.
+Status: proven als Ablauf in `AGENTS.md`. Dieser Nachtrag ersetzt die Rollensaetze
+vom 2026-11-12. Wortlaut wie `AGENTS.md`:
 
 - Gemini Carbon ist Denker/Planer und Entwickler.
 - Codex Sol ist Entwickler. Das ist die Entwicklerrolle, keine neue Produkt-Lane.

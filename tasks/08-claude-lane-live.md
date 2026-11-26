@@ -98,7 +98,7 @@ Zwei Fallen:
 
 ## Schritte (atomar, je ein Commit)
 
-### Teil A: Entscheid und Konfigurationspruefung (`codex/08a-claude-live-decision`)
+### Teil A: Entscheid und Konfigurationspruefung (`stage/08a-claude-live-decision`)
 
 Kein Transport. Fuer laufende Runner aendert sich nichts.
 

@@ -29,10 +29,11 @@ Nachtrag 2026-11-12: Rollen, Modelle, Merge und Gates stehen in `AGENTS.md`. If 
 - Owner-Vorgaben vom 2026-11-11, nur noch Sitzungsprotokoll (Owner-Aussage, im Repo nicht
   belegt; seit 2026-11-12 durch `AGENTS.md` ersetzt): damals Planer Claude, Builder Cursor
   mit dem Modell Opus, fuer kleine Auftraege Sonnet, fuer komplexe bei Bedarf Fable, Review
-  Grok, Codex und Gemini Pro nicht im Team. Aktuell: Claude plant mit `/advisor` (Fable),
-  Cursor baut, Claude baut nur komplexe Auftraege wenn der Auftrag das ausdruecklich sagt
-  (Opus 5.5, Effort medium), Gemini Pro ist Lead Full-Stack Developer und
-  Pair-Programming-Partner ohne Merge-Recht und nicht Security-Head. Ein Betriebs-Bot
+  Grok, Codex und Gemini Pro nicht im Team. Aktuell (E-056, `AGENTS.md`): Gemini Carbon ist
+  Denker/Planer und Entwickler. Codex Sol ist Entwickler. Claude Opus ist Assistenz-Entwickler
+  und Reviewer. Cursor und SuperGrok machen kleine Fixes und Reviews. Grok Bot ist der
+  Code-Pruefer. Gemini Carbon macht den Gegencheck. Nur Atik mergt, und nur nach dem GO von
+  Kaan fuer diesen Pull Request (E-055). Kein Auto-Merge. Kein Force-Push. Ein Betriebs-Bot
   verwaltet Router, Chat-Oberflaeche und lokale Modelle am Betriebsort. Die Benutzerkonten
   dort bleiben unveraendert. Altprojekte werden nicht eingespeist.
 
@@ -42,7 +43,8 @@ Nachtrag 2026-11-12: Rollen, Modelle, Merge und Gates stehen in `AGENTS.md`. If 
   belegt). Damit laeuft der Claude-Runner unter dem Dienstkonto mit eigener Anmeldung (E4).
 - Das Merge-GO fuer PR #84 lag vor (Owner-Aussage vom 2026-11-11, im Repo nicht belegt).
   Der Satz aus dieser Sitzung, der Owner merge selbst und Agenten mergten nicht, gilt nicht
-  mehr. Aktuell mergt nur Grok Bot, und nur nach dem Ja des Owners (`AGENTS.md`). PR #84 ist
+  mehr. Nur Atik mergt, und nur nach dem GO von Kaan fuer diesen Pull Request (E-055,
+  `AGENTS.md`). Kein Auto-Merge. Kein Force-Push. PR #84 ist
   gemergt (siehe Kopf).
 - Hermes und n8n: Der Installationszustand am Betriebsort ist unbekannt. Der Owner fuehrt
   zuerst einen lesenden Statusbefehl aus; erst danach folgen Einschaltbefehle.
@@ -55,8 +57,8 @@ Nachtrag 2026-11-12: Rollen, Modelle, Merge und Gates stehen in `AGENTS.md`. If 
   `tasks/04-a-kb-runtime-migration.md` (mit #59 gemergt), `CLAUDE.md` nennt fuer die CI
   `postgres:17`, der Workflow nutzt ein pgvector-Image.
 - ADR 0008 hat die Review-Rotation (Codex und Claude) seit dem Nachtrag 2026-11-11 als
-  Historie. Der Nachtrag 2026-11-12 ersetzt zusaetzlich die Rolle «SuperGrok reviewt nur den
-  Code» und den Satz, Gemini Pro sei nicht im Einsatz. Massgebend ist `AGENTS.md`.
+  Historie. Der Nachtrag 2026-11-12 und Entscheid E-056 (25.11.2026) ersetzen die aelteren
+  Rollensaetze. Massgebend ist `AGENTS.md`.
 - Bewusst nicht gemacht: kein Server-Zugriff, kein Docker, keine echte CLI, kein Merge.
 - Diese Datei liegt mit Zustimmung des Owners im Branch von PR #84.
 

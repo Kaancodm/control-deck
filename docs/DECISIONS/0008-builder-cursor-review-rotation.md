@@ -1,6 +1,6 @@
 # ADR 0008: Builder Cursor, Review durch anderen Anbieter
 
-Aktueller Ablauf: Nachtrag vom 2026-11-12 am Ende dieser Datei. If anything conflicts, AGENTS.md wins. Der Text bis zu diesem Nachtrag ist Historie.
+Aktueller Ablauf: Nachtrag E-056 vom 2026-11-25 am Ende dieser Datei. If anything conflicts, AGENTS.md wins. Der Text bis zu diesem Nachtrag ist Historie.
 
 ## Kontext
 
@@ -43,20 +43,24 @@ Quelle: Owner-Vorgabe vom 2026-11-12. Methode: Auftrag zu dieser Doku-Aenderung.
 Status: `proven` als festgehaltener Ablauf in diesem Nachtrag. Der Entscheid oben und der
 Nachtrag vom 2026-11-11 bleiben als Historie stehen. Dieser Nachtrag ersetzt davon die
 Saetze «Codex und Gemini Pro sind nicht mehr im Einsatz», «SuperGrok reviewt nur den Code»
-und «Andere Agenten und Bots, einschliesslich Fable, mergen nicht», soweit sie vom folgenden
-Ablauf abweichen. If anything conflicts, AGENTS.md wins.
+und «Andere Agenten und Bots, einschliesslich Fable, mergen nicht». Der Ablauf dieses
+Nachtrags ist durch den Nachtrag E-056 ersetzt. If anything conflicts, AGENTS.md wins.
 
-Codex ist nicht im Einsatz. Gemini Pro ist im Einsatz.
+## Nachtrag (2026-11-25, E-056)
 
-1. Der Owner gibt das Ziel in einem Satz.
-2. Claude plant mit `/advisor` (Fable) und schreibt einen kurzen Bauauftrag mit einem Pruefbefehl.
-3. Cursor baut in einem Branch. Der Pruefbefehl muss bestehen.
-4. Claude baut nur einen komplexen Auftrag, und nur wenn der Auftrag das ausdruecklich sagt.
-   Dafuer gilt Opus 5.5 mit Effort medium. Gemini Pro ist Lead Full-Stack Developer und
-   Pair-Programming-Partner, gesteuert von Grok Bot, ohne Merge-Recht und nicht Security-Head.
-5. Der Owner sagt einmal Ja. Danach mergt Grok Bot.
+Quelle: Auftrag von Kaan via Atik, 25.11.2026. Methode: festgehaltener Entscheid.
+Status: proven als Ablauf in `AGENTS.md`. Dieser Nachtrag ersetzt die Rollensaetze
+vom 2026-11-12. Wortlaut wie `AGENTS.md`:
 
-Nur Grok Bot mergt. Claude, Fable, Gemini und Cursor mergen nicht. Kein Force-Push.
+- Gemini Carbon ist Denker/Planer und Entwickler.
+- Codex Sol ist Entwickler. Das ist die Entwicklerrolle, keine neue Produkt-Lane.
+- Claude Opus ist Assistenz-Entwickler und Reviewer.
+- Cursor und SuperGrok machen kleine Fixes und Reviews.
+- Grok Bot ist der Code-Pruefer. Gemini Carbon macht den Gegencheck.
+- Kaan gibt das GO fuer jeden Pull Request (E-055). Nur Atik mergt, und nur nach diesem GO.
+  Kein Auto-Merge. Kein Force-Push.
+- Branch-Prefixe: `cursor/`, `codex/` und `gemini/<punkt>-<kurz>`.
+
 Das Repository bleibt oeffentlich. Deploy, Neustart, Migration, Server-Installation und
 Loeschung brauchen ein ausdrueckliches GO des Owners fuer genau diese Aktion.
 

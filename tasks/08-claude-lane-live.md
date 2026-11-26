@@ -129,7 +129,7 @@ Kein Transport. Fuer laufende Runner aendert sich nichts.
 
 `deploy/runner.env.example` aendert sich in Teil A **nicht** (siehe Schritt 14).
 
-### Teil B: Reinraum-Starter fuer echte Container (`stage/08b-cleanroom-live`)
+### Teil B: Reinraum-Starter fuer echte Container (`codex/08b-cleanroom-live`)
 
 5. `app/workers/sandbox.py`, `tests/unit/test_cleanroom.py` — `cleanroom_command` bekommt
    einen geschlossenen Netzmodus `none` (Standard) oder `provider`.
@@ -188,7 +188,7 @@ Kein Transport. Fuer laufende Runner aendert sich nichts.
    Anbieter erreichen» (`:312-313`) berichtigen: `none` bleibt Standard, `provider` gibt es
    nur fuer den Live-Starter der Lane `claude`.
 
-### Teil C: Live-Executor und Verdrahtung (`stage/08c-claude-live-executor`)
+### Teil C: Live-Executor und Verdrahtung (`codex/08c-claude-live-executor`)
 
 9. `app/workers/lanes/claude.py`, `tests/unit/test_claude_executor.py` — Profil `live`, nur
    mit den geprueften Live-Einstellungen, nie zusammen mit einer Simulation. `availability`
@@ -256,7 +256,7 @@ Kein Transport. Fuer laufende Runner aendert sich nichts.
     ohne die Owner-Nachweise aus Teil D nicht eingeschaltet wird. Die Tabelle der Exit-Codes
     bekommt die neuen Codes aus Schritt 3.
 
-### Teil D: Canary, Doku und Owner-Nachweise (`stage/08d-claude-live-canary`)
+### Teil D: Canary, Doku und Owner-Nachweise (`codex/08d-claude-live-canary`)
 
 16. `scripts/live_canary.py`, `tests/unit/test_live_canary.py`,
     `tests/integration/test_live_canary.py` — Option `--worker` (`ollama` als Standard,

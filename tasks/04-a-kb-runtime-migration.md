@@ -8,7 +8,7 @@ Claude Opus ist Assistenz-Entwickler und Reviewer. Cursor und SuperGrok machen k
 Der Code-Pruefer (Grok Bot) prueft; Gemini macht den Gegencheck.
 Merge (E-055): nur Atik, nach dem GO von Kaan fuer diesen PR. Kein Auto-Merge, kein Force-Push.
 Branch-Prefixe: `cursor/`, `codex/`, `gemini/<punkt>-<kurz>`.
-Status: nur geplant. Umsetzungsbranch: `stage/04-a-kb-runtime-migration`.
+Status: nur geplant. Umsetzungsbranch: `codex/04-a-kb-runtime-migration`.
 Die Nummer ist eine Ticketnummer; sie ersetzt nicht die historische Etappe 4.
 
 ## Ziel

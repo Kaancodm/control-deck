@@ -9,7 +9,7 @@ Der Code-Pruefer (Grok Bot) prueft; Gemini macht den Gegencheck.
 Merge (E-055): nur Atik, nach dem GO von Kaan fuer diesen PR. Kein Auto-Merge, kein Force-Push.
 Branch-Prefixe: `cursor/`, `codex/`, `gemini/<punkt>-<kurz>`.
 Status: nur geplant.
-Umsetzungsbranch: `stage/06-c-betriebsdoku`; Start erst nach gruenem B, damit A und B belegbar sind.
+Umsetzungsbranch: `codex/06-c-betriebsdoku`; Start erst nach gruenem B, damit A und B belegbar sind.
 
 ## Ziel
 

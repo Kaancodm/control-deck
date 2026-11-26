@@ -1,4 +1,4 @@
 # Gemini
 
-Role: Lead Full-Stack Developer and pair-programming partner, steered by Grok Bot. No merge rights. Not security head.
+Role: Gemini Carbon ist Denker/Planer und Entwickler.
 Rules: see AGENTS.md.

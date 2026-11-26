@@ -10,7 +10,7 @@ Checkpoint der Lead-Bots. Regeln: siehe `AGENTS.md`. Zeiten: Europe/Zurich.
 | Claude Opus | — | kein Checkpoint in diesem Lauf | gelb | — |
 | Gemini Carbon | — | kein Checkpoint in diesem Lauf | gelb | — |
 | Codex Sol | — | kein Checkpoint in diesem Lauf | gelb | — |
-| Cursor | 2026-11-25 11:44 | Rollen E-056 in den Steuerdateien. #105 ist auf main `71731c8` (25.11.2026 02:54), kein Entwurf | gelb | — |
+| Cursor | 2026-11-26 03:05 | Restliche Rollensaetze auf E-056. Basis main `15f10a2` (#107) | gelb | — |
 | SuperGrok | — | kein Checkpoint in diesem Lauf | gelb | — |
 
-Stand 25.11.2026: #102 (`52c690c`), #104 (`e771dc4`), #103 (`5d1de27`), #101 (`d900b91`) und #105 (`71731c8`, 02:54) sind auf main. #105 ist kein Entwurf und wartet nicht. #100 ist geschlossen, nicht gemergt (Kaan em). Die GO-Liste lautet «Nichts offen».
+Stand 26.11.2026: #107 (`15f10a2`) ist auf main. #102 (`52c690c`), #104 (`e771dc4`), #103 (`5d1de27`), #101 (`d900b91`) und #105 (`71731c8`, 02:54) sind auf main. #100 ist geschlossen, nicht gemergt (Kaan em). Die GO-Liste lautet «Nichts offen».
